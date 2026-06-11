@@ -5,7 +5,7 @@ use std::{
 
 use super::{
     Provider, ProviderContext, ProviderError, ProviderExt, ProviderSender, Subscription,
-    SubscriptionGroup, run_provider,
+    SubscriptionGroup, provider_for, run_provider,
 };
 
 struct StaticProvider(&'static str);
@@ -94,6 +94,24 @@ fn provider_runner_forwards_values() {
 
     let result = futures::executor::block_on(run_provider(
         StaticProvider("ready"),
+        ProviderContext::default(),
+        move |value| {
+            captured.lock().expect("values lock").push(value);
+        },
+    ));
+
+    assert!(result.is_ok());
+    assert_eq!(*values.lock().expect("values lock"), ["ready".to_owned()]);
+}
+
+#[test]
+fn provider_for_preserves_matching_provider() {
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let captured = values.clone();
+    let provider = provider_for::<String, _>(StaticProvider("ready"));
+
+    let result = futures::executor::block_on(run_provider(
+        provider,
         ProviderContext::default(),
         move |value| {
             captured.lock().expect("values lock").push(value);

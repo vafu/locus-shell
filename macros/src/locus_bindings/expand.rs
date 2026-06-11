@@ -58,6 +58,7 @@ pub(super) fn expand_locus_module(
         let field_name = binding.field.to_string();
         let variant = &binding.variant;
         let source = &binding.source;
+        let ty = &binding.ty;
         let input = match &mode {
             ModuleMode::DirectInput => quote! {
                 Msg::#variant(value)
@@ -89,7 +90,8 @@ pub(super) fn expand_locus_module(
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
                 ::relm4::spawn(async move {
-                    let result = ::providers::run_provider(#source, context, move |value| {
+                    let source = ::providers::provider_for::<#ty, _>(#source);
+                    let result = ::providers::run_provider(source, context, move |value| {
                         update_sender.input(#input);
                     })
                     .await;
@@ -253,6 +255,7 @@ pub(super) fn expand_model_impl(
         let field_name = binding.field.to_string();
         let variant = &binding.variant;
         let source = &binding.source;
+        let ty = &binding.ty;
 
         quote! {
             {
@@ -262,7 +265,8 @@ pub(super) fn expand_model_impl(
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
                 ::relm4::spawn(async move {
-                    let result = ::providers::run_provider(#source, context, move |value| {
+                    let source = ::providers::provider_for::<#ty, _>(#source);
+                    let result = ::providers::run_provider(source, context, move |value| {
                         update_sender.input(#module_ident::Msg::#variant(value));
                     })
                     .await;

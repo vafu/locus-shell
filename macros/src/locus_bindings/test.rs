@@ -73,6 +73,7 @@ fn expands_component_impl() {
     assert!(source.contains("model . locus . set_subscriptions (locus :: start"));
     assert!(source.contains("fn update"));
     assert!(source.contains("providers :: run_provider"));
+    assert!(source.contains("providers :: provider_for :: < String"));
     assert!(source.contains("subscriptions : :: providers :: SubscriptionGroup"));
     assert!(source.contains("subscriptions . push (subscription)"));
 }
@@ -88,6 +89,7 @@ fn expands_dbus_property_provider_source() {
     let source = expanded.to_string();
 
     assert!(source.contains("providers :: run_provider"));
+    assert!(source.contains("providers :: provider_for :: < f64"));
     assert!(source.contains("BATTERY . bind"));
 }
 
@@ -179,6 +181,8 @@ fn expands_typed_model() {
     assert!(source.contains("changed : locus :: Changed"));
     assert!(source.contains("subscriptions : :: providers :: SubscriptionGroup"));
     assert!(source.contains("subscriptions . push (subscription)"));
+    assert!(source.contains("providers :: provider_for :: < String"));
+    assert!(source.contains("providers :: provider_for :: < f64"));
     assert!(source.contains("providers :: run_provider"));
 }
 

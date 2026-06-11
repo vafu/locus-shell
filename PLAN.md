@@ -132,4 +132,4 @@ Framework crates own:
 
 ## Next Concrete Step
 
-Improve `#[locus_macros::model]` so field source types are validated against provider output types with clearer compile errors. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.
+Add richer provider composition for derived shell state, starting with a small explicit API for combining multiple providers into summarized values. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.

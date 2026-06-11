@@ -22,6 +22,18 @@ where
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
+/// Returns `provider` only if it provides values of type `T`.
+///
+/// This is mainly useful for generated code that wants a focused type-checking
+/// point before handing the provider to a runner.
+pub fn provider_for<T, P>(provider: P) -> P
+where
+    T: Send + 'static,
+    P: Provider<T>,
+{
+    provider
+}
+
 /// Runs a provider and forwards each produced value to `on_value`.
 pub async fn run_provider<T, P, OnValue>(
     provider: P,

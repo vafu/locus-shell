@@ -16,6 +16,10 @@ Split direct Locus graph support into `locus-graph`, which owns generated graph 
 
 Added `scripts/locus-graph-schema` so generated graph contracts can be regenerated or checked against the adjacent `~/proj/locus` checkout. This keeps generated code vendored for normal builds while making drift explicit.
 
+## Provider Output Validation
+
+Added `providers::provider_for<T, _>(provider)` and made macro-generated watchers call it with the declared field type before running a provider. This gives generated code a focused compile-time check that a source expression really provides the model field type.
+
 ## Macro Provider Dispatch
 
 Removed macro-side source classification. `#[locus(source = ...)]` now treats the source as a generic provider expression. This makes custom providers possible without teaching the macro about every backend.
