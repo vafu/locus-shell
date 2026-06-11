@@ -22,7 +22,7 @@ esac
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 locus_repo=${LOCUS_REPO:-"$repo_root/../locus"}
 schema=${LOCUS_SCHEMA:-"$locus_repo/schema.yaml"}
-generated="$repo_root/locus-graph/src/generated.rs"
+generated="$repo_root/provider/locus/src/generated.rs"
 
 if [ -n "${LOCUS_CODEGEN:-}" ]; then
     codegen="$LOCUS_CODEGEN"

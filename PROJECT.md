@@ -24,11 +24,12 @@ locus/
 ├── Cargo.toml
 ├── shell-core/
 ├── dev-widgets/
-├── providers/
-├── locus-graph/
+├── provider/
+│   ├── core/        # package: providers
+│   ├── locus/       # package: locus-graph
+│   └── dbus/        # package: dbus
 ├── macros/
-├── standard-dbus/
-└── dbus/
+└── standard-dbus/
 ```
 
 This repository is the framework workspace. User-facing shell implementations should live in separate crates or repositories that consume these framework crates.

@@ -32,6 +32,10 @@ Added a dev-widget unit test that combines two providers into a typed `BarSummar
 
 Moved generated provider task spawning from `relm4::spawn` to `providers::spawn`, backed by a shared Tokio runtime. This aligns Locus and D-Bus providers with the Tokio-flavored Zbus dependencies and gives custom async providers a consistent runtime target.
 
+## Provider Family Layout
+
+Moved provider-family crates under `provider/`: `provider/core` for the `providers` crate, `provider/dbus` for generic D-Bus properties, and `provider/locus` for Locus graph bindings. Package names and user-facing imports stay stable while the directory layout now reflects responsibility areas.
+
 ## Macro Provider Dispatch
 
 Removed macro-side source classification. `#[locus(source = ...)]` now treats the source as a generic provider expression. This makes custom providers possible without teaching the macro about every backend.

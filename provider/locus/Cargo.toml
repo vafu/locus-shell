@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 futures-util = "0.3.32"
-locus-dbus = { path = "../../locus/locus-dbus" }
+locus-dbus = { path = "../../../locus/locus-dbus" }
 providers.workspace = true
 zbus = { version = "5.15.0", default-features = false, features = ["tokio"] }
 

@@ -79,7 +79,7 @@ This type should be transport-neutral enough for `locus-shell` to consume, but g
 
 ## Phase 5: Add Locus-Shell Graph Adapter
 
-- Add root-level `locus-graph` crate in `locus-shell`.
+- Add `provider/locus` crate in `locus-shell` with package name `locus-graph`.
 - Depend on `locus-dbus` by path initially:
   - `../locus/locus-dbus`
 - Do not reimplement the D-Bus protocol.
@@ -152,8 +152,8 @@ The macro should:
   - YAML schema defines graph model
   - `locus-codegen` generates Rust contracts
   - `locus-dbus` owns protocol proxies
-  - `locus-shell/locus-graph` adapts typed Locus graph bindings to provider updates
-  - `locus-shell/dbus` adapts generic D-Bus properties to provider updates
+  - `locus-shell/provider/locus` adapts typed Locus graph bindings to provider updates
+  - `locus-shell/provider/dbus` adapts generic D-Bus properties to provider updates
   - `locus-shell/macros` hides Relm4 boilerplate
 - Keep raw string APIs available as escape hatches for dynamic or experimental schemas.
 

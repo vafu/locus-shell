@@ -35,12 +35,12 @@ Framework crates own:
 
 ### 1. Foundation: Workspace And Boundaries
 
-- Keep flat root crates: `shell-core`, `dev-widgets`, `providers`, `locus-graph`, `macros`, `dbus`, and `standard-dbus`.
+- Keep root crates flat except the provider family, which lives under `provider/`: `provider/core`, `provider/locus`, and `provider/dbus`.
 - `shell-core` only exposes generic framework primitives.
 - `dev-widgets` remains internal and proves ergonomics.
-- `providers` owns reusable provider traits, subscription handles, cancellation, and backend-neutral combinators.
-- `locus-graph` owns generated Locus graph contracts plus the Locus-over-D-Bus provider implementation.
-- `dbus` owns generic D-Bus object/property provider implementation.
+- `provider/core` publishes the `providers` crate with reusable provider traits, subscription handles, cancellation, runtime spawning, and backend-neutral combinators.
+- `provider/locus` publishes the `locus-graph` crate with generated Locus graph contracts plus the Locus-over-D-Bus provider implementation.
+- `provider/dbus` publishes the `dbus` crate with generic D-Bus object/property provider implementation.
 - `standard-dbus` exposes feature-gated common service definitions and contains no watcher/runtime policy.
 - Do not put user-facing bar, OSD, notification, launcher, or workspace switcher behavior in framework crates.
 
@@ -66,11 +66,11 @@ Framework crates own:
 
 ### 4. D-Bus Integration Crates
 
-- Add a root-level `locus-graph` crate for typed Locus graph bindings.
+- Keep the `locus-graph` crate under `provider/locus` for typed Locus graph bindings.
 - Generate `locus-graph::{model, paths, binding}` from the Locus schema/codegen output.
 - Wrap `io.github.Locus.Graph.Resolve` in `locus-graph`.
 - Implement `providers::Provider<T>` for Locus graph field bindings in `locus-graph`, where `FieldBinding<T>` is owned.
-- Add a root-level `dbus` crate for generic D-Bus bindings.
+- Keep the `dbus` crate under `provider/dbus` for generic D-Bus bindings.
 - Provide generic pure D-Bus property bindings:
   - `dbus::Object<Target>::session(...)`
   - `dbus::Object<Target>::system(...)`
