@@ -1,0 +1,20 @@
+.dev-panel {
+    background: #171a21;
+    color: #f4f7fb;
+    min-height: 32px;
+}
+
+.dev-panel__window-title {
+    font-weight: 600;
+    padding: 0 8px;
+}
+
+.dev-panel__battery {
+    font-weight: 600;
+    min-width: 70px;
+    margin: 0 10px;
+}
+
+.dev-panel__window-title--empty {
+    opacity: 0.65;
+}

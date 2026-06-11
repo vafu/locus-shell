@@ -1,0 +1,12 @@
+[package]
+name = "dbus"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+futures-util = "0.3.32"
+locus-dbus = { path = "../../locus/locus-dbus" }
+zbus = { version = "5.15.0", default-features = false, features = ["tokio"] }

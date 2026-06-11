@@ -1,0 +1,136 @@
+use proc_macro2::{Ident, TokenStream};
+use quote::quote;
+use syn::{
+    FnArg, ImplItem, ImplItemFn, ItemImpl, Pat, Result, Stmt, Visibility, parse_quote, parse2,
+};
+
+use super::{
+    config::ComponentConfig,
+    expand::{ModuleMode, expand_locus_module},
+    view::{ViewBindings, transform_locus_view_attributes},
+};
+
+pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    let config = parse2::<ComponentConfig>(attr)?;
+    let mut item_impl = parse2::<ItemImpl>(item)?;
+    let component = item_impl.self_ty.clone();
+    let module_ident = config.module.clone();
+    let model_ty = config.model;
+    let bindings = config.bindings;
+    let view_bindings = match model_ty.as_ref() {
+        Some(_) => ViewBindings::Model,
+        None => ViewBindings::Known(&bindings),
+    };
+    transform_locus_view_attributes(&mut item_impl, &module_ident, view_bindings)?;
+    inject_post_view_clear(&mut item_impl, &module_ident);
+    let mut init_found = false;
+    let mut update_found = false;
+
+    for impl_item in &mut item_impl.items {
+        let ImplItem::Fn(function) = impl_item else {
+            continue;
+        };
+
+        if function.sig.ident == "init" {
+            init_found = true;
+            inject_start_call(function, &module_ident, model_ty.as_ref())?;
+        } else if function.sig.ident == "update" {
+            update_found = true;
+        }
+    }
+
+    if !init_found {
+        return Err(syn::Error::new_spanned(
+            &item_impl.self_ty,
+            "locus component bindings require an init function so watchers can be started",
+        ));
+    }
+
+    if !update_found {
+        let update = update_method();
+        item_impl.items.push(update);
+    }
+
+    let module = match model_ty {
+        Some(_) => TokenStream::new(),
+        None => expand_locus_module(
+            Visibility::Inherited,
+            module_ident,
+            *component,
+            bindings,
+            ModuleMode::DirectInput,
+        ),
+    };
+
+    Ok(quote! {
+        #module
+        #item_impl
+    })
+}
+
+fn inject_post_view_clear(item_impl: &mut ItemImpl, module_ident: &Ident) {
+    let clear_statement: Stmt = parse_quote! {
+        model.#module_ident.clear_changed();
+    };
+
+    for item in &mut item_impl.items {
+        let ImplItem::Fn(function) = item else {
+            continue;
+        };
+        if function.sig.ident == "post_view" {
+            function.block.stmts.push(clear_statement);
+            return;
+        }
+    }
+
+    item_impl.items.push(parse_quote! {
+        fn post_view() {
+            #clear_statement
+        }
+    });
+}
+
+fn inject_start_call(
+    function: &mut ImplItemFn,
+    module_ident: &Ident,
+    model_ty: Option<&syn::Type>,
+) -> Result<()> {
+    let sender_ident = sender_ident(function)?;
+    let statement: Stmt = match model_ty {
+        Some(model_ty) => parse_quote! {
+            #model_ty::start(#sender_ident.clone());
+        },
+        None => parse_quote! {
+            #module_ident::start(#sender_ident.clone());
+        },
+    };
+    function.block.stmts.insert(0, statement);
+    Ok(())
+}
+
+fn sender_ident(function: &ImplItemFn) -> Result<Ident> {
+    for input in &function.sig.inputs {
+        let FnArg::Typed(argument) = input else {
+            continue;
+        };
+        let Pat::Ident(ident) = argument.pat.as_ref() else {
+            continue;
+        };
+        if ident.ident == "sender" || ident.ident == "_sender" {
+            return Ok(ident.ident.clone());
+        }
+    }
+
+    Err(syn::Error::new_spanned(
+        &function.sig,
+        "locus component init must have a sender parameter named sender",
+    ))
+}
+
+fn update_method() -> ImplItem {
+    parse_quote! {
+        fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
+            self.locus.update(msg);
+        }
+    }
+}
