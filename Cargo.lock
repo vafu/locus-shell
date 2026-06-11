@@ -129,6 +129,7 @@ name = "dev-widgets"
 version = "0.1.0"
 dependencies = [
  "dbus",
+ "futures",
  "locus-graph",
  "locus-macros",
  "providers",

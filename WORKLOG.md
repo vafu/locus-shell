@@ -24,6 +24,10 @@ Added `providers::provider_for<T, _>(provider)` and made macro-generated watcher
 
 Added `ProviderExt::combine_latest` for deriving typed summary values from two provider sources. The combiner receives references to the latest left/right values and emits after both sides have produced at least one value, which matches shell summary use cases such as combining graph state with system state.
 
+## Derived Chain Proof
+
+Added a dev-widget unit test that combines two providers into a typed `BarSummary` without changing the visible bar. This proves the intended consumer-facing shape for summarized state while keeping the current GTK primitive minimal.
+
 ## Macro Provider Dispatch
 
 Removed macro-side source classification. `#[locus(source = ...)]` now treats the source as a generic provider expression. This makes custom providers possible without teaching the macro about every backend.

@@ -109,3 +109,71 @@ fn bar_window_config() -> WindowConfig {
         .with_auto_exclusive_zone()
         .with_namespace("locus-dev-bar")
 }
+
+#[cfg(test)]
+mod test {
+    use std::{
+        convert::Infallible,
+        sync::{Arc, Mutex},
+    };
+
+    use providers::{Provider, ProviderContext, ProviderExt, ProviderSender, run_provider};
+
+    #[derive(Debug, PartialEq)]
+    struct BarSummary {
+        title: String,
+        battery_level: &'static str,
+    }
+
+    struct ValueProvider<T>(T);
+
+    impl<T> Provider<T> for ValueProvider<T>
+    where
+        T: Send + 'static,
+    {
+        type Error = Infallible;
+
+        async fn run(
+            self,
+            _context: ProviderContext,
+            sender: ProviderSender<T>,
+        ) -> Result<(), Self::Error> {
+            sender.send(self.0);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn combines_sources_into_bar_summary() {
+        let values = Arc::new(Mutex::new(Vec::new()));
+        let captured = values.clone();
+        let provider = ValueProvider("Terminal".to_owned()).combine_latest(
+            ValueProvider(17.0),
+            |title, percent| BarSummary {
+                title: title.clone(),
+                battery_level: battery_level(*percent),
+            },
+        );
+
+        let result = futures::executor::block_on(run_provider(
+            provider,
+            ProviderContext::default(),
+            move |summary| {
+                captured.lock().expect("summary lock").push(summary);
+            },
+        ));
+
+        assert!(result.is_ok());
+        assert_eq!(
+            *values.lock().expect("summary lock"),
+            [BarSummary {
+                title: "Terminal".to_owned(),
+                battery_level: "low",
+            }]
+        );
+    }
+
+    fn battery_level(percent: f64) -> &'static str {
+        if percent <= 20.0 { "low" } else { "normal" }
+    }
+}

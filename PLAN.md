@@ -132,4 +132,4 @@ Framework crates own:
 
 ## Next Concrete Step
 
-Add examples or dev-widget proof code for derived provider chains, then decide whether macro ergonomics need a lighter syntax for common summaries. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.
+Decide whether macro ergonomics need a lighter syntax for common summaries, or whether explicit custom providers plus `combine_latest` are sufficient. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.
