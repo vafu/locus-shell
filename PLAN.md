@@ -35,9 +35,10 @@ Framework crates own:
 
 ### 1. Foundation: Workspace And Boundaries
 
-- Keep flat root crates: `shell-core`, `dev-widgets`, `macros`, `dbus`, and `standard-dbus`.
+- Keep flat root crates: `shell-core`, `dev-widgets`, `providers`, `macros`, `dbus`, and `standard-dbus`.
 - `shell-core` only exposes generic framework primitives.
 - `dev-widgets` remains internal and proves ergonomics.
+- `providers` owns reusable provider traits, subscription handles, cancellation, and backend-neutral combinators.
 - `standard-dbus` exposes feature-gated common service definitions and contains no watcher/runtime policy.
 - Do not put user-facing bar, OSD, notification, launcher, or workspace switcher behavior in framework crates.
 
@@ -75,6 +76,8 @@ Framework crates own:
   - resolve once
   - subscribe resolve
   - stream changed values
+- Implement `providers::Provider<T>` for Locus graph field bindings.
+- Implement `providers::Provider<T>` for pure D-Bus property bindings.
 - Keep async D-Bus work off the GTK thread.
 
 ### 4a. Standard D-Bus Definitions
@@ -97,9 +100,7 @@ Framework crates own:
   - typed model cache
   - typed update messages
   - async watcher startup
-- Dispatch binding expressions through providers:
-  - Locus graph bindings call `dbus::watch_field`
-  - pure D-Bus property bindings call `dbus::watch_property`
+- Dispatch binding expressions through `providers::Provider<T>` instead of backend-specific watcher functions.
 - Let component views bind GTK setters with `#[locus(field)]`:
   - closure adapters such as `set_label: |title| title.as_str()`
   - function adapters such as `set_css_classes: window_title_classes`
@@ -108,10 +109,11 @@ Framework crates own:
 
 ### 6. Framework Integration Layer
 
-- Connect macro output to D-Bus subscriptions.
+- Connect macro output to provider subscriptions.
 - Translate `ResolveChanged` into Relm4 input messages.
 - Maintain cached model state for watched GTK properties.
 - Avoid client-side polling or a separate reactive runtime.
+- Support derived provider chains for summarized UI data, such as workspace status, window indicators, build status, agent state, and system indicators.
 
 ### 7. External User-Facing Widgets
 

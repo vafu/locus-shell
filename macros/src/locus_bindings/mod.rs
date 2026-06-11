@@ -100,10 +100,10 @@ fn push_generated_model_fields(item: &mut ItemStruct, module: &Ident) -> Result<
         let Some(ident) = &field.ident else {
             continue;
         };
-        if ident == "last_error" || ident == "changed" {
+        if ident == "last_error" || ident == "changed" || ident == "subscriptions" {
             return Err(syn::Error::new_spanned(
                 ident,
-                "locus models reserve last_error and changed",
+                "locus models reserve last_error, changed, and subscriptions",
             ));
         }
     }
@@ -113,6 +113,9 @@ fn push_generated_model_fields(item: &mut ItemStruct, module: &Ident) -> Result<
     });
     fields.named.push(parse_quote! {
         changed: #module::Changed
+    });
+    fields.named.push(parse_quote! {
+        subscriptions: ::providers::SubscriptionGroup
     });
 
     Ok(())

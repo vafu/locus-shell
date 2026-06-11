@@ -25,33 +25,7 @@ pub(super) struct BindingConfig {
     pub(super) field: Ident,
     pub(super) variant: Ident,
     pub(super) ty: Type,
-    pub(super) provider: BindingProvider,
-}
-
-pub(super) enum BindingProvider {
-    Locus { expr: Expr },
-    DbusProperty { expr: Expr },
-}
-
-impl BindingProvider {
-    pub(super) const fn expr(&self) -> &Expr {
-        match self {
-            Self::Locus { expr } | Self::DbusProperty { expr } => expr,
-        }
-    }
-
-    pub(super) const fn watcher(&self) -> BindingWatcher {
-        match self {
-            Self::Locus { .. } => BindingWatcher::Locus,
-            Self::DbusProperty { .. } => BindingWatcher::DbusProperty,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum BindingWatcher {
-    Locus,
-    DbusProperty,
+    pub(super) source: Expr,
 }
 
 impl Parse for BindingsConfig {
@@ -221,15 +195,14 @@ impl Parse for ConfigEntry {
         input.parse::<Token![:]>()?;
         let ty = input.parse::<Type>()?;
         input.parse::<Token![=]>()?;
-        let expr = parse_binding_expr(input)?;
+        let source = parse_binding_expr(input)?;
         let variant = format_ident!("{}", upper_camel(&ident.to_string()));
-        let provider = binding_provider(expr);
 
         Ok(Self::Binding(BindingConfig {
             field: ident,
             variant,
             ty,
-            provider,
+            source,
         }))
     }
 }
@@ -249,12 +222,11 @@ pub(super) fn model_bindings(item: &ItemStruct) -> Result<Vec<BindingConfig>> {
             continue;
         };
         let variant = format_ident!("{}", upper_camel(&field_ident.to_string()));
-        let provider = binding_provider(source);
         bindings.push(BindingConfig {
             field: field_ident,
             variant,
             ty: field.ty.clone(),
-            provider,
+            source,
         });
     }
 
@@ -297,21 +269,6 @@ fn parse_binding_expr(input: ParseStream<'_>) -> Result<Expr> {
         return content.parse();
     }
     input.parse()
-}
-
-fn binding_provider(expr: Expr) -> BindingProvider {
-    if is_dbus_property_expr(&expr) {
-        BindingProvider::DbusProperty { expr }
-    } else {
-        BindingProvider::Locus { expr }
-    }
-}
-
-fn is_dbus_property_expr(expr: &Expr) -> bool {
-    let Expr::MethodCall(call) = expr else {
-        return false;
-    };
-    call.method == "bind"
 }
 
 fn validate_bindings(bindings: &[BindingConfig]) -> Result<()> {

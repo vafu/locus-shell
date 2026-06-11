@@ -2,7 +2,7 @@ use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 use syn::{Path, Type, Visibility};
 
-use super::config::{BindingConfig, BindingWatcher};
+use super::config::BindingConfig;
 
 pub(super) enum ModuleMode {
     DirectInput,
@@ -57,11 +57,7 @@ pub(super) fn expand_locus_module(
     let watchers = bindings.iter().map(|binding| {
         let field_name = binding.field.to_string();
         let variant = &binding.variant;
-        let expr = binding.provider.expr();
-        let watch_fn = match binding.provider.watcher() {
-            BindingWatcher::Locus => quote! { ::dbus::watch_field },
-            BindingWatcher::DbusProperty => quote! { ::dbus::watch_property },
-        };
+        let source = &binding.source;
         let input = match &mode {
             ModuleMode::DirectInput => quote! {
                 Msg::#variant(value)
@@ -87,10 +83,13 @@ pub(super) fn expand_locus_module(
 
         quote! {
             {
+                let subscription = ::providers::Subscription::new();
+                let context = subscription.context();
+                subscriptions.push(subscription);
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
                 ::relm4::spawn(async move {
-                    let result = #watch_fn(#expr, move |value| {
+                    let result = ::providers::run_provider(#source, context, move |value| {
                         update_sender.input(#input);
                     })
                     .await;
@@ -119,6 +118,7 @@ pub(super) fn expand_locus_module(
                 #(#fields)*
                 pub last_error: ::std::option::Option<WatchError>,
                 changed: Changed,
+                subscriptions: ::providers::SubscriptionGroup,
             }
 
             impl ::std::default::Default for Model {
@@ -127,6 +127,7 @@ pub(super) fn expand_locus_module(
                         #(#defaults)*
                         last_error: ::std::option::Option::None,
                         changed: Changed::default(),
+                        subscriptions: ::providers::SubscriptionGroup::new(),
                     }
                 }
             }
@@ -180,6 +181,13 @@ pub(super) fn expand_locus_module(
                     self.changed.clear();
                 }
 
+                pub fn set_subscriptions(
+                    &mut self,
+                    subscriptions: ::providers::SubscriptionGroup,
+                ) {
+                    self.subscriptions = subscriptions;
+                }
+
                 pub fn update(&mut self, msg: Msg) {
                     match msg {
                         #(#updates)*
@@ -193,8 +201,12 @@ pub(super) fn expand_locus_module(
                 }
             }
 
-            pub fn start(sender: ::relm4::ComponentSender<super::#component>) {
+            pub fn start(
+                sender: ::relm4::ComponentSender<super::#component>,
+            ) -> ::providers::SubscriptionGroup {
+                let mut subscriptions = ::providers::SubscriptionGroup::new();
                 #(#watchers)*
+                subscriptions
             }
         }
     }
@@ -240,18 +252,17 @@ pub(super) fn expand_model_impl(
     let watchers = bindings.iter().map(|binding| {
         let field_name = binding.field.to_string();
         let variant = &binding.variant;
-        let expr = binding.provider.expr();
-        let watch_fn = match binding.provider.watcher() {
-            BindingWatcher::Locus => quote! { ::dbus::watch_field },
-            BindingWatcher::DbusProperty => quote! { ::dbus::watch_property },
-        };
+        let source = &binding.source;
 
         quote! {
             {
+                let subscription = ::providers::Subscription::new();
+                let context = subscription.context();
+                subscriptions.push(subscription);
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
                 ::relm4::spawn(async move {
-                    let result = #watch_fn(#expr, move |value| {
+                    let result = ::providers::run_provider(#source, context, move |value| {
                         update_sender.input(#module_ident::Msg::#variant(value));
                     })
                     .await;
@@ -325,6 +336,7 @@ pub(super) fn expand_model_impl(
                     #(#defaults)*
                     last_error: ::std::option::Option::None,
                     changed: #module_ident::Changed::default(),
+                    subscriptions: ::providers::SubscriptionGroup::new(),
                 }
             }
         }
@@ -336,6 +348,13 @@ pub(super) fn expand_model_impl(
 
             pub fn clear_changed(&self) {
                 self.changed.clear();
+            }
+
+            pub fn set_subscriptions(
+                &mut self,
+                subscriptions: ::providers::SubscriptionGroup,
+            ) {
+                self.subscriptions = subscriptions;
             }
 
             pub fn update(&mut self, msg: #module_ident::Msg) {
@@ -350,13 +369,17 @@ pub(super) fn expand_model_impl(
                 }
             }
 
-            pub fn start<Component>(sender: ::relm4::ComponentSender<Component>)
+            pub fn start<Component>(
+                sender: ::relm4::ComponentSender<Component>,
+            ) -> ::providers::SubscriptionGroup
             where
                 Component: ::relm4::Component<Input = #module_ident::Msg> + 'static,
                 <Component as ::relm4::Component>::Output: Send,
                 <Component as ::relm4::Component>::CommandOutput: Send,
             {
+                let mut subscriptions = ::providers::SubscriptionGroup::new();
                 #(#watchers)*
+                subscriptions
             }
         }
     }

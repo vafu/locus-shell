@@ -1,9 +1,14 @@
-use std::error::Error as _;
+use std::{
+    error::Error as _,
+    sync::{Arc, Mutex},
+};
 
 use super::{
     DbusBus, DecodeLocusValue, FieldBinding, Object, Property, PropertyBinding, decode_wire_field,
     schema,
+    watch::{emit_field_value, emit_value_if_active},
 };
+use providers::{CancellationToken, Provider, ProviderContext, ProviderSender};
 
 struct Battery;
 
@@ -63,6 +68,16 @@ fn generated_path_property_creates_typed_binding() {
 }
 
 #[test]
+fn generated_path_property_is_provider() {
+    fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
+
+    let binding: FieldBinding<String> =
+        schema::paths::SELECTED_WINDOW.property(schema::model::Window::TITLE);
+
+    assert_provider::<String, _>(binding);
+}
+
+#[test]
 fn generated_numeric_properties_keep_value_type() {
     let binding: FieldBinding<u32> =
         schema::paths::SELECTED_WINDOW.property(schema::model::Window::ID);
@@ -82,6 +97,81 @@ fn typed_object_property_creates_typed_dbus_binding() {
     );
     assert_eq!(binding.interface, "org.freedesktop.UPower.Device");
     assert_eq!(binding.property, "Percentage");
+}
+
+#[test]
+fn typed_object_property_is_provider() {
+    fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
+
+    let binding: PropertyBinding<f64> = BATTERY.bind(Battery::PERCENTAGE);
+
+    assert_provider::<f64, _>(binding);
+}
+
+#[test]
+fn cancelled_field_provider_exits_before_dbus_setup() {
+    let binding: FieldBinding<String> =
+        schema::paths::SELECTED_WINDOW.property(schema::model::Window::TITLE);
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let captured = sent.clone();
+
+    let result = futures::executor::block_on(binding.run(
+        ProviderContext::new(cancellation),
+        ProviderSender::new(move |value| {
+            captured.lock().expect("sent lock").push(value);
+        }),
+    ));
+
+    assert!(result.is_ok());
+    assert!(sent.lock().expect("sent lock").is_empty());
+}
+
+#[test]
+fn cancelled_property_provider_exits_before_dbus_setup() {
+    let binding: PropertyBinding<f64> = BATTERY.bind(Battery::PERCENTAGE);
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let captured = sent.clone();
+
+    let result = futures::executor::block_on(binding.run(
+        ProviderContext::new(cancellation),
+        ProviderSender::new(move |value| {
+            captured.lock().expect("sent lock").push(value);
+        }),
+    ));
+
+    assert!(result.is_ok());
+    assert!(sent.lock().expect("sent lock").is_empty());
+}
+
+#[test]
+fn initial_value_respects_cancellation() {
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let context = ProviderContext::new(cancellation);
+    let mut sent = Vec::new();
+
+    emit_value_if_active(&context, 42_u32, &mut |value| sent.push(value));
+
+    assert!(sent.is_empty());
+}
+
+#[test]
+fn field_value_respects_cancellation_before_decoding() {
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let context = ProviderContext::new(cancellation);
+    let mut sent = Vec::new();
+
+    let result = emit_field_value::<bool, _>(&context, "not-a-bool", &mut |value| {
+        sent.push(value);
+    });
+
+    assert!(result.is_ok());
+    assert!(sent.is_empty());
 }
 
 #[test]

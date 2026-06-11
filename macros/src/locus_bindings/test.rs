@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use syn::{ItemMod, parse2};
 
 use super::*;
-use crate::locus_bindings::config::{BindingWatcher, ComponentConfig};
+use crate::locus_bindings::config::ComponentConfig;
 
 #[test]
 fn parses_binding_config() {
@@ -70,13 +70,15 @@ fn expands_component_impl() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
     assert!(source.contains("mod locus"));
-    assert!(source.contains("locus :: start"));
+    assert!(source.contains("model . locus . set_subscriptions (locus :: start"));
     assert!(source.contains("fn update"));
-    assert!(source.contains("dbus :: watch_field"));
+    assert!(source.contains("providers :: run_provider"));
+    assert!(source.contains("subscriptions : :: providers :: SubscriptionGroup"));
+    assert!(source.contains("subscriptions . push (subscription)"));
 }
 
 #[test]
-fn expands_dbus_property_watcher() {
+fn expands_dbus_property_provider_source() {
     let attr = quote! {
         battery_percent: f64 = BATTERY.bind(Battery::PERCENTAGE),
     };
@@ -85,12 +87,12 @@ fn expands_dbus_property_watcher() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
 
-    assert!(source.contains("dbus :: watch_property"));
-    assert!(!source.contains("dbus :: watch_field"));
+    assert!(source.contains("providers :: run_provider"));
+    assert!(source.contains("BATTERY . bind"));
 }
 
 #[test]
-fn expands_mixed_binding_providers() {
+fn expands_mixed_provider_sources() {
     let attr = quote! {
         selected_window_title: String = dbus::schema::paths::SELECTED_WINDOW
             .property(dbus::schema::model::Window::TITLE),
@@ -101,8 +103,7 @@ fn expands_mixed_binding_providers() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
 
-    assert!(source.contains("dbus :: watch_field"));
-    assert!(source.contains("dbus :: watch_property"));
+    assert_eq!(source.matches("providers :: run_provider").count(), 2);
 }
 
 #[test]
@@ -176,8 +177,9 @@ fn expands_typed_model() {
     assert!(source.contains("SelectedWindowTitle"));
     assert!(source.contains("BatteryPercent"));
     assert!(source.contains("changed : locus :: Changed"));
-    assert!(source.contains("dbus :: watch_field"));
-    assert!(source.contains("dbus :: watch_property"));
+    assert!(source.contains("subscriptions : :: providers :: SubscriptionGroup"));
+    assert!(source.contains("subscriptions . push (subscription)"));
+    assert!(source.contains("providers :: run_provider"));
 }
 
 #[test]
@@ -220,6 +222,7 @@ fn expands_model_component_impl() {
 
     assert!(!source.contains("mod locus"));
     assert!(source.contains("BarLocus :: start"));
+    assert!(source.contains("model . locus . set_subscriptions (BarLocus :: start"));
     assert!(source.contains("locus :: Field :: SelectedWindowTitle"));
     assert!(source.contains("fn update"));
 }
@@ -286,20 +289,21 @@ fn accepts_parenthesized_binding_expr() {
             .property(dbus::schema::model::Window::TITLE)
     };
 
-    let expr = config.bindings[0].provider.expr();
+    let expr = &config.bindings[0].source;
     assert_eq!(quote!(#expr).to_string(), expected.to_string());
 }
 
 #[test]
-fn detects_dbus_property_provider() {
+fn treats_sources_as_generic_provider_expressions() {
     let config = parse2::<ComponentConfig>(quote! {
         battery_percent: f64 = BATTERY.bind(Battery::PERCENTAGE),
     })
     .unwrap();
 
+    let source = &config.bindings[0].source;
     assert_eq!(
-        config.bindings[0].provider.watcher(),
-        BindingWatcher::DbusProperty
+        quote!(#source).to_string(),
+        quote!(BATTERY.bind(Battery::PERCENTAGE)).to_string()
     );
 }
 

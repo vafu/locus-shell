@@ -118,8 +118,10 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 name = "dbus"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "futures-util",
  "locus-dbus",
+ "providers",
  "zbus",
 ]
 
@@ -129,6 +131,7 @@ version = "0.1.0"
 dependencies = [
  "dbus",
  "locus-macros",
+ "providers",
  "relm4",
  "shell-core",
  "standard-dbus",
@@ -865,6 +868,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "providers"
+version = "0.1.0"
+dependencies = [
+ "futures",
 ]
 
 [[package]]

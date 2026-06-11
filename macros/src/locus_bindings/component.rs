@@ -33,7 +33,10 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
 
         if function.sig.ident == "init" {
             init_found = true;
-            inject_start_call(function, &module_ident, model_ty.as_ref())?;
+            match model_ty.as_ref() {
+                Some(model_ty) => inject_model_subscriptions(function, &module_ident, model_ty)?,
+                None => inject_start_call(function, &module_ident)?,
+            }
         } else if function.sig.ident == "update" {
             update_found = true;
         }
@@ -90,22 +93,70 @@ fn inject_post_view_clear(item_impl: &mut ItemImpl, module_ident: &Ident) {
     });
 }
 
-fn inject_start_call(
+fn inject_start_call(function: &mut ImplItemFn, module_ident: &Ident) -> Result<()> {
+    let sender_ident = sender_ident(function)?;
+
+    for index in 0..function.block.stmts.len() {
+        let Stmt::Local(local) = &mut function.block.stmts[index] else {
+            continue;
+        };
+        let Pat::Ident(model_ident) = &mut local.pat else {
+            continue;
+        };
+        if model_ident.ident != "model" {
+            continue;
+        }
+
+        if model_ident.mutability.is_none() {
+            model_ident.mutability = Some(Default::default());
+        }
+
+        let statement: Stmt = parse_quote! {
+            model.#module_ident.set_subscriptions(#module_ident::start(#sender_ident.clone()));
+        };
+        function.block.stmts.insert(index + 1, statement);
+        return Ok(());
+    }
+
+    Err(syn::Error::new_spanned(
+        &function.sig,
+        "locus component init must bind the component model to a local named model",
+    ))
+}
+
+fn inject_model_subscriptions(
     function: &mut ImplItemFn,
     module_ident: &Ident,
-    model_ty: Option<&syn::Type>,
+    model_ty: &syn::Type,
 ) -> Result<()> {
     let sender_ident = sender_ident(function)?;
-    let statement: Stmt = match model_ty {
-        Some(model_ty) => parse_quote! {
-            #model_ty::start(#sender_ident.clone());
-        },
-        None => parse_quote! {
-            #module_ident::start(#sender_ident.clone());
-        },
-    };
-    function.block.stmts.insert(0, statement);
-    Ok(())
+
+    for index in 0..function.block.stmts.len() {
+        let Stmt::Local(local) = &mut function.block.stmts[index] else {
+            continue;
+        };
+        let Pat::Ident(model_ident) = &mut local.pat else {
+            continue;
+        };
+        if model_ident.ident != "model" {
+            continue;
+        }
+
+        if model_ident.mutability.is_none() {
+            model_ident.mutability = Some(Default::default());
+        }
+
+        let statement: Stmt = parse_quote! {
+            model.#module_ident.set_subscriptions(#model_ty::start(#sender_ident.clone()));
+        };
+        function.block.stmts.insert(index + 1, statement);
+        return Ok(());
+    }
+
+    Err(syn::Error::new_spanned(
+        &function.sig,
+        "locus component init must bind the component model to a local named model",
+    ))
 }
 
 fn sender_ident(function: &ImplItemFn) -> Result<Ident> {

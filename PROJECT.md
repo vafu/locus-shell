@@ -24,6 +24,7 @@ locus/
 ├── Cargo.toml
 ├── shell-core/
 ├── dev-widgets/
+├── providers/
 ├── macros/
 ├── standard-dbus/
 └── dbus/
@@ -121,6 +122,7 @@ selected_window_title: String = dbus::schema::paths::SELECTED_WINDOW
 - Support binding providers:
   - Locus graph field bindings through generated `FieldBinding<T>` expressions.
   - Pure D-Bus property bindings through typed `dbus::Object<Target>` and `dbus::Property<Target, Value>` pairs.
+  - Consumer-defined providers that implement `providers::Provider<T>`.
 - Rewrite `#[locus(field)]` view setters into Relm4 `#[track(...)]` updates so only widgets bound to the changed field redraw.
 
 Target authoring shape:
@@ -170,6 +172,23 @@ Generated concepts:
 - View setter adapters that receive typed references to generated model fields.
 - Dynamic styling through normal GTK setters such as `set_css_classes`; CSS contents still live in external stylesheets.
 
+### `providers`
+
+Small reusable provider contract crate.
+
+Responsibilities:
+
+- Define `Provider<T>` for typed asynchronous value sources.
+- Provide `ProviderContext`, `ProviderSender<T>`, `Subscription`, and `SubscriptionGroup`.
+- Provide small provider combinators such as `ProviderExt::map`.
+- Stay independent of GTK, Relm4, D-Bus, and product-specific shell behavior.
+
+Non-responsibilities:
+
+- No D-Bus transport implementation.
+- No GTK widget or shell-window policy.
+- No standard service definitions.
+
 ### `dev-widgets`
 
 Internal development crate for primitive widgets used to exercise framework APIs.
@@ -188,7 +207,7 @@ Feature-gated typed definitions for common D-Bus services.
 Responsibilities:
 
 - Expose common service objects and properties as `dbus::Object<T>` and `dbus::Property<T, V>`.
-- Keep runtime watching in the `dbus` crate.
+- Keep runtime watching/provider implementation in the `dbus` crate.
 - Keep each standard service behind an opt-in feature such as `upower`.
 - Provide definitions consumers can import directly, for example `standard_dbus::upower::DISPLAY_DEVICE`.
 
