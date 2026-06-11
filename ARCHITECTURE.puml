@@ -318,8 +318,16 @@ package "provider/locus\ncrate: locus_provider" {
 
   enum LocusWatchError {
     Decode
+    List
     Fdo
     Zbus
+  }
+
+  enum ListError {
+    UnknownCommand
+    AddIndexOutOfBounds
+    RemoveIndexOutOfBounds
+    RemovedNodeMismatch
   }
 
   enum DecodeError {
@@ -341,12 +349,41 @@ package "provider/locus\ncrate: locus_provider" {
       + relations: &'static [&'static str]
       + many: bool
       + property(property): FieldBinding<Value>
+      + target(): TargetBinding<Target>
+      + all(): NodeListBinding<Target>
     }
 
     class "FieldBinding<Value>" as FieldBinding {
       + source: &'static str
       + relations: &'static [&'static str]
       + property: &'static str
+    }
+
+    class "TargetBinding<Target>" as TargetBinding {
+      + source: &'static str
+      + relations: &'static [&'static str]
+    }
+
+    class "Relation<Source,Target>" as Relation {
+      + name: &'static str
+      + sources(target): NodeListBinding<Source>
+      + targets(source): NodeListBinding<Target>
+    }
+
+    class "NodeListBinding<Target>" as NodeListBinding {
+      + query: NodeListQuery
+    }
+
+    enum NodeListQuery {
+      ResolveAll
+      Sources
+      Targets
+    }
+
+    enum NodeListDiffCommand {
+      Reset
+      NodeAdded
+      NodeRemoved
     }
   }
 
@@ -383,10 +420,18 @@ package "provider/locus\ncrate: locus_provider" {
 
   LocusPath --> LocusProperty
   LocusPath --> FieldBinding
+  LocusPath --> TargetBinding
+  LocusPath --> NodeListBinding
   FieldBinding ..|> Provider
+  TargetBinding ..|> Provider
+  NodeListBinding ..|> Provider
   FieldBinding --> DecodeLocusValue
   FieldBinding --> LocusWatchError
+  NodeListBinding --> NodeListQuery
+  NodeListBinding --> NodeListDiffCommand
+  NodeListDiffCommand --> ListError
   LocusWatchError --> DecodeError
+  LocusWatchError --> ListError
 
   AgentSession --> LocusProperty
   AppInstance --> LocusProperty

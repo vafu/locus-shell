@@ -201,6 +201,7 @@ Responsibilities:
 - Own `FieldBinding<T>` so the crate can implement `providers::Provider<T>` without violating Rust coherence rules.
 - Decode Locus wire values into typed Rust values.
 - Watch `io.github.Locus.Graph.Resolve` through `locus-dbus`.
+- Expose typed node-id providers for resolved targets and node-list providers backed by `SubscribeResolveAll`, `SubscribeSources`, and `SubscribeTargets`.
 - Keep async Locus D-Bus work off the GTK thread.
 
 Non-responsibilities:

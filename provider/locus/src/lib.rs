@@ -7,6 +7,7 @@
 //! Verify the generated contracts with `sh scripts/locus-provider-schema check`
 //! from the workspace root.
 
+mod collection;
 mod decode;
 mod error;
 mod generated;
@@ -15,9 +16,13 @@ mod watch;
 #[cfg(test)]
 mod test;
 
+pub use collection::{
+    NodeId, NodeListBinding, NodeListDiffCommand, Relation, TargetBinding, relations,
+    watch_node_list, watch_target,
+};
 pub use decode::DecodeLocusValue;
 pub(crate) use decode::decode_wire_field;
-pub use error::{DecodeError, WatchError};
+pub use error::{DecodeError, ListError, WatchError};
 pub use generated::{binding, model, paths};
 pub use watch::watch_field;
 

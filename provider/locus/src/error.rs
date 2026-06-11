@@ -3,6 +3,7 @@ use std::{error::Error as StdError, fmt, num};
 #[derive(Debug)]
 pub enum WatchError {
     Decode(DecodeError),
+    List(ListError),
     Fdo(zbus::fdo::Error),
     Zbus(zbus::Error),
 }
@@ -11,6 +12,7 @@ impl fmt::Display for WatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Decode(error) => write!(f, "{error}"),
+            Self::List(error) => write!(f, "{error}"),
             Self::Fdo(error) => write!(f, "{error}"),
             Self::Zbus(error) => write!(f, "{error}"),
         }
@@ -21,6 +23,7 @@ impl StdError for WatchError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             Self::Decode(error) => Some(error),
+            Self::List(error) => Some(error),
             Self::Fdo(error) => Some(error),
             Self::Zbus(error) => Some(error),
         }
@@ -30,6 +33,12 @@ impl StdError for WatchError {
 impl From<DecodeError> for WatchError {
     fn from(error: DecodeError) -> Self {
         Self::Decode(error)
+    }
+}
+
+impl From<ListError> for WatchError {
+    fn from(error: ListError) -> Self {
+        Self::List(error)
     }
 }
 
@@ -63,6 +72,56 @@ pub enum DecodeError {
         source: num::ParseFloatError,
     },
 }
+
+#[derive(Debug)]
+pub enum ListError {
+    UnknownCommand {
+        command: String,
+    },
+    AddIndexOutOfBounds {
+        node: String,
+        index: usize,
+        len: usize,
+    },
+    RemoveIndexOutOfBounds {
+        node: String,
+        index: usize,
+        len: usize,
+    },
+    RemovedNodeMismatch {
+        expected: String,
+        actual: String,
+        index: usize,
+    },
+}
+
+impl fmt::Display for ListError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownCommand { command } => {
+                write!(f, "unknown Locus node-list diff command: {command:?}")
+            }
+            Self::AddIndexOutOfBounds { node, index, len } => write!(
+                f,
+                "cannot add Locus node {node:?} at index {index}; list length is {len}"
+            ),
+            Self::RemoveIndexOutOfBounds { node, index, len } => write!(
+                f,
+                "cannot remove Locus node {node:?} at index {index}; list length is {len}"
+            ),
+            Self::RemovedNodeMismatch {
+                expected,
+                actual,
+                index,
+            } => write!(
+                f,
+                "cannot remove Locus node {expected:?} at index {index}; found {actual:?}"
+            ),
+        }
+    }
+}
+
+impl StdError for ListError {}
 
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

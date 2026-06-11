@@ -148,9 +148,11 @@ Framework crates own:
 - Keep `stream_provider` available as the adapter from `tokio_stream::Stream<Item = Result<T, E>>` into `Provider<T>` for custom network, socket, timer, and service integrations.
 - Keep `switch_map` available for dynamic provider replacement; this is the core primitive for selected graph node -> dependent collection subscription flows.
 - Keep shared/replay providers available for connection and subscription reuse.
-- Add collection providers for Locus paths that resolve many nodes, with stable IDs for workspace lists, window lists, tray items, media players, and agent sessions.
+- Keep collection providers for Locus paths and reverse relation lookups available as stable node-id lists for workspace lists, window lists, tray items, media players, and agent sessions.
+- Move hand-written relation descriptors into generated Rust schema output once the Locus codegen contract is updated.
+- Add typed row hydration helpers for collection results so consumers can request summaries such as window id/title, workspace name/focus state, and project display fields without manually wiring one provider per property.
 - Keep descriptor constructors and typed bind APIs public, but consider making raw string descriptor fields private with accessors before the API stabilizes.
 
 ## Next Concrete Step
 
-Next, add collection providers for Locus paths that resolve many nodes. Use `tokio-stream` internally where it simplifies D-Bus signal/list-diff streams, expose the result as `Provider<Vec<T>>` or typed diff providers, and compose dynamic selections with `ProviderExt::switch_map`. The dev bar now proves scalar Locus fields, shared UPower-derived fields, explicit `sources` state, and GTK setters bound with `#[bind(field)]`; collections are the next missing primitive for workspaces, windows, tray items, and media players.
+Next, update Locus Rust codegen to emit relation descriptors alongside paths/properties, then add typed collection row hydration on top of `Provider<Vec<NodeId>>`. The current framework can now compose selected workspace -> relation sources with `ProviderExt::switch_map`, but consumers should not have to hand-write relation constants or manually bind each row property.
