@@ -88,10 +88,14 @@ where
 
     let mut updated = watch.receive_signal(PROPERTIES_UPDATED_SIGNAL).await?;
 
-    while let Some(signal) = updated.next().await {
-        if context.is_cancelled() {
+    loop {
+        let signal = tokio::select! {
+            _ = context.cancelled() => break,
+            signal = updated.next() => signal,
+        };
+        let Some(signal) = signal else {
             break;
-        }
+        };
         let (changed, removed) = signal
             .body()
             .deserialize::<(std::collections::HashMap<String, String>, Vec<String>)>()?;

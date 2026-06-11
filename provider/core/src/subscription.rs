@@ -1,12 +1,15 @@
 use crate::{CancellationToken, ProviderContext};
 
+use tokio::task::JoinHandle;
+
 /// Owns cancellation for a running provider subscription.
 ///
-/// Dropping the subscription requests cancellation. Provider futures are still
-/// responsible for observing the context and exiting.
+/// Dropping the subscription requests cooperative cancellation and aborts the
+/// associated runtime task when one has been registered.
 #[derive(Debug, Default)]
 pub struct Subscription {
     cancellation: CancellationToken,
+    task: Option<JoinHandle<()>>,
 }
 
 impl Subscription {
@@ -24,11 +27,19 @@ impl Subscription {
     pub fn cancel(&self) {
         self.cancellation.cancel();
     }
+
+    /// Associates the runtime task owned by this subscription.
+    pub fn set_task(&mut self, task: JoinHandle<()>) {
+        self.task = Some(task);
+    }
 }
 
 impl Drop for Subscription {
     fn drop(&mut self) {
         self.cancel();
+        if let Some(task) = &self.task {
+            task.abort();
+        }
     }
 }
 

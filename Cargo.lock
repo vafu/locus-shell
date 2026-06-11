@@ -100,6 +100,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "common-providers"
+version = "0.1.0"
+dependencies = [
+ "dbus-provider",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -121,6 +128,7 @@ dependencies = [
  "futures",
  "futures-util",
  "providers",
+ "tokio",
  "zbus",
 ]
 
@@ -128,13 +136,13 @@ dependencies = [
 name = "dev-widgets"
 version = "0.1.0"
 dependencies = [
+ "common-providers",
  "futures",
  "locus-provider",
  "providers",
  "relm4",
  "shell-core",
  "shell-macros",
- "standard-dbus",
 ]
 
 [[package]]
@@ -752,6 +760,7 @@ dependencies = [
  "futures-util",
  "locus-dbus",
  "providers",
+ "tokio",
  "zbus",
 ]
 
@@ -1111,13 +1120,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "standard-dbus"
-version = "0.1.0"
-dependencies = [
- "dbus-provider",
-]
-
-[[package]]
 name = "syn"
 version = "2.0.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1192,8 +1194,20 @@ dependencies = [
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
+ "tokio-macros",
  "tracing",
  "windows-sys",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

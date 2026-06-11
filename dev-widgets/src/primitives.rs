@@ -1,10 +1,10 @@
+use common_providers::upower::{DISPLAY_DEVICE, DisplayDevice};
 use locus_provider::{model, paths};
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
     window::{self, Anchors, Edge, Layer, WindowConfig},
 };
-use standard_dbus::upower::{DISPLAY_DEVICE, DisplayDevice};
 
 pub struct BarInit {
     pub title: &'static str,
@@ -12,13 +12,10 @@ pub struct BarInit {
 
 #[shell_macros::model]
 pub struct BarLocus {
-    #[locus(
-        source = paths::SELECTED_WINDOW
-            .property(model::Window::TITLE)
-    )]
+    #[source(paths::SELECTED_WINDOW.property(model::Window::TITLE))]
     pub selected_window_title: String,
 
-    #[locus(source = DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
+    #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
     pub battery_percent: f64,
 }
 
@@ -46,10 +43,10 @@ impl SimpleComponent for Bar {
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
                     set_xalign: 0.0,
 
-                    #[locus(selected_window_title)]
+                    #[bind(selected_window_title)]
                     set_label: |title| title.as_str(),
 
-                    #[locus(selected_window_title)]
+                    #[bind(selected_window_title)]
                     set_css_classes: window_title_classes,
                 },
 
@@ -58,7 +55,7 @@ impl SimpleComponent for Bar {
                     add_css_class: "dev-panel__battery",
                     set_show_text: true,
 
-                    #[locus(battery_percent)]
+                    #[bind(battery_percent)]
                     set_fraction: |percent| battery_fraction(percent),
                 }
             }

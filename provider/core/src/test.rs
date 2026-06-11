@@ -66,6 +66,30 @@ fn dropping_subscription_cancels_context() {
 }
 
 #[test]
+fn cancellation_context_can_be_awaited() {
+    let subscription = Subscription::new();
+    let context = subscription.context();
+
+    subscription.cancel();
+    futures::executor::block_on(context.cancelled());
+}
+
+#[test]
+fn dropping_subscription_aborts_registered_task() {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let mut subscription = Subscription::new();
+    let task = spawn(async move {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        sender.send("late").expect("send runtime result");
+    });
+
+    subscription.set_task(task);
+    drop(subscription);
+
+    assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
 fn subscription_group_cancels_all_contexts() {
     let mut subscriptions = SubscriptionGroup::new();
     let first = Subscription::new();
@@ -145,7 +169,7 @@ fn provider_for_preserves_matching_provider() {
 fn spawn_runs_future_on_provider_runtime() {
     let (sender, receiver) = std::sync::mpsc::channel();
 
-    spawn(async move {
+    let _task = spawn(async move {
         sender.send("ready").expect("send runtime result");
     });
 

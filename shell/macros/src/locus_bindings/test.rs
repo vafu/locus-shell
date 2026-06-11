@@ -159,15 +159,56 @@ fn expands_locus_view_setters() {
 }
 
 #[test]
+fn expands_provider_view_setters() {
+    let attr = quote! {
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
+    };
+    let item = quote! {
+        impl SimpleComponent for Bar {
+            type Init = BarInit;
+            type Input = locus::Msg;
+            type Output = ();
+
+            view! {
+                gtk::Window {
+                    gtk::Label {
+                        #[bind(selected_window_title)]
+                        set_label: |title| title.as_str(),
+                    }
+                }
+            }
+
+            fn init(
+                init: Self::Init,
+                root: Self::Root,
+                sender: ComponentSender<Self>,
+            ) -> ComponentParts<Self> {
+                let model = Bar {
+                    title: init.title,
+                    locus: locus::Model::default(),
+                };
+                let widgets = view_output!();
+                ComponentParts { model, widgets }
+            }
+        }
+    };
+
+    let expanded = expand_component(attr, item).unwrap();
+    let source = expanded.to_string();
+    assert!(source.contains("# [track"));
+    assert!(source.contains("SelectedWindowTitle"));
+    assert!(source.contains("let title = & model . locus . selected_window_title"));
+}
+
+#[test]
 fn expands_typed_model() {
     let item = quote! {
         pub struct BarLocus {
-            #[locus(
-                source = locus_provider::paths::SELECTED_WINDOW
-                    .property(locus_provider::model::Window::TITLE)
-            )]
+            #[source(locus_provider::paths::SELECTED_WINDOW
+                .property(locus_provider::model::Window::TITLE))]
             pub selected_window_title: String,
-            #[locus(source = DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
+            #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
             pub battery_percent: f64,
         }
     };
@@ -187,6 +228,22 @@ fn expands_typed_model() {
     assert!(source.contains("providers :: provider_for :: < String"));
     assert!(source.contains("providers :: provider_for :: < f64"));
     assert!(source.contains("providers :: run_provider"));
+}
+
+#[test]
+fn expands_legacy_locus_model_sources() {
+    let item = quote! {
+        pub struct BarLocus {
+            #[locus(source = DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
+            pub battery_percent: f64,
+        }
+    };
+
+    let expanded = expand_model(TokenStream::new(), item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("BatteryPercent"));
+    assert!(source.contains("providers :: provider_for :: < f64"));
 }
 
 #[test]
@@ -243,7 +300,11 @@ fn rejects_duplicate_binding_fields() {
             .property(locus_provider::model::Window::TITLE),
     });
 
-    assert!(error.to_string().contains("duplicate Locus binding field"));
+    assert!(
+        error
+            .to_string()
+            .contains("duplicate provider binding field")
+    );
 }
 
 #[test]
@@ -258,7 +319,7 @@ fn rejects_duplicate_generated_variants() {
     assert!(
         error
             .to_string()
-            .contains("Locus binding fields must generate unique message variants")
+            .contains("provider binding fields must generate unique message variants")
     );
 }
 
@@ -278,7 +339,7 @@ fn rejects_too_many_bindings_for_dirty_mask() {
     assert!(
         error
             .to_string()
-            .contains("locus components support at most 128 bindings")
+            .contains("provider models support at most 128 bindings")
     );
 }
 

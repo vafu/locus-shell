@@ -1,5 +1,11 @@
+//! UPower D-Bus object and property definitions.
+//!
+//! Use these definitions with `dbus-provider` to create typed provider sources.
+
+/// Marker type for UPower's display battery device.
 pub struct DisplayDevice;
 
+/// UPower's aggregate display device.
 pub const DISPLAY_DEVICE: dbus_provider::Object<DisplayDevice> = dbus_provider::Object::system(
     "org.freedesktop.UPower",
     "/org/freedesktop/UPower/devices/DisplayDevice",

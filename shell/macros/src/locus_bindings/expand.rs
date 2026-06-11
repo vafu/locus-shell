@@ -84,12 +84,11 @@ pub(super) fn expand_locus_module(
 
         quote! {
             {
-                let subscription = ::providers::Subscription::new();
+                let mut subscription = ::providers::Subscription::new();
                 let context = subscription.context();
-                subscriptions.push(subscription);
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
-                ::providers::spawn(async move {
+                let task = ::providers::spawn(async move {
                     let source = ::providers::provider_for::<#ty, _>(#source);
                     let result = ::providers::run_provider(source, context, move |value| {
                         update_sender.input(#input);
@@ -100,6 +99,8 @@ pub(super) fn expand_locus_module(
                         error_sender.input(#error_input);
                     }
                 });
+                subscription.set_task(task);
+                subscriptions.push(subscription);
             }
         }
     });
@@ -259,12 +260,11 @@ pub(super) fn expand_model_impl(
 
         quote! {
             {
-                let subscription = ::providers::Subscription::new();
+                let mut subscription = ::providers::Subscription::new();
                 let context = subscription.context();
-                subscriptions.push(subscription);
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
-                ::providers::spawn(async move {
+                let task = ::providers::spawn(async move {
                     let source = ::providers::provider_for::<#ty, _>(#source);
                     let result = ::providers::run_provider(source, context, move |value| {
                         update_sender.input(#module_ident::Msg::#variant(value));
@@ -278,6 +278,8 @@ pub(super) fn expand_model_impl(
                         });
                     }
                 });
+                subscription.set_task(task);
+                subscriptions.push(subscription);
             }
         }
     });

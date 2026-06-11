@@ -1,0 +1,472 @@
+@startuml
+title Locus Shell Architecture\nCurrent crate boundaries plus key generated concepts
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+hide empty methods
+
+package "shell/core\ncrate: shell_core" {
+  class "ShellApp<M>" as ShellApp {
+    - app_id: String
+    - stylesheets: Vec<StylesheetRegistration>
+    - watch_stylesheets: bool
+    + new(app_id)
+    + with_css(path)
+    + with_scss(path)
+    + watch_stylesheets(bool)
+    + run<C>(payload)
+    + try_run<C>(payload)
+  }
+
+  class StylesheetRegistration {
+    - source: StylesheetSource
+    - priority: CssPriority
+  }
+
+  package "css" {
+    enum CssPriority {
+      Application
+      User
+    }
+
+    enum StylesheetSource {
+      Css(PathBuf)
+      Scss(PathBuf)
+    }
+
+    class Stylesheet {
+      - source: StylesheetSource
+      - priority: CssPriority
+      - provider: gtk::CssProvider
+      - fingerprint: Option<StylesheetFingerprint>
+      + new(source, priority)
+      + load()
+      + install()
+      + watch()
+    }
+
+    enum StylesheetError {
+      Read
+      Write
+      Compile
+      Fingerprint
+    }
+  }
+
+  package "window" {
+    enum Edge {
+      Top
+      Right
+      Bottom
+      Left
+    }
+
+    enum Layer {
+      Background
+      Bottom
+      Top
+      Overlay
+    }
+
+    class SurfaceMargins {
+      + top: i32
+      + right: i32
+      + bottom: i32
+      + left: i32
+      + ZERO
+      + uniform(value)
+    }
+
+    class Anchors {
+      + top: bool
+      + right: bool
+      + bottom: bool
+      + left: bool
+      + NONE
+      + ALL
+      + new(top, right, bottom, left)
+      + with_edge(edge)
+    }
+
+    enum ExclusiveZone {
+      None
+      Fixed(i32)
+      Auto
+    }
+
+    class WindowConfig {
+      + layer: Layer
+      + anchors: Anchors
+      + surface_margins: SurfaceMargins
+      + exclusive_zone: ExclusiveZone
+      + namespace: Option<&'static str>
+      + keyboard_interactive: bool
+      + new(layer)
+      + with_anchors(anchors)
+      + with_surface_margins(margins)
+      + with_exclusive_zone(zone)
+      + with_auto_exclusive_zone()
+      + with_namespace(namespace)
+    }
+  }
+
+  ShellApp --> StylesheetRegistration
+  StylesheetRegistration --> StylesheetSource
+  StylesheetRegistration --> CssPriority
+  Stylesheet --> StylesheetSource
+  Stylesheet --> CssPriority
+  WindowConfig --> Layer
+  WindowConfig --> Anchors
+  WindowConfig --> SurfaceMargins
+  WindowConfig --> ExclusiveZone
+  Anchors --> Edge
+}
+
+package "provider/core\ncrate: providers" {
+  interface "Provider<T>" as Provider {
+    + run(context, sender): Future<Result>
+  }
+
+  interface "ProviderExt<Input>" as ProviderExt {
+    + map(map)
+    + combine_latest(right, combine)
+  }
+
+  class ProviderContext {
+    - cancellation: CancellationToken
+    + new(cancellation)
+    + cancellation()
+    + is_cancelled()
+    + cancelled()
+  }
+
+  class ProviderSender<T> {
+    - send: Arc<Mutex<FnMut(T)>>
+    + new(send)
+    + send(value)
+  }
+
+  class CancellationToken {
+    - cancelled: Arc<AtomicBool>
+    + new()
+    + cancel()
+    + is_cancelled()
+  }
+
+  class Subscription {
+    - cancellation: CancellationToken
+    - task: Option<JoinHandle>
+    + new()
+    + context()
+    + cancel()
+    + set_task(task)
+  }
+
+  class SubscriptionGroup {
+    - subscriptions: Vec<Subscription>
+    + new()
+    + push(subscription)
+    + cancel()
+    + len()
+    + is_empty()
+  }
+
+  class ProviderError {
+    - message: String
+    + new(message)
+    + message()
+  }
+
+  class "MapProvider<P,F,Input,Output>" as MapProvider {
+    - provider: P
+    - map: F
+  }
+
+  class "CombineLatestProvider<L,R,F,LV,RV,O>" as CombineLatestProvider {
+    - left: L
+    - right: R
+    - combine: F
+  }
+
+  enum "CombineLatestError<L,R>" as CombineLatestError {
+    Left(L)
+    Right(R)
+  }
+
+  enum "CombineEvent<L,R>" as CombineEvent {
+    Left(L)
+    Right(R)
+  }
+
+  ProviderExt --|> Provider
+  MapProvider ..|> Provider
+  CombineLatestProvider ..|> Provider
+
+  Provider --> ProviderContext
+  Provider --> ProviderSender
+  ProviderContext --> CancellationToken
+  Subscription --> CancellationToken
+  SubscriptionGroup --> Subscription
+  MapProvider --> Provider
+  CombineLatestProvider --> Provider
+  CombineLatestProvider --> CombineLatestError
+  CombineLatestProvider --> CombineEvent
+}
+
+package "provider/dbus\ncrate: dbus_provider" {
+  enum DbusBus {
+    Session
+    System
+  }
+
+  class "Object<Target>" as DbusObject {
+    + bus: DbusBus
+    + service: &'static str
+    + path: &'static str
+    + interface: &'static str
+    + session(service,path,interface)
+    + system(service,path,interface)
+    + bind(property): PropertyBinding<Value>
+  }
+
+  class "Property<Target,Value>" as DbusProperty {
+    + key: &'static str
+    + new(key)
+  }
+
+  class "PropertyBinding<T>" as DbusPropertyBinding {
+    + bus: DbusBus
+    + service: &'static str
+    + path: &'static str
+    + interface: &'static str
+    + property: &'static str
+  }
+
+  enum DbusWatchError {
+    Fdo
+    Zbus
+  }
+
+  DbusObject --> DbusBus
+  DbusObject --> DbusProperty
+  DbusObject --> DbusPropertyBinding
+  DbusPropertyBinding ..|> Provider
+  DbusPropertyBinding --> DbusWatchError
+}
+
+package "provider/locus\ncrate: locus_provider" {
+  interface DecodeLocusValue {
+    + decode_locus(value)
+  }
+
+  enum LocusWatchError {
+    Decode
+    Fdo
+    Zbus
+  }
+
+  enum DecodeError {
+    Bool
+    U32
+    I32
+    F64
+  }
+
+  package "generated binding" {
+    class "Property<Model,Value>" as LocusProperty {
+      + key: &'static str
+      + new(key)
+    }
+
+    class "Path<Target>" as LocusPath {
+      + name: &'static str
+      + source: &'static str
+      + relations: &'static [&'static str]
+      + many: bool
+      + property(property): FieldBinding<Value>
+    }
+
+    class "FieldBinding<Value>" as FieldBinding {
+      + source: &'static str
+      + relations: &'static [&'static str]
+      + property: &'static str
+    }
+  }
+
+  package "generated model markers" {
+    class Unknown
+    class Context
+    class AgentSession
+    class AppInstance
+    class Output
+    class Project
+    class Window
+    class Workspace
+  }
+
+  package "generated paths" {
+    class Paths <<module>> {
+      + SELECTED_WINDOW: Path<Window>
+      + SELECTED_WORKSPACE: Path<Workspace>
+      + SELECTED_PROJECT: Path<Project>
+      + SELECTED_OUTPUT: Path<Output>
+      + SELECTED_AGENT_SESSION: Path<AgentSession>
+      + WINDOW_AGENT_SESSION: Path<AgentSession>
+      + AGENT_SESSION_PROJECT: Path<Project>
+      + AGENT_SESSION_WORKSPACE: Path<Workspace>
+      + AGENT_SESSION_WORKSPACE_PROJECT: Path<Project>
+    }
+  }
+
+  DecodeLocusValue <|.. String
+  DecodeLocusValue <|.. bool
+  DecodeLocusValue <|.. u32
+  DecodeLocusValue <|.. i32
+  DecodeLocusValue <|.. f64
+
+  LocusPath --> LocusProperty
+  LocusPath --> FieldBinding
+  FieldBinding ..|> Provider
+  FieldBinding --> DecodeLocusValue
+  FieldBinding --> LocusWatchError
+  LocusWatchError --> DecodeError
+
+  AgentSession --> LocusProperty
+  AppInstance --> LocusProperty
+  Output --> LocusProperty
+  Project --> LocusProperty
+  Window --> LocusProperty
+  Workspace --> LocusProperty
+  Paths --> LocusPath
+}
+
+package "provider/common\ncrate: common_providers" {
+  package "upower" {
+    class DisplayDevice
+    class UPower <<module>> {
+      + DISPLAY_DEVICE: dbus_provider::Object<DisplayDevice>
+      + DisplayDevice::PERCENTAGE: Property<DisplayDevice,f64>
+      + DisplayDevice::STATE: Property<DisplayDevice,u32>
+      + DisplayDevice::TIME_TO_EMPTY: Property<DisplayDevice,i64>
+      + DisplayDevice::TIME_TO_FULL: Property<DisplayDevice,i64>
+      + DisplayDevice::IS_PRESENT: Property<DisplayDevice,bool>
+    }
+  }
+
+  UPower --> DbusObject
+  UPower --> DbusProperty
+}
+
+package "shell/macros\ncrate: shell_macros" {
+  class ProcMacros <<proc-macro crate>> {
+    + bindings(attr,item)
+    + model(attr,item)
+    + component(attr,item)
+  }
+
+  class BindingsConfig <<parser>>
+  class ComponentConfig <<parser>>
+  class ModelConfig <<parser>>
+  class BindingConfig <<parser>>
+  enum ConfigEntry
+  enum ViewBinding
+
+  class GeneratedInlineModel <<generated>> {
+    + watched fields
+    + last_error: Option<WatchError>
+    - changed: Changed
+    - subscriptions: SubscriptionGroup
+    + update(msg)
+    + start(sender): SubscriptionGroup
+  }
+
+  class GeneratedTypedModelExtras <<generated>> {
+    + last_error: Option<WatchError>
+    - changed: Changed
+    - subscriptions: SubscriptionGroup
+    + changed(field)
+    + clear_changed()
+    + set_subscriptions(group)
+    + update(msg)
+    + start(sender): SubscriptionGroup
+  }
+
+  enum GeneratedMsg <<generated>> {
+    FieldVariant(T)
+    WatchFailed
+  }
+
+  enum GeneratedField <<generated>> {
+    OneVariantPerBinding
+  }
+
+  class GeneratedChanged <<generated>> {
+    - mask: Cell<u128>
+    + mark(field)
+    + contains(field)
+    + clear()
+  }
+
+  class GeneratedWatchError <<generated>> {
+    + field: &'static str
+    + error: String
+  }
+
+  ProcMacros --> BindingsConfig
+  ProcMacros --> ComponentConfig
+  ProcMacros --> ModelConfig
+  BindingConfig --> Provider
+  GeneratedInlineModel --> SubscriptionGroup
+  GeneratedTypedModelExtras --> SubscriptionGroup
+  GeneratedInlineModel --> GeneratedMsg
+  GeneratedTypedModelExtras --> GeneratedMsg
+  GeneratedInlineModel --> GeneratedChanged
+  GeneratedTypedModelExtras --> GeneratedChanged
+  GeneratedMsg --> GeneratedWatchError
+  GeneratedField --> GeneratedChanged
+}
+
+package "dev-widgets\ninternal consumer" {
+  class BarInit {
+    + title: &'static str
+  }
+
+  class BarLocus <<shell_macros::model>> {
+    + selected_window_title: String
+    + battery_percent: f64
+    + generated fields...
+  }
+
+  class Bar <<Relm4 SimpleComponent>> {
+    - locus: BarLocus
+  }
+
+  class BarSummary <<test proof>> {
+    + title: String
+    + battery_level: &'static str
+  }
+
+  Bar --> BarLocus
+  BarLocus --> FieldBinding
+  BarLocus --> DbusPropertyBinding
+  BarLocus --> GeneratedTypedModelExtras
+  Bar --> WindowConfig
+  Bar --> ShellApp
+  BarSummary ..> CombineLatestProvider
+}
+
+ShellApp ..> Stylesheet
+GeneratedTypedModelExtras ..> Provider
+GeneratedInlineModel ..> Provider
+GeneratedTypedModelExtras ..> "providers::spawn"
+GeneratedInlineModel ..> "providers::spawn"
+
+DbusPropertyBinding ..> ProviderContext
+DbusPropertyBinding ..> ProviderSender
+FieldBinding ..> ProviderContext
+FieldBinding ..> ProviderSender
+
+UPower ..> DbusObject
+BarLocus ..> Paths
+BarLocus ..> UPower
+
+@enduml

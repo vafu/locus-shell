@@ -58,7 +58,7 @@ impl Parse for BindingsConfig {
         let component = component.ok_or_else(|| input.error("missing component = Type"))?;
         let message = message.ok_or_else(|| input.error("missing message = Enum::Variant"))?;
         if bindings.is_empty() {
-            return Err(input.error("expected at least one Locus binding"));
+            return Err(input.error("expected at least one provider binding"));
         }
         validate_bindings(&bindings)?;
 
@@ -91,7 +91,7 @@ impl Parse for ComponentConfig {
                 ConfigEntry::Message(path) => {
                     return Err(syn::Error::new_spanned(
                         path,
-                        "message is inferred from type Input = locus::Msg",
+                        "message is inferred from the component Input type",
                     ));
                 }
             }
@@ -105,7 +105,7 @@ impl Parse for ComponentConfig {
 
         if bindings.is_empty() {
             if model.is_none() {
-                return Err(input.error("expected model = Type or at least one Locus binding"));
+                return Err(input.error("expected model = Type or at least one provider binding"));
             }
         } else {
             validate_bindings(&bindings)?;
@@ -211,14 +211,14 @@ pub(super) fn model_bindings(item: &ItemStruct) -> Result<Vec<BindingConfig>> {
     let Fields::Named(fields) = &item.fields else {
         return Err(syn::Error::new_spanned(
             item,
-            "locus models must use named fields",
+            "provider models must use named fields",
         ));
     };
 
     let mut bindings = Vec::new();
     for field in &fields.named {
         let field_ident = field.ident.clone().expect("named field");
-        let Some(source) = locus_source(field)? else {
+        let Some(source) = provider_source(field)? else {
             continue;
         };
         let variant = format_ident!("{}", upper_camel(&field_ident.to_string()));
@@ -233,7 +233,7 @@ pub(super) fn model_bindings(item: &ItemStruct) -> Result<Vec<BindingConfig>> {
     if bindings.is_empty() {
         return Err(syn::Error::new_spanned(
             item,
-            "locus models require at least one #[locus(source = ...)] field",
+            "provider models require at least one #[source(...)] or #[locus(source = ...)] field",
         ));
     }
 
@@ -241,22 +241,24 @@ pub(super) fn model_bindings(item: &ItemStruct) -> Result<Vec<BindingConfig>> {
     Ok(bindings)
 }
 
-fn locus_source(field: &syn::Field) -> Result<Option<Expr>> {
+fn provider_source(field: &syn::Field) -> Result<Option<Expr>> {
     for attr in &field.attrs {
-        if !attr.path().is_ident("locus") {
-            continue;
+        if attr.path().is_ident("source") {
+            return Ok(Some(attr.parse_args()?));
         }
 
-        let mut source = None;
-        attr.parse_nested_meta(|meta| {
-            if !meta.path.is_ident("source") {
-                return Err(meta.error("expected source = ..."));
-            }
-            meta.input.parse::<Token![=]>()?;
-            source = Some(parse_binding_expr(meta.input)?);
-            Ok(())
-        })?;
-        return Ok(source);
+        if attr.path().is_ident("locus") {
+            let mut source = None;
+            attr.parse_nested_meta(|meta| {
+                if !meta.path.is_ident("source") {
+                    return Err(meta.error("expected source = ..."));
+                }
+                meta.input.parse::<Token![=]>()?;
+                source = Some(parse_binding_expr(meta.input)?);
+                Ok(())
+            })?;
+            return Ok(source);
+        }
     }
 
     Ok(None)
@@ -279,7 +281,7 @@ fn validate_bindings(bindings: &[BindingConfig]) -> Result<()> {
             .expect("bindings is not empty");
         return Err(syn::Error::new_spanned(
             field,
-            "locus components support at most 128 bindings",
+            "provider models support at most 128 bindings; split the model when it grows beyond that",
         ));
     }
 
@@ -290,13 +292,13 @@ fn validate_bindings(bindings: &[BindingConfig]) -> Result<()> {
         if !fields.insert(binding.field.to_string()) {
             return Err(syn::Error::new_spanned(
                 &binding.field,
-                "duplicate Locus binding field",
+                "duplicate provider binding field",
             ));
         }
         if !variants.insert(binding.variant.to_string()) {
             return Err(syn::Error::new_spanned(
                 &binding.field,
-                "Locus binding fields must generate unique message variants",
+                "provider binding fields must generate unique message variants",
             ));
         }
     }

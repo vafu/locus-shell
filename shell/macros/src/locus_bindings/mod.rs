@@ -19,7 +19,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
     if module.content.is_none() {
         return Err(syn::Error::new_spanned(
             module_ident,
-            "locus binding modules must use inline module syntax: mod locus {}",
+            "provider binding modules must use inline module syntax: mod bindings {}",
         ));
     }
 
@@ -62,7 +62,7 @@ fn model_field_idents(item: &ItemStruct) -> Result<Vec<Ident>> {
     let Fields::Named(fields) = &item.fields else {
         return Err(syn::Error::new_spanned(
             item,
-            "locus models must use named fields",
+            "provider models must use named fields",
         ));
     };
 
@@ -70,10 +70,9 @@ fn model_field_idents(item: &ItemStruct) -> Result<Vec<Ident>> {
         .named
         .iter()
         .map(|field| {
-            field
-                .ident
-                .clone()
-                .ok_or_else(|| syn::Error::new_spanned(field, "locus models must use named fields"))
+            field.ident.clone().ok_or_else(|| {
+                syn::Error::new_spanned(field, "provider models must use named fields")
+            })
         })
         .collect()
 }
@@ -84,7 +83,9 @@ fn strip_locus_field_attrs(item: &mut ItemStruct) {
     };
 
     for field in &mut fields.named {
-        field.attrs.retain(|attr| !attr.path().is_ident("locus"));
+        field
+            .attrs
+            .retain(|attr| !attr.path().is_ident("locus") && !attr.path().is_ident("source"));
     }
 }
 
@@ -92,7 +93,7 @@ fn push_generated_model_fields(item: &mut ItemStruct, module: &Ident) -> Result<
     let Fields::Named(fields) = &mut item.fields else {
         return Err(syn::Error::new_spanned(
             item,
-            "locus models must use named fields",
+            "provider models must use named fields",
         ));
     };
 
@@ -103,7 +104,7 @@ fn push_generated_model_fields(item: &mut ItemStruct, module: &Ident) -> Result<
         if ident == "last_error" || ident == "changed" || ident == "subscriptions" {
             return Err(syn::Error::new_spanned(
                 ident,
-                "locus models reserve last_error, changed, and subscriptions",
+                "provider models reserve last_error, changed, and subscriptions",
             ));
         }
     }

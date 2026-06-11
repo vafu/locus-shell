@@ -62,12 +62,12 @@ Likely reusable crates or feature-gated modules:
 - `providers`: core provider traits, subscriptions, and combinators.
 - `locus-provider`: generated Locus graph contracts and Locus-over-D-Bus provider implementation.
 - `dbus-provider`: generic D-Bus object/property provider implementation.
-- `standard-dbus`: feature-gated typed definitions for common services such as UPower.
-- Future `pipewire` or `standard-pipewire`: typed audio providers.
-- Future `standard-system`: time, sysstats, filesystem, process providers.
-- Future `standard-network`: network and Bluetooth providers if D-Bus definitions grow large.
-- Future `standard-media`: MPRIS and status-notifier/tray helpers.
-- Future `standard-icons`: icon lookup/cache providers.
+- `common-providers`: feature-gated typed definitions for common services such as UPower.
+- Future `pipewire` or `common-pipewire`: typed audio providers.
+- Future `common-system`: time, sysstats, filesystem, process providers.
+- Future `common-network`: network and Bluetooth providers if D-Bus definitions grow large.
+- Future `common-media`: MPRIS and status-notifier/tray helpers.
+- Future `common-icons`: icon lookup/cache providers.
 
 ## Boundary
 

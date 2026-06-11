@@ -12,7 +12,7 @@ providers.workspace = true
 relm4.workspace = true
 shell-core.workspace = true
 shell-macros.workspace = true
-standard-dbus = { workspace = true, features = ["upower"] }
+common-providers = { workspace = true, features = ["upower"] }
 
 [dev-dependencies]
 futures = "0.3.32"

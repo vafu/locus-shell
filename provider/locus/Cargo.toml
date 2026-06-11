@@ -10,6 +10,7 @@ publish = false
 futures-util = "0.3.32"
 locus-dbus = { path = "../../../locus/locus-dbus" }
 providers.workspace = true
+tokio = { version = "1.52.3", features = ["macros"] }
 zbus = { version = "5.15.0", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]

@@ -5,8 +5,8 @@ members = [
     "provider/core",
     "provider/locus",
     "provider/dbus",
+    "provider/common",
     "shell/macros",
-    "standard/dbus",
 ]
 resolver = "3"
 
@@ -24,4 +24,4 @@ providers = { path = "provider/core" }
 relm4 = "0.11.0"
 shell-core = { path = "shell/core" }
 shell-macros = { path = "shell/macros" }
-standard-dbus = { path = "standard/dbus" }
+common-providers = { path = "provider/common" }

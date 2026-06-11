@@ -154,7 +154,8 @@ The macro should:
   - `locus-dbus` owns protocol proxies
   - `locus-shell/provider/locus` adapts typed Locus graph bindings to provider updates
   - `locus-shell/provider/dbus` adapts generic D-Bus properties to provider updates
-  - `locus-shell/macros` hides Relm4 boilerplate
+  - `locus-shell/provider/common` exposes feature-gated typed common D-Bus service definitions
+  - `locus-shell/shell/macros` hides Relm4 boilerplate
 - Keep raw string APIs available as escape hatches for dynamic or experimental schemas.
 
 ## Assumptions

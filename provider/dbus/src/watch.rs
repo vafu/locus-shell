@@ -57,11 +57,19 @@ where
 
     let mut updates = proxy.receive_property_changed::<T>(binding.property).await;
 
-    while let Some(update) = updates.next().await {
-        if context.is_cancelled() {
+    loop {
+        let update = tokio::select! {
+            _ = context.cancelled() => break,
+            update = updates.next() => update,
+        };
+        let Some(update) = update else {
             break;
-        }
-        emit_value_if_active(&context, update.get().await?, &mut on_value);
+        };
+        let value = tokio::select! {
+            _ = context.cancelled() => break,
+            value = update.get() => value?,
+        };
+        emit_value_if_active(&context, value, &mut on_value);
     }
 
     Ok(())

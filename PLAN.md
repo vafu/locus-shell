@@ -35,13 +35,13 @@ Framework crates own:
 
 ### 1. Foundation: Workspace And Boundaries
 
-- Keep related crates grouped by family: `shell/core`, `shell/macros`, `provider/core`, `provider/locus`, `provider/dbus`, and `standard/dbus`.
+- Keep related crates grouped by family: `shell/core`, `shell/macros`, `provider/core`, `provider/locus`, `provider/dbus`, and `provider/common`.
 - `shell-core` only exposes generic framework primitives.
 - `dev-widgets` remains internal and proves ergonomics.
 - `provider/core` publishes the `providers` crate with reusable provider traits, subscription handles, cancellation, runtime spawning, and backend-neutral combinators.
 - `provider/locus` publishes the `locus-provider` crate with generated Locus graph contracts plus the Locus-over-D-Bus provider implementation.
 - `provider/dbus` publishes the `dbus-provider` crate with generic D-Bus object/property provider implementation.
-- `standard/dbus` publishes `standard-dbus` with feature-gated common service definitions and contains no watcher/runtime policy.
+- `provider/common` publishes `common-providers` with feature-gated common service definitions and contains no watcher/runtime policy.
 - Do not put user-facing bar, OSD, notification, launcher, or workspace switcher behavior in framework crates.
 
 ### 2. Shell Core V1
@@ -80,29 +80,29 @@ Framework crates own:
 - Implement `providers::Provider<T>` for pure D-Bus property bindings.
 - Keep async D-Bus work off the GTK thread.
 
-### 4a. Standard D-Bus Definitions
+### 4a. Common Provider Definitions
 
-- Add a root-level `standard-dbus` crate for common typed D-Bus objects/properties.
+- Keep the `common-providers` crate under `provider/common` for common typed D-Bus objects/properties.
 - Keep modules feature-gated by service, starting with `upower`.
-- Expose definitions such as `standard_dbus::upower::DISPLAY_DEVICE`.
+- Expose definitions such as `common_providers::upower::DISPLAY_DEVICE`.
 - Keep runtime watchers and binding machinery in `dbus-provider`.
 
 ### 5. Macro Crate
 
-- Add a root-level `macros` crate after D-Bus contracts are known.
+- Keep the `shell/macros` crate as the Relm4/provider binding proc-macro crate.
 - Accept generated typed `FieldBinding<T>` expressions instead of raw string tuple paths.
 - Integrate directly with `#[relm4::component]` instead of requiring side modules.
 - Let consumers declare a typed state model with field-level source attributes:
   - `#[shell_macros::model]`
-  - `#[locus(source = ...)]`
+  - `#[source(...)]`
   - `#[shell_macros::component(model = BarLocus)]`
 - Generate minimal Relm4 glue for graph-bound fields:
   - typed model cache
   - typed update messages
   - async watcher startup
 - Dispatch binding expressions through `providers::Provider<T>` instead of backend-specific watcher functions.
-- Spawn generated provider tasks through `providers::spawn`, backed by the provider Tokio runtime.
-- Let component views bind GTK setters with `#[locus(field)]`:
+- Spawn generated provider tasks through `providers::spawn`, backed by the provider Tokio runtime, and keep task handles owned by subscriptions.
+- Let component views bind GTK setters with `#[bind(field)]`:
   - closure adapters such as `set_label: |title| title.as_str()`
   - function adapters such as `set_css_classes: window_title_classes`
   - generated Relm4 `#[track(...)]` guards so unrelated field changes do not redraw the setter
@@ -111,7 +111,7 @@ Framework crates own:
 ### 6. Framework Integration Layer
 
 - Connect macro output to provider subscriptions.
-- Translate `ResolveChanged` into Relm4 input messages.
+- Translate provider updates, including Locus `ResolveChanged` updates, into Relm4 input messages.
 - Maintain cached model state for watched GTK properties.
 - Avoid client-side polling or a separate reactive runtime.
 - Support derived provider chains for summarized UI data, such as workspace status, window indicators, build status, agent state, and system indicators.
@@ -122,7 +122,7 @@ Framework crates own:
 - First likely consumer: bar.
 - Then OSD.
 - Then notifications.
-- These crates depend on `shell-core`, `shell-macros`, `locus-provider`, `dbus-provider`, and `standard-dbus` as needed.
+- These crates depend on `shell-core`, `shell-macros`, `locus-provider`, `dbus-provider`, and `common-providers` as needed.
 
 ### 8. Hardening
 
@@ -131,6 +131,19 @@ Framework crates own:
 - Add macro debugging guidance.
 - Validate runtime behavior on a real Wayland compositor.
 
+### 9. Provider API Hardening
+
+- Decide whether the neutral provider contract should split runtime spawning into a follow-up crate such as `providers-tokio` or a configurable `ProviderSpawner`.
+- Keep the current `providers::spawn` runtime as the transitional default used by macro output.
+- Add richer provider combinators before external widget crates depend on ad hoc summary code:
+  - `distinct`
+  - `filter_map`
+  - `fallible_map`
+  - `combine_latest3`
+  - shared/replay providers for connection and subscription reuse
+- Add collection providers for Locus paths that resolve many nodes, with stable IDs for workspace lists, window lists, tray items, media players, and agent sessions.
+- Keep descriptor constructors and typed bind APIs public, but consider making raw string descriptor fields private with accessors before the API stabilizes.
+
 ## Next Concrete Step
 
-Decide whether macro ergonomics need a lighter syntax for common summaries, or whether explicit custom providers plus `combine_latest` are sufficient. Then validate the runtime behavior against live D-Bus/Locus services from the dev bar. The dev bar remains the proof target: selected-window title comes from `locus_provider::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.
+Decide whether macro ergonomics need a lighter syntax for common summaries, or whether explicit custom providers plus `combine_latest` are sufficient. Then validate the runtime behavior against live D-Bus/Locus services from the dev bar. The dev bar remains the proof target: selected-window title comes from `locus_provider::{paths, model}`, battery percentage comes from `common-providers`, and GTK setters bind with `#[bind(field)]`.

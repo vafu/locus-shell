@@ -48,7 +48,7 @@ fn transform_tokens(
     let mut iter = tokens.into_iter().peekable();
 
     while let Some(token) = iter.next() {
-        if let Some(field) = locus_attr_field(&token, iter.peek())? {
+        if let Some(field) = binding_attr_field(&token, iter.peek())? {
             iter.next();
             let binding = view_binding(field, bindings)?;
             append_locus_tracked_setter(&mut output, &mut iter, module_ident, binding)?;
@@ -84,7 +84,7 @@ fn view_binding(field: Ident, bindings: &ViewBindings<'_>) -> Result<ViewBinding
                 .iter()
                 .find(|binding| binding.field == field)
                 .ok_or_else(|| {
-                    syn::Error::new_spanned(field, "unknown Locus field in view attribute")
+                    syn::Error::new_spanned(field, "unknown provider field in view attribute")
                 })?;
             Ok(ViewBinding::Known {
                 field: binding.field.clone(),
@@ -98,7 +98,7 @@ fn view_binding(field: Ident, bindings: &ViewBindings<'_>) -> Result<ViewBinding
     }
 }
 
-fn locus_attr_field(current: &TokenTree, next: Option<&TokenTree>) -> Result<Option<Ident>> {
+fn binding_attr_field(current: &TokenTree, next: Option<&TokenTree>) -> Result<Option<Ident>> {
     let TokenTree::Punct(punct) = current else {
         return Ok(None);
     };
@@ -117,32 +117,25 @@ fn locus_attr_field(current: &TokenTree, next: Option<&TokenTree>) -> Result<Opt
     let Some(TokenTree::Ident(attr_name)) = attr_tokens.next() else {
         return Ok(None);
     };
-    if attr_name != "locus" {
+    let attr = attr_name.to_string();
+    if attr != "locus" && attr != "bind" {
         return Ok(None);
     }
+    let expected = format!("#[{}(field)]", attr);
     let Some(TokenTree::Group(args)) = attr_tokens.next() else {
-        return Err(syn::Error::new_spanned(
-            attr_name,
-            "expected #[locus(field)]",
-        ));
+        return Err(syn::Error::new_spanned(attr_name, expected));
     };
     if args.delimiter() != Delimiter::Parenthesis {
-        return Err(syn::Error::new_spanned(
-            attr_name,
-            "expected #[locus(field)]",
-        ));
+        return Err(syn::Error::new_spanned(attr_name, expected));
     }
     let mut args = args.stream().into_iter();
     let Some(TokenTree::Ident(field)) = args.next() else {
-        return Err(syn::Error::new_spanned(
-            attr_name,
-            "expected #[locus(field)]",
-        ));
+        return Err(syn::Error::new_spanned(attr_name, expected));
     };
     if args.next().is_some() || attr_tokens.next().is_some() {
         return Err(syn::Error::new_spanned(
             field,
-            "expected exactly one Locus field",
+            "expected exactly one provider field",
         ));
     }
     Ok(Some(field))
@@ -160,7 +153,7 @@ fn append_locus_tracked_setter(
         let Some(token) = iter.next() else {
             return Err(syn::Error::new_spanned(
                 binding.field(),
-                "expected setter after #[locus(field)]",
+                "expected setter after provider binding attribute",
             ));
         };
         let is_colon = matches!(&token, TokenTree::Punct(punct) if punct.as_char() == ':');
@@ -238,7 +231,7 @@ fn locus_setter_value_expr(
     if closure.inputs.len() != 1 {
         return Err(syn::Error::new_spanned(
             closure.or1_token,
-            "locus setter closures must accept exactly one field value",
+            "provider setter closures must accept exactly one field value",
         ));
     }
 
@@ -266,7 +259,7 @@ fn validate_locus_value_pat(input: &Pat) -> Result<()> {
     let Pat::Ident(_) = input else {
         return Err(syn::Error::new_spanned(
             input,
-            "locus setter closure parameters must be identifiers or typed patterns",
+            "provider setter closure parameters must be identifiers or typed patterns",
         ));
     };
 

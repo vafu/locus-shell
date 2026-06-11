@@ -11,8 +11,9 @@ The shell should provide a concise authoring model for widgets while preserving 
 - No JavaScript engine, embedded interpreter, or client-side reactive runtime.
 - Each major widget is a standalone binary, for example `locus-bar` and `locus-osd`.
 - Widget failures must be isolated to their own process.
-- UI state is driven by `io.github.Locus.Graph.Resolve`.
-- Widgets subscribe through `SubscribeResolve` and redraw only when `ResolveChanged` is emitted.
+- Locus graph-derived UI state is driven by `io.github.Locus.Graph.Resolve`.
+- Locus graph providers subscribe through `SubscribeResolve` and redraw only when `ResolveChanged` is emitted.
+- Non-Locus sources such as UPower, time, weather, media, and custom user logic enter the UI through typed `providers::Provider<T>` implementations.
 - Relm4 boilerplate should be hidden behind procedural macros where practical.
 - D-Bus work must run asynchronously outside the GTK UI thread.
 - Styling belongs in external CSS files, not hardcoded Rust widget properties.
@@ -29,16 +30,15 @@ locus/
 ├── provider/
 │   ├── core/        # package: providers
 │   ├── locus/       # package: locus-provider
-│   └── dbus/        # package: dbus-provider
-└── standard/
-    └── dbus/        # package: standard-dbus
+│   ├── dbus/        # package: dbus-provider
+│   └── common/      # package: common-providers
 ```
 
 This repository is the framework workspace. User-facing shell implementations should live in separate crates or repositories that consume these framework crates.
 
 ## Runtime Architecture
 
-Locus Shell widgets are thin UI processes. They subscribe to graph resolutions from `locusd`, receive server-side changes over D-Bus, translate those changes into Relm4 messages, and let Relm4 update watched GTK properties.
+Locus Shell widgets are thin UI processes. They subscribe to typed provider sources, translate provider changes into Relm4 messages, and let Relm4 update watched GTK properties. Locus graph-derived providers receive server-side changes from `locusd` over D-Bus; pure D-Bus and custom providers use the same UI binding path.
 
 ```text
 +---------------+                    +------------------+                    +-----------------+
@@ -85,9 +85,9 @@ Initial dependencies:
 - `relm4`
 - `gtk4-layer-shell`, or another GTK4-compatible Wayland layer shell binding
 
-### `macros`
+### `shell-macros`
 
-Procedural macro crate that reduces Relm4 widget boilerplate and binds UI state to Locus graph resolutions.
+Procedural macro crate that reduces Relm4 widget boilerplate and binds UI state to typed providers.
 
 Initial dependencies:
 
@@ -99,15 +99,13 @@ Responsibilities:
 
 - Parse `#[shell_macros::component(...)]` attributes stacked with `#[relm4::component]`.
 - Parse typed state models annotated with `#[shell_macros::model]`.
-- Extract typed generated field bindings from model fields of the form:
+- Extract typed provider sources from model fields of the form:
 
 ```rust
 #[shell_macros::model]
 pub struct BarLocus {
-    #[locus(
-        source = locus_provider::paths::SELECTED_WINDOW
-            .property(locus_provider::model::Window::TITLE)
-    )]
+    #[source(locus_provider::paths::SELECTED_WINDOW
+        .property(locus_provider::model::Window::TITLE))]
     pub selected_window_title: String,
 }
 ```
@@ -127,19 +125,16 @@ selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
   - Locus graph field bindings through generated `FieldBinding<T>` expressions.
   - Pure D-Bus property bindings through typed `dbus_provider::Object<Target>` and `dbus_provider::Property<Target, Value>` pairs.
   - Consumer-defined providers that implement `providers::Provider<T>`.
-- Rewrite `#[locus(field)]` view setters into Relm4 `#[track(...)]` updates so only widgets bound to the changed field redraw.
+- Rewrite `#[bind(field)]` view setters into Relm4 `#[track(...)]` updates so only widgets bound to the changed field redraw. `#[locus(...)]` remains a compatibility spelling during the transition.
 
 Target authoring shape:
 
 ```rust
 #[shell_macros::model]
 pub struct BarLocus {
-    #[locus(
-        source = locus_provider::paths::SELECTED_WINDOW
-            .property(locus_provider::model::Window::TITLE)
-    )]
+    #[source(paths::SELECTED_WINDOW.property(model::Window::TITLE))]
     pub selected_window_title: String,
-    #[locus(source = DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
+    #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
     pub battery_percent: f64,
 }
 
@@ -155,10 +150,10 @@ impl SimpleComponent for Bar {
     view! {
         gtk::Window {
             gtk::Label {
-                #[locus(selected_window_title)]
+                #[bind(selected_window_title)]
                 set_label: |title| title.as_str(),
 
-                #[locus(selected_window_title)]
+                #[bind(selected_window_title)]
                 set_css_classes: window_title_classes,
             }
         }
@@ -191,7 +186,7 @@ Non-responsibilities:
 
 - No D-Bus transport implementation.
 - No GTK widget or shell-window policy.
-- No standard service definitions.
+- No common service definitions.
 
 ### `locus-provider`
 
@@ -209,7 +204,7 @@ Responsibilities:
 Non-responsibilities:
 
 - No generic D-Bus object/property model.
-- No standard service definitions such as UPower.
+- No common service definitions such as UPower.
 - No GTK or Relm4 widget policy.
 
 ### `dbus-provider`
@@ -227,7 +222,7 @@ Non-responsibilities:
 
 - No Locus graph schema or `FieldBinding<T>`.
 - No generated graph contracts.
-- No standard service definitions.
+- No common service definitions.
 
 ### `dev-widgets`
 
@@ -240,7 +235,7 @@ Responsibilities:
 - Keep dev widgets out of the framework API and out of later user-facing shell implementations.
 - Keep styling in external CSS files.
 
-### `standard-dbus`
+### `common-providers`
 
 Feature-gated typed definitions for common D-Bus services.
 
@@ -248,8 +243,8 @@ Responsibilities:
 
 - Expose common service objects and properties as `dbus_provider::Object<T>` and `dbus_provider::Property<T, V>`.
 - Keep runtime watching/provider implementation in the `dbus-provider` crate.
-- Keep each standard service behind an opt-in feature such as `upower`.
-- Provide definitions consumers can import directly, for example `standard_dbus::upower::DISPLAY_DEVICE`.
+- Keep each common service behind an opt-in feature such as `upower`.
+- Provide definitions consumers can import directly, for example `common_providers::upower::DISPLAY_DEVICE`.
 
 ### Future user-facing widget crates
 
@@ -263,46 +258,21 @@ Responsibilities:
 - Decide their own shell roles, placement, exclusive zones, and behavior.
 - Use `shell-core` only for generic layer-shell setup.
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1: Shell Core
+`PLAN.md` is the live roadmap. At a high level, the current workspace already has:
 
-1. Convert the repository into a Cargo workspace if needed.
-2. Add `shell/core` package `shell-core`.
-3. Add GTK4, Relm4, and layer-shell dependencies.
-4. Implement generic layer-shell window creation.
-5. Keep helpers small and explicit around `gtk::Window`.
-6. Add root-level `dev-widgets` as a consumer crate for development-only primitive widgets.
+- `shell/core` for app startup, CSS/SCSS loading, and generic layer-shell windows.
+- `shell/macros` for Relm4 provider-model bindings.
+- `provider/core`, `provider/locus`, `provider/dbus`, and `provider/common` for typed provider contracts and implementations.
+- `dev-widgets` as a framework ergonomics target, not a user-facing shell.
 
-### Phase 2: Procedural Macros
-
-1. Add root-level `macros` as a `proc-macro = true` crate.
-2. Implement attribute parsing for field-to-resolution bindings.
-3. Preserve the wrapped Relm4 component implementation.
-4. Generate cache state and update messages.
-5. Add async subscription scaffolding for D-Bus updates.
-6. Integrate with `locus-dbus` once the local proxy API is available.
-
-### Phase 3: First Widget
-
-1. Add the first user-facing widget crate outside the core framework boundary.
-2. Create a top panel with external CSS.
-3. Build the panel's layer-shell config in the consuming crate.
-4. Apply that config through `shell-core`.
-5. Bind visible labels through `macros`.
-6. Verify that widget startup, CSS loading, and layer placement work independently.
-
-### Phase 4: OSD Widget
-
-1. Add a user-facing OSD widget crate outside the core framework boundary.
-2. Build OSD placement and transient behavior in the consuming crate.
-3. Subscribe to volume and brightness graph paths.
-4. Implement transient display behavior without blocking the GTK thread.
+Future user-facing widgets such as bars and OSDs should be created outside this framework workspace and consume these crates.
 
 ## Engineering Guardrails
 
 - Do not block the GTK UI thread with D-Bus work.
-- Use Relm4 command spawning, Tokio, or GLib async facilities for subscriptions.
+- Use provider subscriptions for async work; the current default runtime is Tokio-backed and should remain off the GTK thread.
 - Avoid allocations in render/watch paths where practical.
 - Prefer `as_str()` and precomputed model state over `format!` inside `#[watch]`.
 - Keep CSS in stylesheet files and attach classes from Rust.
@@ -316,5 +286,5 @@ Responsibilities:
 - Exact shape of the existing `locus-dbus` Resolve proxy API.
 - Whether the final workspace root is this repository or a parent `locus` workspace.
 - Which GTK4 layer-shell crate is actively maintained and compatible with the target platform.
-- Whether async subscriptions should standardize on Tokio, GLib, or a thin compatibility layer.
+- Whether async subscriptions should settle on Tokio, GLib, or a thin compatibility layer.
 - The final D-Bus payload format for `ResolveChanged` values.

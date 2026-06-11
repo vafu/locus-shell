@@ -36,6 +36,10 @@ Moved generated provider task spawning from `relm4::spawn` to `providers::spawn`
 
 Moved provider-family crates under `provider/`: `provider/core` for the `providers` crate, `provider/dbus` for generic D-Bus properties, and `provider/locus` for Locus graph bindings. Package names and user-facing imports stay stable while the directory layout now reflects responsibility areas.
 
+## Common Providers Rename
+
+Renamed the reusable common provider definitions crate from `standard-dbus` to `common-providers` and moved it under `provider/common`. This keeps UPower and future shared service definitions in the provider family without implying they are standards-layer code.
+
 ## Macro Provider Dispatch
 
 Removed macro-side source classification. `#[locus(source = ...)]` now treats the source as a generic provider expression. This makes custom providers possible without teaching the macro about every backend.
@@ -55,3 +59,7 @@ Explored `/home/v47/.config/ags` via an agent and documented the bar’s data so
 ## Verification Pass
 
 After the provider migration, ran the full workspace formatter check, `cargo check --workspace`, and `cargo test --workspace --all-features`. Subagents also reviewed the provider, D-Bus, and macro slices with the Rust guidance in mind and made small fixes around cancellation, provider docs, and generated subscription storage.
+
+## Architecture Review Fixes
+
+Addressed the architecture review findings by making provider cancellation awaitable, letting subscriptions own spawned Tokio task handles, and selecting D-Bus/Locus watch loops against cancellation. Added provider-neutral macro spelling with `#[source(...)]` and `#[bind(field)]` while keeping `#[locus(...)]` as a compatibility path. Updated the roadmap, blueprint, migration notes, and PlantUML architecture source to reflect generic providers, the `provider/common` crate, and the remaining hardening work.

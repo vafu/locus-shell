@@ -21,4 +21,9 @@ impl ProviderContext {
     pub fn is_cancelled(&self) -> bool {
         self.cancellation.is_cancelled()
     }
+
+    /// Completes when the provider should stop producing values.
+    pub async fn cancelled(&self) {
+        self.cancellation.cancelled().await;
+    }
 }
