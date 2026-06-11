@@ -7,12 +7,11 @@ license.workspace = true
 publish = false
 
 [dependencies]
-dbus.workspace = true
-locus-graph.workspace = true
-locus-macros.workspace = true
+locus-provider.workspace = true
 providers.workspace = true
 relm4.workspace = true
 shell-core.workspace = true
+shell-macros.workspace = true
 standard-dbus = { workspace = true, features = ["upower"] }
 
 [dev-dependencies]

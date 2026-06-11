@@ -10,8 +10,8 @@ fn parses_binding_config() {
     let config = parse2::<BindingsConfig>(quote! {
         component = Bar,
         message = BarMsg::Locus,
-        selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
     })
     .unwrap();
 
@@ -25,8 +25,8 @@ fn expands_inline_module() {
     let attr = quote! {
         component = Bar,
         message = BarMsg::Locus,
-        selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
     };
     let item = quote! {
         mod locus {}
@@ -39,8 +39,8 @@ fn expands_inline_module() {
 #[test]
 fn expands_component_impl() {
     let attr = quote! {
-        selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
     };
     let item = quote! {
         impl SimpleComponent for Bar {
@@ -98,8 +98,8 @@ fn expands_dbus_property_provider_source() {
 #[test]
 fn expands_mixed_provider_sources() {
     let attr = quote! {
-        selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
         battery_percent: f64 = BATTERY.bind(Battery::PERCENTAGE),
     };
     let item = component_item();
@@ -114,8 +114,8 @@ fn expands_mixed_provider_sources() {
 #[test]
 fn expands_locus_view_setters() {
     let attr = quote! {
-        selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
     };
     let item = quote! {
         impl SimpleComponent for Bar {
@@ -163,8 +163,8 @@ fn expands_typed_model() {
     let item = quote! {
         pub struct BarLocus {
             #[locus(
-                source = locus_graph::paths::SELECTED_WINDOW
-                    .property(locus_graph::model::Window::TITLE)
+                source = locus_provider::paths::SELECTED_WINDOW
+                    .property(locus_provider::model::Window::TITLE)
             )]
             pub selected_window_title: String,
             #[locus(source = DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
@@ -237,10 +237,10 @@ fn expands_model_component_impl() {
 #[test]
 fn rejects_duplicate_binding_fields() {
     let error = component_parse_error(quote! {
-        selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
-        selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
     });
 
     assert!(error.to_string().contains("duplicate Locus binding field"));
@@ -249,10 +249,10 @@ fn rejects_duplicate_binding_fields() {
 #[test]
 fn rejects_duplicate_generated_variants() {
     let error = component_parse_error(quote! {
-        selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
-        selected__window_title: String = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE),
+        selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
+        selected__window_title: String = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE),
     });
 
     assert!(
@@ -267,8 +267,8 @@ fn rejects_too_many_bindings_for_dirty_mask() {
     let bindings = (0..129).map(|index| {
         let field = format_ident!("field_{index}");
         quote! {
-            #field: String = locus_graph::paths::SELECTED_WINDOW
-                .property(locus_graph::model::Window::TITLE),
+            #field: String = locus_provider::paths::SELECTED_WINDOW
+                .property(locus_provider::model::Window::TITLE),
         }
     });
     let error = component_parse_error(quote! {
@@ -287,13 +287,13 @@ fn accepts_parenthesized_binding_expr() {
     let config = parse2::<BindingsConfig>(quote! {
         component = Bar,
         message = BarMsg::Locus,
-        selected_window_title: String = (locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE)),
+        selected_window_title: String = (locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE)),
     })
     .unwrap();
     let expected = quote! {
-        locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE)
+        locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE)
     };
 
     let expr = &config.bindings[0].source;

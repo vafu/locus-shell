@@ -4,7 +4,7 @@ use super::upower::{DISPLAY_DEVICE, DisplayDevice};
 fn display_device_percentage_binding_targets_upower() {
     let binding = DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE);
 
-    assert_eq!(binding.bus, dbus::DbusBus::System);
+    assert_eq!(binding.bus, dbus_provider::DbusBus::System);
     assert_eq!(binding.service, "org.freedesktop.UPower");
     assert_eq!(
         binding.path,

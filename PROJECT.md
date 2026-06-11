@@ -22,14 +22,16 @@ The shell should provide a concise authoring model for widgets while preserving 
 ```text
 locus/
 ├── Cargo.toml
-├── shell-core/
+├── shell/
+│   ├── core/        # package: shell-core
+│   └── macros/      # package: shell-macros
 ├── dev-widgets/
 ├── provider/
 │   ├── core/        # package: providers
-│   ├── locus/       # package: locus-graph
-│   └── dbus/        # package: dbus
-├── macros/
-└── standard-dbus/
+│   ├── locus/       # package: locus-provider
+│   └── dbus/        # package: dbus-provider
+└── standard/
+    └── dbus/        # package: standard-dbus
 ```
 
 This repository is the framework workspace. User-facing shell implementations should live in separate crates or repositories that consume these framework crates.
@@ -95,27 +97,27 @@ Initial dependencies:
 
 Responsibilities:
 
-- Parse `#[locus_macros::component(...)]` attributes stacked with `#[relm4::component]`.
-- Parse typed state models annotated with `#[locus_macros::model]`.
+- Parse `#[shell_macros::component(...)]` attributes stacked with `#[relm4::component]`.
+- Parse typed state models annotated with `#[shell_macros::model]`.
 - Extract typed generated field bindings from model fields of the form:
 
 ```rust
-#[locus_macros::model]
+#[shell_macros::model]
 pub struct BarLocus {
     #[locus(
-        source = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE)
+        source = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE)
     )]
     pub selected_window_title: String,
 }
 ```
 
-- Keep `#[locus_macros::component(model = BarLocus)]` focused on Relm4 lifecycle wiring and view tracking.
+- Keep `#[shell_macros::component(model = BarLocus)]` focused on Relm4 lifecycle wiring and view tracking.
 - Preserve legacy component-level bindings during the transition:
 
 ```rust
-selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
-    .property(locus_graph::model::Window::TITLE)
+selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
+    .property(locus_provider::model::Window::TITLE)
 ```
 
 - Generate model state for resolved values.
@@ -123,18 +125,18 @@ selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
 - Generate async subscription setup that forwards provider updates into Relm4 input messages.
 - Support binding providers:
   - Locus graph field bindings through generated `FieldBinding<T>` expressions.
-  - Pure D-Bus property bindings through typed `dbus::Object<Target>` and `dbus::Property<Target, Value>` pairs.
+  - Pure D-Bus property bindings through typed `dbus_provider::Object<Target>` and `dbus_provider::Property<Target, Value>` pairs.
   - Consumer-defined providers that implement `providers::Provider<T>`.
 - Rewrite `#[locus(field)]` view setters into Relm4 `#[track(...)]` updates so only widgets bound to the changed field redraw.
 
 Target authoring shape:
 
 ```rust
-#[locus_macros::model]
+#[shell_macros::model]
 pub struct BarLocus {
     #[locus(
-        source = locus_graph::paths::SELECTED_WINDOW
-            .property(locus_graph::model::Window::TITLE)
+        source = locus_provider::paths::SELECTED_WINDOW
+            .property(locus_provider::model::Window::TITLE)
     )]
     pub selected_window_title: String,
     #[locus(source = DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
@@ -145,7 +147,7 @@ pub struct Bar {
     locus: BarLocus,
 }
 
-#[locus_macros::component(model = BarLocus)]
+#[shell_macros::component(model = BarLocus)]
 #[relm4::component(pub)]
 impl SimpleComponent for Bar {
     type Input = locus::Msg;
@@ -191,7 +193,7 @@ Non-responsibilities:
 - No GTK widget or shell-window policy.
 - No standard service definitions.
 
-### `locus-graph`
+### `locus-provider`
 
 Generated Locus graph contracts plus the direct Locus-over-D-Bus provider implementation.
 
@@ -210,13 +212,13 @@ Non-responsibilities:
 - No standard service definitions such as UPower.
 - No GTK or Relm4 widget policy.
 
-### `dbus`
+### `dbus-provider`
 
 Generic typed D-Bus object/property provider crate.
 
 Responsibilities:
 
-- Expose `dbus::Object<T>`, `dbus::Property<T, V>`, and `dbus::PropertyBinding<V>`.
+- Expose `dbus_provider::Object<T>`, `dbus_provider::Property<T, V>`, and `dbus_provider::PropertyBinding<V>`.
 - Support session and system bus objects.
 - Implement `providers::Provider<T>` for pure D-Bus property bindings.
 - Emit initial property values before subscribing to property changes.
@@ -244,8 +246,8 @@ Feature-gated typed definitions for common D-Bus services.
 
 Responsibilities:
 
-- Expose common service objects and properties as `dbus::Object<T>` and `dbus::Property<T, V>`.
-- Keep runtime watching/provider implementation in the `dbus` crate.
+- Expose common service objects and properties as `dbus_provider::Object<T>` and `dbus_provider::Property<T, V>`.
+- Keep runtime watching/provider implementation in the `dbus-provider` crate.
 - Keep each standard service behind an opt-in feature such as `upower`.
 - Provide definitions consumers can import directly, for example `standard_dbus::upower::DISPLAY_DEVICE`.
 
@@ -266,7 +268,7 @@ Responsibilities:
 ### Phase 1: Shell Core
 
 1. Convert the repository into a Cargo workspace if needed.
-2. Add root-level `shell-core`.
+2. Add `shell/core` package `shell-core`.
 3. Add GTK4, Relm4, and layer-shell dependencies.
 4. Implement generic layer-shell window creation.
 5. Keep helpers small and explicit around `gtk::Window`.

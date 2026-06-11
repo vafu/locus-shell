@@ -1,12 +1,12 @@
 [workspace]
 members = [
-    "shell-core",
+    "shell/core",
     "dev-widgets",
     "provider/core",
     "provider/locus",
     "provider/dbus",
-    "macros",
-    "standard-dbus",
+    "shell/macros",
+    "standard/dbus",
 ]
 resolver = "3"
 
@@ -18,10 +18,10 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 gtk = { package = "gtk4", version = "0.11.3" }
 gtk4-layer-shell = "0.8.0"
-dbus = { path = "provider/dbus" }
-locus-graph = { path = "provider/locus" }
-locus-macros = { path = "macros" }
+dbus-provider = { path = "provider/dbus" }
+locus-provider = { path = "provider/locus" }
 providers = { path = "provider/core" }
 relm4 = "0.11.0"
-shell-core = { path = "shell-core" }
-standard-dbus = { path = "standard-dbus" }
+shell-core = { path = "shell/core" }
+shell-macros = { path = "shell/macros" }
+standard-dbus = { path = "standard/dbus" }

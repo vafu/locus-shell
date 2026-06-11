@@ -10,11 +10,11 @@ Migrated current Locus graph field bindings and pure D-Bus property bindings to 
 
 ## Locus Graph Split
 
-Split direct Locus graph support into `locus-graph`, which owns generated graph contracts, typed decoding, `watch_field`, and the provider implementation for `FieldBinding<T>`. The generic `dbus` crate now only owns reusable D-Bus object/property bindings, which keeps optional end-user features separated by capability.
+Split direct Locus graph support into `locus-provider`, which owns generated graph contracts, typed decoding, `watch_field`, and the provider implementation for `FieldBinding<T>`. The generic `dbus-provider` crate now only owns reusable D-Bus object/property bindings, which keeps optional end-user features separated by capability.
 
 ## Generated Schema Workflow
 
-Added `scripts/locus-graph-schema` so generated graph contracts can be regenerated or checked against the adjacent `~/proj/locus` checkout. This keeps generated code vendored for normal builds while making drift explicit.
+Added `scripts/locus-provider-schema` so generated graph contracts can be regenerated or checked against the adjacent `~/proj/locus` checkout. This keeps generated code vendored for normal builds while making drift explicit.
 
 ## Provider Output Validation
 

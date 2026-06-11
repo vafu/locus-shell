@@ -115,7 +115,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
-name = "dbus"
+name = "dbus-provider"
 version = "0.1.0"
 dependencies = [
  "futures",
@@ -128,13 +128,12 @@ dependencies = [
 name = "dev-widgets"
 version = "0.1.0"
 dependencies = [
- "dbus",
  "futures",
- "locus-graph",
- "locus-macros",
+ "locus-provider",
  "providers",
  "relm4",
  "shell-core",
+ "shell-macros",
  "standard-dbus",
 ]
 
@@ -746,7 +745,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "locus-graph"
+name = "locus-provider"
 version = "0.1.0"
 dependencies = [
  "futures",
@@ -754,15 +753,6 @@ dependencies = [
  "locus-dbus",
  "providers",
  "zbus",
-]
-
-[[package]]
-name = "locus-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1071,6 +1061,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shell-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1115,7 +1114,7 @@ dependencies = [
 name = "standard-dbus"
 version = "0.1.0"
 dependencies = [
- "dbus",
+ "dbus-provider",
 ]
 
 [[package]]

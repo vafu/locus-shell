@@ -43,13 +43,13 @@ impl Parse for BindingsConfig {
                 ConfigEntry::Module(ident) => {
                     return Err(syn::Error::new_spanned(
                         ident,
-                        "module is only supported by #[locus_macros::component]",
+                        "module is only supported by #[shell_macros::component]",
                     ));
                 }
                 ConfigEntry::Model(ty) => {
                     return Err(syn::Error::new_spanned(
                         ty,
-                        "model is only supported by #[locus_macros::component]",
+                        "model is only supported by #[shell_macros::component]",
                     ));
                 }
             }
@@ -99,7 +99,7 @@ impl Parse for ComponentConfig {
 
         if model.is_some() && !bindings.is_empty() {
             return Err(input.error(
-                "model = Type components read bindings from #[locus_macros::model] fields",
+                "model = Type components read bindings from #[shell_macros::model] fields",
             ));
         }
 
@@ -147,7 +147,7 @@ impl Parse for ModelConfig {
                 ConfigEntry::Component(path) | ConfigEntry::Message(path) => {
                     return Err(syn::Error::new_spanned(
                         path,
-                        "only module = ident is supported by #[locus_macros::model]",
+                        "only module = ident is supported by #[shell_macros::model]",
                     ));
                 }
             }

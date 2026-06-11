@@ -1,4 +1,4 @@
-use locus_graph::{model, paths};
+use locus_provider::{model, paths};
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
@@ -10,7 +10,7 @@ pub struct BarInit {
     pub title: &'static str,
 }
 
-#[locus_macros::model]
+#[shell_macros::model]
 pub struct BarLocus {
     #[locus(
         source = paths::SELECTED_WINDOW
@@ -26,7 +26,7 @@ pub struct Bar {
     locus: BarLocus,
 }
 
-#[locus_macros::component(model = BarLocus)]
+#[shell_macros::component(model = BarLocus)]
 #[relm4::component(pub)]
 impl SimpleComponent for Bar {
     type Init = BarInit;

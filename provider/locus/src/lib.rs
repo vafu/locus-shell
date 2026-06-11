@@ -4,7 +4,7 @@
 //! schema. This crate owns the generated binding type and the D-Bus-backed
 //! provider implementation for it.
 //!
-//! Verify the generated contracts with `sh scripts/locus-graph-schema check`
+//! Verify the generated contracts with `sh scripts/locus-provider-schema check`
 //! from the workspace root.
 
 mod decode;

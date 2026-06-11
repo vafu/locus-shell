@@ -2,7 +2,7 @@
 
 ## Summary
 
-First update `~/proj/locus` so the YAML schema can describe typed graph properties and generate Rust contracts: models, property accessors, and common paths. Then update `locus-shell` to consume those generated contracts through `locus-graph`, a small graph integration crate that owns the generated binding type and provider implementation, while macros bind typed Locus fields into Relm4 model state.
+First update `~/proj/locus` so the YAML schema can describe typed graph properties and generate Rust contracts: models, property accessors, and common paths. Then update `locus-shell` to consume those generated contracts through `locus-provider`, a small graph integration crate that owns the generated binding type and provider implementation, while macros bind typed Locus fields into Relm4 model state.
 
 ## Phase 1: Type The Locus Schema
 
@@ -79,7 +79,7 @@ This type should be transport-neutral enough for `locus-shell` to consume, but g
 
 ## Phase 5: Add Locus-Shell Graph Adapter
 
-- Add `provider/locus` crate in `locus-shell` with package name `locus-graph`.
+- Add `provider/locus` crate in `locus-shell` with package name `locus-provider`.
 - Depend on `locus-dbus` by path initially:
   - `../locus/locus-dbus`
 - Do not reimplement the D-Bus protocol.
@@ -90,7 +90,7 @@ This type should be transport-neutral enough for `locus-shell` to consume, but g
   - expose an async stream or callback channel
 - Prefer `WatchNode` for property-bound UI fields, because it tracks both target changes and property changes.
 - Keep D-Bus work off the GTK thread.
-- Keep the separate `dbus` crate focused on generic pure D-Bus object/property bindings such as UPower.
+- Keep the separate `provider/dbus` crate focused on generic pure D-Bus object/property bindings such as UPower.
 
 ## Phase 6: Bridge Into Relm4
 
