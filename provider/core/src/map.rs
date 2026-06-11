@@ -1,6 +1,9 @@
 use std::{future::Future, marker::PhantomData, sync::Arc};
 
-use crate::{CombineLatestProvider, Provider, ProviderContext, ProviderSender, SharedProvider};
+use crate::{
+    CombineLatestProvider, Provider, ProviderContext, ProviderSender, SharedProvider,
+    SwitchMapProvider,
+};
 
 /// Provider returned by [`ProviderExt::map`].
 #[derive(Debug)]
@@ -60,6 +63,23 @@ where
         Input: Clone + Sync,
     {
         SharedProvider::new(self)
+    }
+
+    /// Replaces the active downstream provider whenever this provider emits.
+    ///
+    /// This is useful for dynamic graph paths such as selected workspace ->
+    /// windows in that workspace, where a new selected workspace must cancel
+    /// the previous list subscription.
+    fn switch_map<Output, Downstream, F>(
+        self,
+        map: F,
+    ) -> SwitchMapProvider<Self, F, Input, Downstream, Output>
+    where
+        Downstream: Provider<Output>,
+        Output: Send + 'static,
+        F: Fn(Input) -> Downstream + Send + Sync + 'static,
+    {
+        SwitchMapProvider::new(self, map)
     }
 }
 

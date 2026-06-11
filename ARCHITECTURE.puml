@@ -130,6 +130,7 @@ package "provider/core\ncrate: providers" {
     + map(map)
     + combine_latest(right, combine)
     + shared()
+    + switch_map(map)
   }
 
   class ProviderContext {
@@ -198,6 +199,15 @@ package "provider/core\ncrate: providers" {
     - state: Arc<SharedState<P,T>>
   }
 
+  class "StreamProvider<S,T,E>" as StreamProvider {
+    - stream: S
+  }
+
+  class "SwitchMapProvider<U,F,I,D,O>" as SwitchMapProvider {
+    - upstream: U
+    - map: F
+  }
+
   class "SharedState<P,T>" as SharedState {
     - provider: Mutex<Option<P>>
     - latest: Arc<Mutex<Option<T>>>
@@ -217,15 +227,29 @@ package "provider/core\ncrate: providers" {
     Right(R)
   }
 
+  enum "SwitchMapError<U,D>" as SwitchMapError {
+    Upstream(U)
+    Downstream(D)
+  }
+
   enum "CombineEvent<L,R>" as CombineEvent {
     Left(L)
     Right(R)
+  }
+
+  enum "SwitchEvent<I,UE,O,DE>" as SwitchEvent {
+    UpstreamValue(I)
+    UpstreamDone(Result)
+    DownstreamValue(usize,O)
+    DownstreamDone(usize,Result)
   }
 
   ProviderExt --|> Provider
   MapProvider ..|> Provider
   CombineLatestProvider ..|> Provider
   SharedProvider ..|> Provider
+  StreamProvider ..|> Provider
+  SwitchMapProvider ..|> Provider
 
   Provider --> ProviderContext
   Provider --> ProviderSender
@@ -240,6 +264,10 @@ package "provider/core\ncrate: providers" {
   SharedProvider --> SharedState
   SharedState --> SharedEvent
   SharedState --> Subscription
+  StreamProvider --> Provider
+  SwitchMapProvider --> Provider
+  SwitchMapProvider --> SwitchMapError
+  SwitchMapProvider --> SwitchEvent
 }
 
 package "provider/dbus\ncrate: dbus_provider" {

@@ -67,3 +67,7 @@ Addressed the architecture review findings by making provider cancellation await
 ## Shared Sources And Macro State
 
 Added shared/replay providers to `providers` so multiple fields can reuse one upstream source and late subscribers receive the latest value. Updated the macro model contract to default to a `sources` module, support explicit `state = sources`, and hide generated dirty/error/subscription state behind one private `__shell` runtime field. The dev bar now uses `BarSources` and shares one UPower battery percentage source between the progress bar and a derived text label.
+
+## Tokio Stream Provider Core
+
+Added `tokio-stream` to the provider core as an implementation-facing stream substrate. `stream_provider` adapts `Stream<Item = Result<T, E>>` into the existing `Provider<T>` contract, and `ProviderExt::switch_map` replaces active downstream subscriptions when an upstream key changes. This gives Locus collection work the primitive needed for selected-node-to-dependent-list flows without exposing a broad Rx-style runtime to widget authors.

@@ -13,7 +13,9 @@ mod provider;
 mod runtime;
 mod sender;
 mod shared;
+mod stream;
 mod subscription;
+mod switch;
 
 #[cfg(test)]
 mod test;
@@ -27,4 +29,6 @@ pub use provider::{Provider, provider_for, run_provider};
 pub use runtime::spawn;
 pub use sender::ProviderSender;
 pub use shared::SharedProvider;
+pub use stream::{StreamProvider, stream_provider};
 pub use subscription::{Subscription, SubscriptionGroup};
+pub use switch::{SwitchMapError, SwitchMapProvider};

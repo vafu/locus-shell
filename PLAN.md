@@ -39,6 +39,7 @@ Framework crates own:
 - `shell-core` only exposes generic framework primitives.
 - `dev-widgets` remains internal and proves ergonomics.
 - `provider/core` publishes the `providers` crate with reusable provider traits, subscription handles, cancellation, runtime spawning, and backend-neutral combinators.
+- Provider internals may use `tokio-stream` for stream adaptation and dynamic subscription switching, but widget-facing APIs should remain centered on `Provider<T>`.
 - `provider/locus` publishes the `locus-provider` crate with generated Locus graph contracts plus the Locus-over-D-Bus provider implementation.
 - `provider/dbus` publishes the `dbus-provider` crate with generic D-Bus object/property provider implementation.
 - `provider/common` publishes `common-providers` with feature-gated common service definitions and contains no watcher/runtime policy.
@@ -117,6 +118,7 @@ Framework crates own:
 - Maintain cached model state for watched GTK properties.
 - Avoid client-side polling or a separate reactive runtime.
 - Use shared/replay providers when multiple model fields derive from the same upstream source.
+- Use `ProviderExt::switch_map` when one provider value selects another long-lived provider, such as selected workspace -> windows in that workspace.
 - Support derived provider chains for summarized UI data, such as workspace status, window indicators, build status, agent state, and system indicators.
 
 ### 7. External User-Facing Widgets
@@ -143,10 +145,12 @@ Framework crates own:
   - `filter_map`
   - `fallible_map`
   - `combine_latest3`
+- Keep `stream_provider` available as the adapter from `tokio_stream::Stream<Item = Result<T, E>>` into `Provider<T>` for custom network, socket, timer, and service integrations.
+- Keep `switch_map` available for dynamic provider replacement; this is the core primitive for selected graph node -> dependent collection subscription flows.
 - Keep shared/replay providers available for connection and subscription reuse.
 - Add collection providers for Locus paths that resolve many nodes, with stable IDs for workspace lists, window lists, tray items, media players, and agent sessions.
 - Keep descriptor constructors and typed bind APIs public, but consider making raw string descriptor fields private with accessors before the API stabilizes.
 
 ## Next Concrete Step
 
-Next, add collection providers for Locus paths that resolve many nodes. The dev bar now proves scalar Locus fields, shared UPower-derived fields, explicit `sources` state, and GTK setters bound with `#[bind(field)]`; collections are the next missing primitive for workspaces, windows, tray items, and media players.
+Next, add collection providers for Locus paths that resolve many nodes. Use `tokio-stream` internally where it simplifies D-Bus signal/list-diff streams, expose the result as `Provider<Vec<T>>` or typed diff providers, and compose dynamic selections with `ProviderExt::switch_map`. The dev bar now proves scalar Locus fields, shared UPower-derived fields, explicit `sources` state, and GTK setters bound with `#[bind(field)]`; collections are the next missing primitive for workspaces, windows, tray items, and media players.

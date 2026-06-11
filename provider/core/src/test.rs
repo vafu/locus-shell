@@ -9,7 +9,7 @@ use std::{
 
 use super::{
     Provider, ProviderContext, ProviderError, ProviderExt, ProviderSender, Subscription,
-    SubscriptionGroup, provider_for, run_provider, spawn,
+    SubscriptionGroup, provider_for, run_provider, spawn, stream_provider,
 };
 
 struct StaticProvider(&'static str);
@@ -41,6 +41,61 @@ where
         sender: ProviderSender<T>,
     ) -> Result<(), Self::Error> {
         sender.send(self.0);
+        Ok(())
+    }
+}
+
+struct DelayedValueProvider<T> {
+    delay: Duration,
+    value: T,
+}
+
+impl<T> Provider<T> for DelayedValueProvider<T>
+where
+    T: Send + 'static,
+{
+    type Error = Infallible;
+
+    async fn run(
+        self,
+        context: ProviderContext,
+        sender: ProviderSender<T>,
+    ) -> Result<(), Self::Error> {
+        tokio::select! {
+            _ = context.cancelled() => {}
+            _ = tokio::time::sleep(self.delay) => {
+                sender.send(self.value);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+struct TimedSequenceProvider<T> {
+    values: Vec<(Duration, T)>,
+}
+
+impl<T> Provider<T> for TimedSequenceProvider<T>
+where
+    T: Send + 'static,
+{
+    type Error = Infallible;
+
+    async fn run(
+        self,
+        context: ProviderContext,
+        sender: ProviderSender<T>,
+    ) -> Result<(), Self::Error> {
+        for (delay, value) in self.values {
+            tokio::select! {
+                _ = context.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(delay) => {
+                    sender.send(value);
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -226,6 +281,56 @@ fn provider_combine_latest_derives_from_two_sources() {
 
     assert!(result.is_ok());
     assert_eq!(*values.lock().expect("values lock"), [42]);
+}
+
+#[test]
+fn stream_provider_forwards_stream_values() {
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let captured = values.clone();
+    let stream = tokio_stream::iter([
+        Ok::<_, Infallible>(1_u32),
+        Ok::<_, Infallible>(2_u32),
+        Ok::<_, Infallible>(3_u32),
+    ]);
+
+    let result = futures::executor::block_on(run_provider(
+        stream_provider(stream),
+        ProviderContext::default(),
+        move |value| {
+            captured.lock().expect("values lock").push(value);
+        },
+    ));
+
+    assert!(result.is_ok());
+    assert_eq!(*values.lock().expect("values lock"), [1, 2, 3]);
+}
+
+#[test]
+fn provider_switch_map_keeps_latest_downstream() {
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let captured = values.clone();
+    let upstream = TimedSequenceProvider {
+        values: vec![(Duration::ZERO, 1_u32), (Duration::from_millis(25), 2_u32)],
+    };
+    let provider = upstream.switch_map(|value| DelayedValueProvider {
+        delay: if value == 1 {
+            Duration::from_millis(100)
+        } else {
+            Duration::ZERO
+        },
+        value,
+    });
+
+    let result = futures::executor::block_on(run_provider(
+        provider,
+        ProviderContext::default(),
+        move |value| {
+            captured.lock().expect("values lock").push(value);
+        },
+    ));
+
+    assert!(result.is_ok());
+    assert_eq!(*values.lock().expect("values lock"), [2]);
 }
 
 #[test]
