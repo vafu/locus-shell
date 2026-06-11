@@ -1,5 +1,5 @@
 [package]
-name = "dbus"
+name = "locus-graph"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 futures-util = "0.3.32"
+locus-dbus = { path = "../../locus/locus-dbus" }
 providers.workspace = true
 zbus = { version = "5.15.0", default-features = false, features = ["tokio"] }
 

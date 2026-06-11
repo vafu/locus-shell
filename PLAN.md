@@ -35,10 +35,12 @@ Framework crates own:
 
 ### 1. Foundation: Workspace And Boundaries
 
-- Keep flat root crates: `shell-core`, `dev-widgets`, `providers`, `macros`, `dbus`, and `standard-dbus`.
+- Keep flat root crates: `shell-core`, `dev-widgets`, `providers`, `locus-graph`, `macros`, `dbus`, and `standard-dbus`.
 - `shell-core` only exposes generic framework primitives.
 - `dev-widgets` remains internal and proves ergonomics.
 - `providers` owns reusable provider traits, subscription handles, cancellation, and backend-neutral combinators.
+- `locus-graph` owns generated Locus graph contracts plus the Locus-over-D-Bus provider implementation.
+- `dbus` owns generic D-Bus object/property provider implementation.
 - `standard-dbus` exposes feature-gated common service definitions and contains no watcher/runtime policy.
 - Do not put user-facing bar, OSD, notification, launcher, or workspace switcher behavior in framework crates.
 
@@ -62,21 +64,19 @@ Framework crates own:
 - Use external SCSS registered through `ShellApp`.
 - Use these widgets to test whether `shell-core` stays generic and ergonomic.
 
-### 4. D-Bus Integration Crate
+### 4. D-Bus Integration Crates
 
-- Add a root-level `dbus` crate only after the core window API feels stable.
-- Wrap `io.github.Locus.Graph.Resolve`.
+- Add a root-level `locus-graph` crate for typed Locus graph bindings.
+- Generate `locus-graph::{model, paths, binding}` from the Locus schema/codegen output.
+- Wrap `io.github.Locus.Graph.Resolve` in `locus-graph`.
+- Implement `providers::Provider<T>` for Locus graph field bindings in `locus-graph`, where `FieldBinding<T>` is owned.
+- Add a root-level `dbus` crate for generic D-Bus bindings.
 - Provide generic pure D-Bus property bindings:
   - `dbus::Object<Target>::session(...)`
   - `dbus::Object<Target>::system(...)`
   - `dbus::Property<Target, Value>::new(property)`
   - `object.bind(property)`
   - `dbus::watch_property(binding, on_value)`
-- Provide typed subscription primitives:
-  - resolve once
-  - subscribe resolve
-  - stream changed values
-- Implement `providers::Provider<T>` for Locus graph field bindings.
 - Implement `providers::Provider<T>` for pure D-Bus property bindings.
 - Keep async D-Bus work off the GTK thread.
 
@@ -121,7 +121,7 @@ Framework crates own:
 - First likely consumer: bar.
 - Then OSD.
 - Then notifications.
-- These crates depend on `shell-core`, `dbus`, and `macros`.
+- These crates depend on `shell-core`, `locus-graph`, `dbus`, `standard-dbus` as needed, and `macros`.
 
 ### 8. Hardening
 
@@ -132,4 +132,4 @@ Framework crates own:
 
 ## Next Concrete Step
 
-Move the source expressions inside `#[locus(source = ...)]` from hand-written `dbus::schema::paths::...property(...)` calls toward generated typed path accessors from Locus schema/codegen. The dev bar remains the proof target: selected-window title and battery percentage are fields on `BarLocus`, and GTK setters bind with `#[locus(field)]` without repeating source paths in the component macro.
+Improve `#[locus_macros::model]` so field source types are validated against provider output types with clearer compile errors. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.

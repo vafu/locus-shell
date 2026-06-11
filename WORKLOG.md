@@ -8,6 +8,14 @@ Created the `providers` crate as a small reusable core for typed asynchronous so
 
 Migrated current Locus graph field bindings and pure D-Bus property bindings to implement `providers::Provider<T>`. Existing `watch_field` and `watch_property` remain for compatibility, but macro output now targets the unified provider contract. Pure D-Bus property watching now emits the initial property value before listening for changes.
 
+## Locus Graph Split
+
+Split direct Locus graph support into `locus-graph`, which owns generated graph contracts, typed decoding, `watch_field`, and the provider implementation for `FieldBinding<T>`. The generic `dbus` crate now only owns reusable D-Bus object/property bindings, which keeps optional end-user features separated by capability.
+
+## Generated Schema Workflow
+
+Added `scripts/locus-graph-schema` so generated graph contracts can be regenerated or checked against the adjacent `~/proj/locus` checkout. This keeps generated code vendored for normal builds while making drift explicit.
+
 ## Macro Provider Dispatch
 
 Removed macro-side source classification. `#[locus(source = ...)]` now treats the source as a generic provider expression. This makes custom providers possible without teaching the macro about every backend.

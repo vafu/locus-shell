@@ -60,7 +60,8 @@ Styling is external SCSS/CSS. The bar uses class-driven states for active, urgen
 Likely reusable crates or feature-gated modules:
 
 - `providers`: core provider traits, subscriptions, and combinators.
-- `dbus`: generic D-Bus and Locus-over-D-Bus provider implementations.
+- `locus-graph`: generated Locus graph contracts and Locus-over-D-Bus provider implementation.
+- `dbus`: generic D-Bus object/property provider implementation.
 - `standard-dbus`: feature-gated typed definitions for common services such as UPower.
 - Future `pipewire` or `standard-pipewire`: typed audio providers.
 - Future `standard-system`: time, sysstats, filesystem, process providers.

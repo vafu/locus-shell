@@ -1,3 +1,4 @@
+use locus_graph::{model, paths};
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
@@ -12,8 +13,8 @@ pub struct BarInit {
 #[locus_macros::model]
 pub struct BarLocus {
     #[locus(
-        source = dbus::schema::paths::SELECTED_WINDOW
-            .property(dbus::schema::model::Window::TITLE)
+        source = paths::SELECTED_WINDOW
+            .property(model::Window::TITLE)
     )]
     pub selected_window_title: String,
 

@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 dbus.workspace = true
+locus-graph.workspace = true
 locus-macros.workspace = true
 providers.workspace = true
 relm4.workspace = true

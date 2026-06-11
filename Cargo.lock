@@ -120,7 +120,6 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "futures-util",
- "locus-dbus",
  "providers",
  "zbus",
 ]
@@ -130,6 +129,7 @@ name = "dev-widgets"
 version = "0.1.0"
 dependencies = [
  "dbus",
+ "locus-graph",
  "locus-macros",
  "providers",
  "relm4",
@@ -741,6 +741,17 @@ version = "0.1.0"
 dependencies = [
  "locus-core",
  "tracing",
+ "zbus",
+]
+
+[[package]]
+name = "locus-graph"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "futures-util",
+ "locus-dbus",
+ "providers",
  "zbus",
 ]
 

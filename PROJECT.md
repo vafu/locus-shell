@@ -25,6 +25,7 @@ locus/
 ├── shell-core/
 ├── dev-widgets/
 ├── providers/
+├── locus-graph/
 ├── macros/
 ├── standard-dbus/
 └── dbus/
@@ -101,8 +102,8 @@ Responsibilities:
 #[locus_macros::model]
 pub struct BarLocus {
     #[locus(
-        source = dbus::schema::paths::SELECTED_WINDOW
-            .property(dbus::schema::model::Window::TITLE)
+        source = locus_graph::paths::SELECTED_WINDOW
+            .property(locus_graph::model::Window::TITLE)
     )]
     pub selected_window_title: String,
 }
@@ -112,8 +113,8 @@ pub struct BarLocus {
 - Preserve legacy component-level bindings during the transition:
 
 ```rust
-selected_window_title: String = dbus::schema::paths::SELECTED_WINDOW
-    .property(dbus::schema::model::Window::TITLE)
+selected_window_title: String = locus_graph::paths::SELECTED_WINDOW
+    .property(locus_graph::model::Window::TITLE)
 ```
 
 - Generate model state for resolved values.
@@ -131,8 +132,8 @@ Target authoring shape:
 #[locus_macros::model]
 pub struct BarLocus {
     #[locus(
-        source = dbus::schema::paths::SELECTED_WINDOW
-            .property(dbus::schema::model::Window::TITLE)
+        source = locus_graph::paths::SELECTED_WINDOW
+            .property(locus_graph::model::Window::TITLE)
     )]
     pub selected_window_title: String,
     #[locus(source = DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
@@ -187,6 +188,42 @@ Non-responsibilities:
 
 - No D-Bus transport implementation.
 - No GTK widget or shell-window policy.
+- No standard service definitions.
+
+### `locus-graph`
+
+Generated Locus graph contracts plus the direct Locus-over-D-Bus provider implementation.
+
+Responsibilities:
+
+- Vendor generated Rust contracts from `~/proj/locus/locus-codegen`.
+- Expose generated `binding`, `model`, and `paths` modules.
+- Own `FieldBinding<T>` so the crate can implement `providers::Provider<T>` without violating Rust coherence rules.
+- Decode Locus wire values into typed Rust values.
+- Watch `io.github.Locus.Graph.Resolve` through `locus-dbus`.
+- Keep async Locus D-Bus work off the GTK thread.
+
+Non-responsibilities:
+
+- No generic D-Bus object/property model.
+- No standard service definitions such as UPower.
+- No GTK or Relm4 widget policy.
+
+### `dbus`
+
+Generic typed D-Bus object/property provider crate.
+
+Responsibilities:
+
+- Expose `dbus::Object<T>`, `dbus::Property<T, V>`, and `dbus::PropertyBinding<V>`.
+- Support session and system bus objects.
+- Implement `providers::Provider<T>` for pure D-Bus property bindings.
+- Emit initial property values before subscribing to property changes.
+
+Non-responsibilities:
+
+- No Locus graph schema or `FieldBinding<T>`.
+- No generated graph contracts.
 - No standard service definitions.
 
 ### `dev-widgets`
