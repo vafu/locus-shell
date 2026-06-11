@@ -89,7 +89,7 @@ pub(super) fn expand_locus_module(
                 subscriptions.push(subscription);
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
-                ::relm4::spawn(async move {
+                ::providers::spawn(async move {
                     let source = ::providers::provider_for::<#ty, _>(#source);
                     let result = ::providers::run_provider(source, context, move |value| {
                         update_sender.input(#input);
@@ -264,7 +264,7 @@ pub(super) fn expand_model_impl(
                 subscriptions.push(subscription);
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
-                ::relm4::spawn(async move {
+                ::providers::spawn(async move {
                     let source = ::providers::provider_for::<#ty, _>(#source);
                     let result = ::providers::run_provider(source, context, move |value| {
                         update_sender.input(#module_ident::Msg::#variant(value));

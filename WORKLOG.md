@@ -28,6 +28,10 @@ Added `ProviderExt::combine_latest` for deriving typed summary values from two p
 
 Added a dev-widget unit test that combines two providers into a typed `BarSummary` without changing the visible bar. This proves the intended consumer-facing shape for summarized state while keeping the current GTK primitive minimal.
 
+## Tokio Provider Runtime
+
+Moved generated provider task spawning from `relm4::spawn` to `providers::spawn`, backed by a shared Tokio runtime. This aligns Locus and D-Bus providers with the Tokio-flavored Zbus dependencies and gives custom async providers a consistent runtime target.
+
 ## Macro Provider Dispatch
 
 Removed macro-side source classification. `#[locus(source = ...)]` now treats the source as a generic provider expression. This makes custom providers possible without teaching the macro about every backend.

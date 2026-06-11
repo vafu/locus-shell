@@ -10,6 +10,7 @@ mod context;
 mod error;
 mod map;
 mod provider;
+mod runtime;
 mod sender;
 mod subscription;
 
@@ -22,5 +23,6 @@ pub use context::ProviderContext;
 pub use error::ProviderError;
 pub use map::{MapProvider, ProviderExt};
 pub use provider::{Provider, provider_for, run_provider};
+pub use runtime::spawn;
 pub use sender::ProviderSender;
 pub use subscription::{Subscription, SubscriptionGroup};

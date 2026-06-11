@@ -101,6 +101,7 @@ Framework crates own:
   - typed update messages
   - async watcher startup
 - Dispatch binding expressions through `providers::Provider<T>` instead of backend-specific watcher functions.
+- Spawn generated provider tasks through `providers::spawn`, backed by the provider Tokio runtime.
 - Let component views bind GTK setters with `#[locus(field)]`:
   - closure adapters such as `set_label: |title| title.as_str()`
   - function adapters such as `set_css_classes: window_title_classes`
@@ -132,4 +133,4 @@ Framework crates own:
 
 ## Next Concrete Step
 
-Decide whether macro ergonomics need a lighter syntax for common summaries, or whether explicit custom providers plus `combine_latest` are sufficient. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.
+Decide whether macro ergonomics need a lighter syntax for common summaries, or whether explicit custom providers plus `combine_latest` are sufficient. Then validate the runtime behavior against live D-Bus/Locus services from the dev bar. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.

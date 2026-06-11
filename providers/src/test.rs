@@ -1,11 +1,12 @@
 use std::{
     convert::Infallible,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use super::{
     Provider, ProviderContext, ProviderError, ProviderExt, ProviderSender, Subscription,
-    SubscriptionGroup, provider_for, run_provider,
+    SubscriptionGroup, provider_for, run_provider, spawn,
 };
 
 struct StaticProvider(&'static str);
@@ -138,6 +139,22 @@ fn provider_for_preserves_matching_provider() {
 
     assert!(result.is_ok());
     assert_eq!(*values.lock().expect("values lock"), ["ready".to_owned()]);
+}
+
+#[test]
+fn spawn_runs_future_on_provider_runtime() {
+    let (sender, receiver) = std::sync::mpsc::channel();
+
+    spawn(async move {
+        sender.send("ready").expect("send runtime result");
+    });
+
+    assert_eq!(
+        receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("runtime result"),
+        "ready"
+    );
 }
 
 #[test]
