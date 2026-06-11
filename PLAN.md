@@ -132,4 +132,4 @@ Framework crates own:
 
 ## Next Concrete Step
 
-Add richer provider composition for derived shell state, starting with a small explicit API for combining multiple providers into summarized values. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.
+Add examples or dev-widget proof code for derived provider chains, then decide whether macro ergonomics need a lighter syntax for common summaries. The dev bar remains the proof target: selected-window title comes from `locus_graph::{paths, model}`, battery percentage comes from `standard-dbus`, and GTK setters bind with `#[locus(field)]`.

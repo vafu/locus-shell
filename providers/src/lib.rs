@@ -5,6 +5,7 @@
 //! returned [`Subscription`] handles alive for as long as updates are wanted.
 
 mod cancellation;
+mod combine;
 mod context;
 mod error;
 mod map;
@@ -16,6 +17,7 @@ mod subscription;
 mod test;
 
 pub use cancellation::CancellationToken;
+pub use combine::{CombineLatestError, CombineLatestProvider};
 pub use context::ProviderContext;
 pub use error::ProviderError;
 pub use map::{MapProvider, ProviderExt};

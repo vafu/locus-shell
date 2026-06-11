@@ -7,6 +7,6 @@ license.workspace = true
 publish = false
 
 [dependencies]
+futures = "0.3.32"
 
 [dev-dependencies]
-futures = "0.3.32"

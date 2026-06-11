@@ -20,6 +20,10 @@ Added `scripts/locus-graph-schema` so generated graph contracts can be regenerat
 
 Added `providers::provider_for<T, _>(provider)` and made macro-generated watchers call it with the declared field type before running a provider. This gives generated code a focused compile-time check that a source expression really provides the model field type.
 
+## Provider Composition
+
+Added `ProviderExt::combine_latest` for deriving typed summary values from two provider sources. The combiner receives references to the latest left/right values and emits after both sides have produced at least one value, which matches shell summary use cases such as combining graph state with system state.
+
 ## Macro Provider Dispatch
 
 Removed macro-side source classification. `#[locus(source = ...)]` now treats the source as a generic provider expression. This makes custom providers possible without teaching the macro about every backend.

@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData, sync::Arc};
 
-use crate::{Provider, ProviderContext, ProviderSender};
+use crate::{CombineLatestProvider, Provider, ProviderContext, ProviderSender};
 
 /// Provider returned by [`ProviderExt::map`].
 #[derive(Debug)]
@@ -33,6 +33,22 @@ where
         F: Fn(Input) -> Output + Send + Sync + 'static,
     {
         MapProvider::new(self, map)
+    }
+
+    /// Combines this provider with another provider by emitting whenever either
+    /// side changes after both providers have produced at least one value.
+    fn combine_latest<RightValue, Right, Output, F>(
+        self,
+        right: Right,
+        combine: F,
+    ) -> CombineLatestProvider<Self, Right, F, Input, RightValue, Output>
+    where
+        Right: Provider<RightValue>,
+        RightValue: Send + 'static,
+        Output: Send + 'static,
+        F: Fn(&Input, &RightValue) -> Output + Send + Sync + 'static,
+    {
+        CombineLatestProvider::new(self, right, combine)
     }
 }
 
