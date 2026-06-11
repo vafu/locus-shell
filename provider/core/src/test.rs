@@ -1,6 +1,9 @@
 use std::{
     convert::Infallible,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -223,4 +226,62 @@ fn provider_combine_latest_derives_from_two_sources() {
 
     assert!(result.is_ok());
     assert_eq!(*values.lock().expect("values lock"), [42]);
+}
+
+#[test]
+fn shared_provider_reuses_upstream_and_replays_latest() {
+    struct CountedProvider {
+        runs: Arc<AtomicUsize>,
+    }
+
+    impl Provider<u32> for CountedProvider {
+        type Error = Infallible;
+
+        async fn run(
+            self,
+            _context: ProviderContext,
+            sender: ProviderSender<u32>,
+        ) -> Result<(), Self::Error> {
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            sender.send(7);
+            Ok(())
+        }
+    }
+
+    let runs = Arc::new(AtomicUsize::new(0));
+    let shared = CountedProvider { runs: runs.clone() }.shared();
+    let first_values = Arc::new(Mutex::new(Vec::new()));
+    let first_captured = first_values.clone();
+
+    let first = futures::executor::block_on(run_provider(
+        shared.clone(),
+        ProviderContext::default(),
+        move |value| {
+            first_captured
+                .lock()
+                .expect("first values lock")
+                .push(value);
+        },
+    ));
+
+    assert!(first.is_ok());
+    assert_eq!(*first_values.lock().expect("first values lock"), [7]);
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+
+    let second_values = Arc::new(Mutex::new(Vec::new()));
+    let second_captured = second_values.clone();
+    let second = futures::executor::block_on(run_provider(
+        shared,
+        ProviderContext::default(),
+        move |value| {
+            second_captured
+                .lock()
+                .expect("second values lock")
+                .push(value);
+        },
+    ));
+
+    assert!(second.is_ok());
+    assert_eq!(*second_values.lock().expect("second values lock"), [7]);
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
 }

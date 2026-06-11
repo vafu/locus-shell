@@ -45,7 +45,7 @@ fn expands_component_impl() {
     let item = quote! {
         impl SimpleComponent for Bar {
             type Init = BarInit;
-            type Input = locus::Msg;
+            type Input = sources::Msg;
             type Output = ();
 
             view! {
@@ -59,7 +59,7 @@ fn expands_component_impl() {
             ) -> ComponentParts<Self> {
                 let model = Bar {
                     title: init.title,
-                    locus: locus::Model::default(),
+                    sources: sources::Model::default(),
                 };
                 let widgets = view_output!();
                 ComponentParts { model, widgets }
@@ -69,8 +69,8 @@ fn expands_component_impl() {
 
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
-    assert!(source.contains("mod locus"));
-    assert!(source.contains("model . locus . set_subscriptions (locus :: start"));
+    assert!(source.contains("mod sources"));
+    assert!(source.contains("model . sources . set_subscriptions (sources :: start"));
     assert!(source.contains("fn update"));
     assert!(source.contains("providers :: run_provider"));
     assert!(source.contains("providers :: spawn"));
@@ -120,7 +120,7 @@ fn expands_locus_view_setters() {
     let item = quote! {
         impl SimpleComponent for Bar {
             type Init = BarInit;
-            type Input = locus::Msg;
+            type Input = sources::Msg;
             type Output = ();
 
             view! {
@@ -142,7 +142,7 @@ fn expands_locus_view_setters() {
             ) -> ComponentParts<Self> {
                 let model = Bar {
                     title: init.title,
-                    locus: locus::Model::default(),
+                    sources: sources::Model::default(),
                 };
                 let widgets = view_output!();
                 ComponentParts { model, widgets }
@@ -154,7 +154,7 @@ fn expands_locus_view_setters() {
     let source = expanded.to_string();
     assert!(source.contains("# [track"));
     assert!(source.contains("SelectedWindowTitle"));
-    assert!(source.contains("let title = & model . locus . selected_window_title"));
+    assert!(source.contains("let title = & model . sources . selected_window_title"));
     assert!(source.contains("window_title_classes"));
 }
 
@@ -167,7 +167,7 @@ fn expands_provider_view_setters() {
     let item = quote! {
         impl SimpleComponent for Bar {
             type Init = BarInit;
-            type Input = locus::Msg;
+            type Input = sources::Msg;
             type Output = ();
 
             view! {
@@ -186,7 +186,7 @@ fn expands_provider_view_setters() {
             ) -> ComponentParts<Self> {
                 let model = Bar {
                     title: init.title,
-                    locus: locus::Model::default(),
+                    sources: sources::Model::default(),
                 };
                 let widgets = view_output!();
                 ComponentParts { model, widgets }
@@ -198,7 +198,7 @@ fn expands_provider_view_setters() {
     let source = expanded.to_string();
     assert!(source.contains("# [track"));
     assert!(source.contains("SelectedWindowTitle"));
-    assert!(source.contains("let title = & model . locus . selected_window_title"));
+    assert!(source.contains("let title = & model . sources . selected_window_title"));
 }
 
 #[test]
@@ -217,12 +217,13 @@ fn expands_typed_model() {
     let source = expanded.to_string();
 
     assert!(source.contains("pub struct BarLocus"));
-    assert!(source.contains("pub mod locus"));
+    assert!(source.contains("pub mod sources"));
     assert!(source.contains("pub enum Msg"));
     assert!(source.contains("pub enum Field"));
     assert!(source.contains("SelectedWindowTitle"));
     assert!(source.contains("BatteryPercent"));
-    assert!(source.contains("changed : locus :: Changed"));
+    assert!(source.contains("__shell : sources :: Runtime"));
+    assert!(source.contains("last_error : :: std :: option :: Option < WatchError >"));
     assert!(source.contains("subscriptions : :: providers :: SubscriptionGroup"));
     assert!(source.contains("subscriptions . push (subscription)"));
     assert!(source.contains("providers :: provider_for :: < String"));
@@ -249,18 +250,19 @@ fn expands_legacy_locus_model_sources() {
 #[test]
 fn expands_model_component_impl() {
     let attr = quote! {
-        model = BarLocus
+        model = BarLocus,
+        state = sources
     };
     let item = quote! {
         impl SimpleComponent for Bar {
             type Init = BarInit;
-            type Input = locus::Msg;
+            type Input = sources::Msg;
             type Output = ();
 
             view! {
                 gtk::Window {
                     gtk::Label {
-                        #[locus(selected_window_title)]
+                    #[bind(selected_window_title)]
                         set_label: |title| title.as_str(),
                     }
                 }
@@ -273,7 +275,7 @@ fn expands_model_component_impl() {
             ) -> ComponentParts<Self> {
                 let model = Bar {
                     title: init.title,
-                    locus: BarLocus::default(),
+                    sources: BarLocus::default(),
                 };
                 let widgets = view_output!();
                 ComponentParts { model, widgets }
@@ -284,10 +286,11 @@ fn expands_model_component_impl() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
 
-    assert!(!source.contains("mod locus"));
+    assert!(!source.contains("mod sources"));
     assert!(source.contains("BarLocus :: start"));
-    assert!(source.contains("model . locus . set_subscriptions (BarLocus :: start"));
-    assert!(source.contains("locus :: Field :: SelectedWindowTitle"));
+    assert!(source.contains("model . sources . set_subscriptions (BarLocus :: start"));
+    assert!(source.contains("sources :: Field :: SelectedWindowTitle"));
+    assert!(source.contains("self . sources . update (msg)"));
     assert!(source.contains("fn update"));
 }
 
@@ -386,7 +389,7 @@ fn component_item() -> TokenStream {
     quote! {
         impl SimpleComponent for Bar {
             type Init = BarInit;
-            type Input = locus::Msg;
+            type Input = sources::Msg;
             type Output = ();
 
             view! {
@@ -400,7 +403,7 @@ fn component_item() -> TokenStream {
             ) -> ComponentParts<Self> {
                 let model = Bar {
                     title: init.title,
-                    locus: locus::Model::default(),
+                    sources: sources::Model::default(),
                 };
                 let widgets = view_output!();
                 ComponentParts { model, widgets }

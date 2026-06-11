@@ -247,8 +247,8 @@ pub(super) fn expand_model_impl(
         quote! {
             #module_ident::Msg::#variant(value) => {
                 self.#field = value;
-                self.changed.mark(#module_ident::Field::#field_variant);
-                self.last_error = None;
+                self.__shell.mark(#module_ident::Field::#field_variant);
+                self.__shell.clear_error();
             }
         }
     });
@@ -296,20 +296,20 @@ pub(super) fn expand_model_impl(
             }
 
             #[derive(Debug, Default)]
-            pub(super) struct Changed {
+            struct Changed {
                 mask: ::std::cell::Cell<u128>,
             }
 
             impl Changed {
-                pub(super) fn mark(&self, field: Field) {
+                fn mark(&self, field: Field) {
                     self.mask.set(self.mask.get() | field.bit());
                 }
 
-                pub(super) fn contains(&self, field: Field) -> bool {
+                fn contains(&self, field: Field) -> bool {
                     self.mask.get() & field.bit() != 0
                 }
 
-                pub(super) fn clear(&self) {
+                fn clear(&self) {
                     self.mask.set(0);
                 }
             }
@@ -334,40 +334,82 @@ pub(super) fn expand_model_impl(
                     error: ::std::string::String,
                 },
             }
+
+            #[derive(Debug, Default)]
+            pub(super) struct Runtime {
+                last_error: ::std::option::Option<WatchError>,
+                changed: Changed,
+                subscriptions: ::providers::SubscriptionGroup,
+            }
+
+            impl Runtime {
+                pub(super) fn changed(&self, field: Field) -> bool {
+                    self.changed.contains(field)
+                }
+
+                pub(super) fn mark(&self, field: Field) {
+                    self.changed.mark(field);
+                }
+
+                pub(super) fn clear_changed(&self) {
+                    self.changed.clear();
+                }
+
+                pub(super) fn last_error(&self) -> ::std::option::Option<&WatchError> {
+                    self.last_error.as_ref()
+                }
+
+                pub(super) fn clear_error(&mut self) {
+                    self.last_error = ::std::option::Option::None;
+                }
+
+                pub(super) fn set_error(&mut self, error: WatchError) {
+                    self.last_error = ::std::option::Option::Some(error);
+                }
+
+                pub(super) fn set_subscriptions(
+                    &mut self,
+                    subscriptions: ::providers::SubscriptionGroup,
+                ) {
+                    self.subscriptions = subscriptions;
+                }
+            }
         }
 
         impl ::std::default::Default for #model {
             fn default() -> Self {
                 Self {
                     #(#defaults)*
-                    last_error: ::std::option::Option::None,
-                    changed: #module_ident::Changed::default(),
-                    subscriptions: ::providers::SubscriptionGroup::new(),
+                    __shell: #module_ident::Runtime::default(),
                 }
             }
         }
 
         impl #model {
             pub fn changed(&self, field: #module_ident::Field) -> bool {
-                self.changed.contains(field)
+                self.__shell.changed(field)
             }
 
             pub fn clear_changed(&self) {
-                self.changed.clear();
+                self.__shell.clear_changed();
+            }
+
+            pub fn last_error(&self) -> ::std::option::Option<&#module_ident::WatchError> {
+                self.__shell.last_error()
             }
 
             pub fn set_subscriptions(
                 &mut self,
                 subscriptions: ::providers::SubscriptionGroup,
             ) {
-                self.subscriptions = subscriptions;
+                self.__shell.set_subscriptions(subscriptions);
             }
 
             pub fn update(&mut self, msg: #module_ident::Msg) {
                 match msg {
                     #(#updates)*
                     #module_ident::Msg::WatchFailed { field, error } => {
-                        self.last_error = ::std::option::Option::Some(#module_ident::WatchError {
+                        self.__shell.set_error(#module_ident::WatchError {
                             field,
                             error,
                         });

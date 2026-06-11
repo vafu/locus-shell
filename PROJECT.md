@@ -103,14 +103,14 @@ Responsibilities:
 
 ```rust
 #[shell_macros::model]
-pub struct BarLocus {
+pub struct BarSources {
     #[source(locus_provider::paths::SELECTED_WINDOW
         .property(locus_provider::model::Window::TITLE))]
     pub selected_window_title: String,
 }
 ```
 
-- Keep `#[shell_macros::component(model = BarLocus)]` focused on Relm4 lifecycle wiring and view tracking.
+- Keep `#[shell_macros::component(model = BarSources, state = sources)]` focused on Relm4 lifecycle wiring and view tracking.
 - Preserve legacy component-level bindings during the transition:
 
 ```rust
@@ -131,7 +131,7 @@ Target authoring shape:
 
 ```rust
 #[shell_macros::model]
-pub struct BarLocus {
+pub struct BarSources {
     #[source(paths::SELECTED_WINDOW.property(model::Window::TITLE))]
     pub selected_window_title: String,
     #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
@@ -139,13 +139,13 @@ pub struct BarLocus {
 }
 
 pub struct Bar {
-    locus: BarLocus,
+    sources: BarSources,
 }
 
-#[shell_macros::component(model = BarLocus)]
+#[shell_macros::component(model = BarSources, state = sources)]
 #[relm4::component(pub)]
 impl SimpleComponent for Bar {
-    type Input = locus::Msg;
+    type Input = sources::Msg;
 
     view! {
         gtk::Window {
@@ -163,8 +163,9 @@ impl SimpleComponent for Bar {
 
 Generated concepts:
 
-- A `locus` module scoped beside the component.
+- A `sources` module scoped beside the component by default.
 - A user-authored state struct containing one field per typed binding.
+- One private generated `__shell` runtime field for dirty tracking, last errors, and subscription ownership.
 - Unified update message with one generated variant per field.
 - An initialization hook that starts provider subscriptions and emits Relm4 messages.
 - Per-field dirty tracking, cleared after Relm4 updates the view.
@@ -180,6 +181,7 @@ Responsibilities:
 - Define `Provider<T>` for typed asynchronous value sources.
 - Provide `ProviderContext`, `ProviderSender<T>`, `Subscription`, and `SubscriptionGroup`.
 - Provide small provider combinators such as `ProviderExt::map`.
+- Provide shared/replay providers for reusing one upstream source across multiple derived fields.
 - Stay independent of GTK, Relm4, D-Bus, and product-specific shell behavior.
 
 Non-responsibilities:

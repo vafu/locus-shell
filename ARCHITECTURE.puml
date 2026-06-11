@@ -129,6 +129,7 @@ package "provider/core\ncrate: providers" {
   interface "ProviderExt<Input>" as ProviderExt {
     + map(map)
     + combine_latest(right, combine)
+    + shared()
   }
 
   class ProviderContext {
@@ -146,10 +147,16 @@ package "provider/core\ncrate: providers" {
   }
 
   class CancellationToken {
-    - cancelled: Arc<AtomicBool>
+    - inner: Arc<CancellationState>
     + new()
     + cancel()
     + is_cancelled()
+    + cancelled()
+  }
+
+  class CancellationState {
+    - cancelled: AtomicBool
+    - notify: Notify
   }
 
   class Subscription {
@@ -187,6 +194,24 @@ package "provider/core\ncrate: providers" {
     - combine: F
   }
 
+  class "SharedProvider<P,T>" as SharedProvider {
+    - state: Arc<SharedState<P,T>>
+  }
+
+  class "SharedState<P,T>" as SharedState {
+    - provider: Mutex<Option<P>>
+    - latest: Arc<Mutex<Option<T>>>
+    - events: watch::Sender<SharedEvent<T>>
+    - subscription: Mutex<Option<Subscription>>
+  }
+
+  enum "SharedEvent<T>" as SharedEvent {
+    Pending
+    Value(T)
+    Failed(ProviderError)
+    Finished
+  }
+
   enum "CombineLatestError<L,R>" as CombineLatestError {
     Left(L)
     Right(R)
@@ -200,16 +225,21 @@ package "provider/core\ncrate: providers" {
   ProviderExt --|> Provider
   MapProvider ..|> Provider
   CombineLatestProvider ..|> Provider
+  SharedProvider ..|> Provider
 
   Provider --> ProviderContext
   Provider --> ProviderSender
   ProviderContext --> CancellationToken
+  CancellationToken --> CancellationState
   Subscription --> CancellationToken
   SubscriptionGroup --> Subscription
   MapProvider --> Provider
   CombineLatestProvider --> Provider
   CombineLatestProvider --> CombineLatestError
   CombineLatestProvider --> CombineEvent
+  SharedProvider --> SharedState
+  SharedState --> SharedEvent
+  SharedState --> Subscription
 }
 
 package "provider/dbus\ncrate: dbus_provider" {
@@ -380,14 +410,19 @@ package "shell/macros\ncrate: shell_macros" {
   }
 
   class GeneratedTypedModelExtras <<generated>> {
-    + last_error: Option<WatchError>
-    - changed: Changed
-    - subscriptions: SubscriptionGroup
+    - __shell: Runtime
     + changed(field)
     + clear_changed()
+    + last_error()
     + set_subscriptions(group)
     + update(msg)
     + start(sender): SubscriptionGroup
+  }
+
+  class GeneratedRuntime <<generated>> {
+    - last_error: Option<WatchError>
+    - changed: Changed
+    - subscriptions: SubscriptionGroup
   }
 
   enum GeneratedMsg <<generated>> {
@@ -430,14 +465,15 @@ package "dev-widgets\ninternal consumer" {
     + title: &'static str
   }
 
-  class BarLocus <<shell_macros::model>> {
+  class BarSources <<shell_macros::model>> {
     + selected_window_title: String
     + battery_percent: f64
-    + generated fields...
+    + battery_label: String
+    - __shell: sources::Runtime
   }
 
   class Bar <<Relm4 SimpleComponent>> {
-    - locus: BarLocus
+    - sources: BarSources
   }
 
   class BarSummary <<test proof>> {
@@ -445,10 +481,10 @@ package "dev-widgets\ninternal consumer" {
     + battery_level: &'static str
   }
 
-  Bar --> BarLocus
-  BarLocus --> FieldBinding
-  BarLocus --> DbusPropertyBinding
-  BarLocus --> GeneratedTypedModelExtras
+  Bar --> BarSources
+  BarSources --> FieldBinding
+  BarSources --> DbusPropertyBinding
+  BarSources --> GeneratedTypedModelExtras
   Bar --> WindowConfig
   Bar --> ShellApp
   BarSummary ..> CombineLatestProvider
@@ -456,6 +492,7 @@ package "dev-widgets\ninternal consumer" {
 
 ShellApp ..> Stylesheet
 GeneratedTypedModelExtras ..> Provider
+GeneratedTypedModelExtras --> GeneratedRuntime
 GeneratedInlineModel ..> Provider
 GeneratedTypedModelExtras ..> "providers::spawn"
 GeneratedInlineModel ..> "providers::spawn"
@@ -466,7 +503,7 @@ FieldBinding ..> ProviderContext
 FieldBinding ..> ProviderSender
 
 UPower ..> DbusObject
-BarLocus ..> Paths
-BarLocus ..> UPower
+BarSources ..> Paths
+BarSources ..> UPower
 
 @enduml

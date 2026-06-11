@@ -25,6 +25,7 @@ impl ViewBinding {
 pub(super) fn transform_locus_view_attributes(
     item_impl: &mut ItemImpl,
     module_ident: &Ident,
+    state_ident: &Ident,
     bindings: ViewBindings<'_>,
 ) -> Result<()> {
     for item in &mut item_impl.items {
@@ -32,8 +33,12 @@ pub(super) fn transform_locus_view_attributes(
             continue;
         };
         if item_macro.mac.path.is_ident("view") {
-            item_macro.mac.tokens =
-                transform_tokens(item_macro.mac.tokens.clone(), module_ident, &bindings)?;
+            item_macro.mac.tokens = transform_tokens(
+                item_macro.mac.tokens.clone(),
+                module_ident,
+                state_ident,
+                &bindings,
+            )?;
         }
     }
     Ok(())
@@ -42,6 +47,7 @@ pub(super) fn transform_locus_view_attributes(
 fn transform_tokens(
     tokens: TokenStream,
     module_ident: &Ident,
+    state_ident: &Ident,
     bindings: &ViewBindings<'_>,
 ) -> Result<TokenStream> {
     let mut output = Vec::new();
@@ -51,11 +57,17 @@ fn transform_tokens(
         if let Some(field) = binding_attr_field(&token, iter.peek())? {
             iter.next();
             let binding = view_binding(field, bindings)?;
-            append_locus_tracked_setter(&mut output, &mut iter, module_ident, binding)?;
+            append_locus_tracked_setter(
+                &mut output,
+                &mut iter,
+                module_ident,
+                state_ident,
+                binding,
+            )?;
             continue;
         }
 
-        output.push(transform_token(token, module_ident, bindings)?);
+        output.push(transform_token(token, module_ident, state_ident, bindings)?);
     }
 
     Ok(output.into_iter().collect())
@@ -64,6 +76,7 @@ fn transform_tokens(
 fn transform_token(
     token: TokenTree,
     module_ident: &Ident,
+    state_ident: &Ident,
     bindings: &ViewBindings<'_>,
 ) -> Result<TokenTree> {
     let TokenTree::Group(group) = token else {
@@ -71,7 +84,7 @@ fn transform_token(
     };
     let mut transformed = Group::new(
         group.delimiter(),
-        transform_tokens(group.stream(), module_ident, bindings)?,
+        transform_tokens(group.stream(), module_ident, state_ident, bindings)?,
     );
     transformed.set_span(group.span());
     Ok(TokenTree::Group(transformed))
@@ -145,6 +158,7 @@ fn append_locus_tracked_setter(
     output: &mut Vec<TokenTree>,
     iter: &mut std::iter::Peekable<impl Iterator<Item = TokenTree>>,
     module_ident: &Ident,
+    state_ident: &Ident,
     binding: ViewBinding,
 ) -> Result<()> {
     let mut setter_tokens = Vec::new();
@@ -160,6 +174,7 @@ fn append_locus_tracked_setter(
         setter_tokens.push(transform_token(
             token,
             module_ident,
+            state_ident,
             &ViewBindings::Known(&[]),
         )?);
         if is_colon {
@@ -179,6 +194,7 @@ fn append_locus_tracked_setter(
             TokenTree::Group(_) => adapter_tokens.push(transform_token(
                 token,
                 module_ident,
+                state_ident,
                 &ViewBindings::Known(&[]),
             )?),
             TokenTree::Punct(punct) if matches!(punct.as_char(), '(' | '[' | '{') => {
@@ -195,23 +211,27 @@ fn append_locus_tracked_setter(
 
     let adapter: Expr = parse2(adapter_tokens.into_iter().collect())?;
     let field = binding.field();
-    let value_expr = locus_setter_value_expr(adapter, module_ident, field)?;
-    output.extend(track_attribute(&binding, module_ident));
+    let value_expr = locus_setter_value_expr(adapter, state_ident, field)?;
+    output.extend(track_attribute(&binding, module_ident, state_ident));
     output.extend(setter_tokens);
     output.extend(quote! { #value_expr, });
     Ok(())
 }
 
-fn track_attribute(binding: &ViewBinding, module_ident: &Ident) -> TokenStream {
+fn track_attribute(
+    binding: &ViewBinding,
+    module_ident: &Ident,
+    state_ident: &Ident,
+) -> TokenStream {
     match binding {
         ViewBinding::Known { variant, .. } => {
             quote! {
-                #[track(model.#module_ident.changed(#module_ident::Field::#variant))]
+                #[track(model.#state_ident.changed(#module_ident::Field::#variant))]
             }
         }
         ViewBinding::Model { variant, .. } => {
             quote! {
-                #[track(model.#module_ident.changed(#module_ident::Field::#variant))]
+                #[track(model.#state_ident.changed(#module_ident::Field::#variant))]
             }
         }
     }
@@ -219,12 +239,12 @@ fn track_attribute(binding: &ViewBinding, module_ident: &Ident) -> TokenStream {
 
 fn locus_setter_value_expr(
     adapter: Expr,
-    module_ident: &Ident,
+    state_ident: &Ident,
     field: &Ident,
 ) -> Result<TokenStream> {
     let Expr::Closure(closure) = adapter else {
         return Ok(quote! {
-            (#adapter)(&model.#module_ident.#field)
+            (#adapter)(&model.#state_ident.#field)
         });
     };
 
@@ -245,7 +265,7 @@ fn locus_setter_value_expr(
 
     Ok(quote! {
         {
-            let #input = &model.#module_ident.#field;
+            let #input = &model.#state_ident.#field;
             #body
         }
     })

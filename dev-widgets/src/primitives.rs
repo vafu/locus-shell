@@ -1,33 +1,38 @@
 use common_providers::upower::{DISPLAY_DEVICE, DisplayDevice};
 use locus_provider::{model, paths};
+use providers::ProviderExt;
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
     window::{self, Anchors, Edge, Layer, WindowConfig},
 };
+use std::sync::OnceLock;
 
 pub struct BarInit {
     pub title: &'static str,
 }
 
 #[shell_macros::model]
-pub struct BarLocus {
+pub struct BarSources {
     #[source(paths::SELECTED_WINDOW.property(model::Window::TITLE))]
     pub selected_window_title: String,
 
-    #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
+    #[source(battery_percent_source())]
     pub battery_percent: f64,
+
+    #[source(battery_percent_source().map(battery_label))]
+    pub battery_label: String,
 }
 
 pub struct Bar {
-    locus: BarLocus,
+    sources: BarSources,
 }
 
-#[shell_macros::component(model = BarLocus)]
+#[shell_macros::component(model = BarSources, state = sources)]
 #[relm4::component(pub)]
 impl SimpleComponent for Bar {
     type Init = BarInit;
-    type Input = locus::Msg;
+    type Input = sources::Msg;
     type Output = ();
 
     view! {
@@ -57,6 +62,14 @@ impl SimpleComponent for Bar {
 
                     #[bind(battery_percent)]
                     set_fraction: |percent| battery_fraction(percent),
+                },
+
+                gtk::Label {
+                    set_widget_name: "battery-label",
+                    add_css_class: "dev-panel__battery-label",
+
+                    #[bind(battery_label)]
+                    set_label: |label| label.as_str(),
                 }
             }
         }
@@ -71,7 +84,7 @@ impl SimpleComponent for Bar {
         root.set_title(Some(init.title));
 
         let model = Bar {
-            locus: BarLocus::default(),
+            sources: BarSources::default(),
         };
         let widgets = view_output!();
 
@@ -93,6 +106,20 @@ fn window_title_classes(title: &str) -> &'static [&'static str] {
 
 fn battery_fraction(percent: &f64) -> f64 {
     (percent / 100.0).clamp(0.0, 1.0)
+}
+
+type BatteryPercentProvider = providers::SharedProvider<dbus_provider::PropertyBinding<f64>, f64>;
+
+fn battery_percent_source() -> BatteryPercentProvider {
+    static SOURCE: OnceLock<BatteryPercentProvider> = OnceLock::new();
+
+    SOURCE
+        .get_or_init(|| DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE).shared())
+        .clone()
+}
+
+fn battery_label(percent: f64) -> String {
+    format!("{percent:.0}%")
 }
 
 fn bar_window_config() -> WindowConfig {

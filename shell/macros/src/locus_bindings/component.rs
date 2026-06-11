@@ -15,14 +15,15 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
     let mut item_impl = parse2::<ItemImpl>(item)?;
     let component = item_impl.self_ty.clone();
     let module_ident = config.module.clone();
+    let state_ident = config.state.clone();
     let model_ty = config.model;
     let bindings = config.bindings;
     let view_bindings = match model_ty.as_ref() {
         Some(_) => ViewBindings::Model,
         None => ViewBindings::Known(&bindings),
     };
-    transform_locus_view_attributes(&mut item_impl, &module_ident, view_bindings)?;
-    inject_post_view_clear(&mut item_impl, &module_ident);
+    transform_locus_view_attributes(&mut item_impl, &module_ident, &state_ident, view_bindings)?;
+    inject_post_view_clear(&mut item_impl, &state_ident);
     let mut init_found = false;
     let mut update_found = false;
 
@@ -34,8 +35,10 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
         if function.sig.ident == "init" {
             init_found = true;
             match model_ty.as_ref() {
-                Some(model_ty) => inject_model_subscriptions(function, &module_ident, model_ty)?,
-                None => inject_start_call(function, &module_ident)?,
+                Some(model_ty) => {
+                    inject_model_subscriptions(function, &module_ident, &state_ident, model_ty)?
+                }
+                None => inject_start_call(function, &module_ident, &state_ident)?,
             }
         } else if function.sig.ident == "update" {
             update_found = true;
@@ -50,7 +53,7 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
     }
 
     if !update_found {
-        let update = update_method();
+        let update = update_method(&state_ident);
         item_impl.items.push(update);
     }
 
@@ -71,9 +74,9 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
     })
 }
 
-fn inject_post_view_clear(item_impl: &mut ItemImpl, module_ident: &Ident) {
+fn inject_post_view_clear(item_impl: &mut ItemImpl, state_ident: &Ident) {
     let clear_statement: Stmt = parse_quote! {
-        model.#module_ident.clear_changed();
+        model.#state_ident.clear_changed();
     };
 
     for item in &mut item_impl.items {
@@ -93,7 +96,11 @@ fn inject_post_view_clear(item_impl: &mut ItemImpl, module_ident: &Ident) {
     });
 }
 
-fn inject_start_call(function: &mut ImplItemFn, module_ident: &Ident) -> Result<()> {
+fn inject_start_call(
+    function: &mut ImplItemFn,
+    module_ident: &Ident,
+    state_ident: &Ident,
+) -> Result<()> {
     let sender_ident = sender_ident(function)?;
 
     for index in 0..function.block.stmts.len() {
@@ -112,7 +119,7 @@ fn inject_start_call(function: &mut ImplItemFn, module_ident: &Ident) -> Result<
         }
 
         let statement: Stmt = parse_quote! {
-            model.#module_ident.set_subscriptions(#module_ident::start(#sender_ident.clone()));
+            model.#state_ident.set_subscriptions(#module_ident::start(#sender_ident.clone()));
         };
         function.block.stmts.insert(index + 1, statement);
         return Ok(());
@@ -126,7 +133,8 @@ fn inject_start_call(function: &mut ImplItemFn, module_ident: &Ident) -> Result<
 
 fn inject_model_subscriptions(
     function: &mut ImplItemFn,
-    module_ident: &Ident,
+    _module_ident: &Ident,
+    state_ident: &Ident,
     model_ty: &syn::Type,
 ) -> Result<()> {
     let sender_ident = sender_ident(function)?;
@@ -147,7 +155,7 @@ fn inject_model_subscriptions(
         }
 
         let statement: Stmt = parse_quote! {
-            model.#module_ident.set_subscriptions(#model_ty::start(#sender_ident.clone()));
+            model.#state_ident.set_subscriptions(#model_ty::start(#sender_ident.clone()));
         };
         function.block.stmts.insert(index + 1, statement);
         return Ok(());
@@ -178,10 +186,10 @@ fn sender_ident(function: &ImplItemFn) -> Result<Ident> {
     ))
 }
 
-fn update_method() -> ImplItem {
+fn update_method(state_ident: &Ident) -> ImplItem {
     parse_quote! {
         fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
-            self.locus.update(msg);
+            self.#state_ident.update(msg);
         }
     }
 }

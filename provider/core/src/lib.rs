@@ -12,6 +12,7 @@ mod map;
 mod provider;
 mod runtime;
 mod sender;
+mod shared;
 mod subscription;
 
 #[cfg(test)]
@@ -25,4 +26,5 @@ pub use map::{MapProvider, ProviderExt};
 pub use provider::{Provider, provider_for, run_provider};
 pub use runtime::spawn;
 pub use sender::ProviderSender;
+pub use shared::SharedProvider;
 pub use subscription::{Subscription, SubscriptionGroup};

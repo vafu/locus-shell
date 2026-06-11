@@ -1,6 +1,6 @@
 use std::{future::Future, marker::PhantomData, sync::Arc};
 
-use crate::{CombineLatestProvider, Provider, ProviderContext, ProviderSender};
+use crate::{CombineLatestProvider, Provider, ProviderContext, ProviderSender, SharedProvider};
 
 /// Provider returned by [`ProviderExt::map`].
 #[derive(Debug)]
@@ -49,6 +49,17 @@ where
         F: Fn(&Input, &RightValue) -> Output + Send + Sync + 'static,
     {
         CombineLatestProvider::new(self, right, combine)
+    }
+
+    /// Shares one upstream provider run across cloned downstream provider handles.
+    ///
+    /// The latest value is replayed to subscribers that start after the upstream
+    /// has already produced a value.
+    fn shared(self) -> SharedProvider<Self, Input>
+    where
+        Input: Clone + Sync,
+    {
+        SharedProvider::new(self)
     }
 }
 

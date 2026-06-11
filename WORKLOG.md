@@ -63,3 +63,7 @@ After the provider migration, ran the full workspace formatter check, `cargo che
 ## Architecture Review Fixes
 
 Addressed the architecture review findings by making provider cancellation awaitable, letting subscriptions own spawned Tokio task handles, and selecting D-Bus/Locus watch loops against cancellation. Added provider-neutral macro spelling with `#[source(...)]` and `#[bind(field)]` while keeping `#[locus(...)]` as a compatibility path. Updated the roadmap, blueprint, migration notes, and PlantUML architecture source to reflect generic providers, the `provider/common` crate, and the remaining hardening work.
+
+## Shared Sources And Macro State
+
+Added shared/replay providers to `providers` so multiple fields can reuse one upstream source and late subscribers receive the latest value. Updated the macro model contract to default to a `sources` module, support explicit `state = sources`, and hide generated dirty/error/subscription state behind one private `__shell` runtime field. The dev bar now uses `BarSources` and shares one UPower battery percentage source between the progress bar and a derived text label.

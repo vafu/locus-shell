@@ -101,22 +101,16 @@ fn push_generated_model_fields(item: &mut ItemStruct, module: &Ident) -> Result<
         let Some(ident) = &field.ident else {
             continue;
         };
-        if ident == "last_error" || ident == "changed" || ident == "subscriptions" {
+        if ident == "__shell" {
             return Err(syn::Error::new_spanned(
                 ident,
-                "provider models reserve last_error, changed, and subscriptions",
+                "provider models reserve __shell",
             ));
         }
     }
 
     fields.named.push(parse_quote! {
-        pub last_error: ::std::option::Option<#module::WatchError>
-    });
-    fields.named.push(parse_quote! {
-        changed: #module::Changed
-    });
-    fields.named.push(parse_quote! {
-        subscriptions: ::providers::SubscriptionGroup
+        __shell: #module::Runtime
     });
 
     Ok(())

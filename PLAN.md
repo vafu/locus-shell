@@ -95,7 +95,9 @@ Framework crates own:
 - Let consumers declare a typed state model with field-level source attributes:
   - `#[shell_macros::model]`
   - `#[source(...)]`
-  - `#[shell_macros::component(model = BarLocus)]`
+  - `#[shell_macros::component(model = BarSources, state = sources)]`
+- Default generated binding modules to `sources`, with `state = ...` available when the component field name needs to be explicit.
+- Keep generated runtime internals in one private `__shell` sidecar field on typed models.
 - Generate minimal Relm4 glue for graph-bound fields:
   - typed model cache
   - typed update messages
@@ -114,6 +116,7 @@ Framework crates own:
 - Translate provider updates, including Locus `ResolveChanged` updates, into Relm4 input messages.
 - Maintain cached model state for watched GTK properties.
 - Avoid client-side polling or a separate reactive runtime.
+- Use shared/replay providers when multiple model fields derive from the same upstream source.
 - Support derived provider chains for summarized UI data, such as workspace status, window indicators, build status, agent state, and system indicators.
 
 ### 7. External User-Facing Widgets
@@ -135,15 +138,15 @@ Framework crates own:
 
 - Decide whether the neutral provider contract should split runtime spawning into a follow-up crate such as `providers-tokio` or a configurable `ProviderSpawner`.
 - Keep the current `providers::spawn` runtime as the transitional default used by macro output.
-- Add richer provider combinators before external widget crates depend on ad hoc summary code:
+- Add richer provider combinators only when concrete widget requirements justify them:
   - `distinct`
   - `filter_map`
   - `fallible_map`
   - `combine_latest3`
-  - shared/replay providers for connection and subscription reuse
+- Keep shared/replay providers available for connection and subscription reuse.
 - Add collection providers for Locus paths that resolve many nodes, with stable IDs for workspace lists, window lists, tray items, media players, and agent sessions.
 - Keep descriptor constructors and typed bind APIs public, but consider making raw string descriptor fields private with accessors before the API stabilizes.
 
 ## Next Concrete Step
 
-Decide whether macro ergonomics need a lighter syntax for common summaries, or whether explicit custom providers plus `combine_latest` are sufficient. Then validate the runtime behavior against live D-Bus/Locus services from the dev bar. The dev bar remains the proof target: selected-window title comes from `locus_provider::{paths, model}`, battery percentage comes from `common-providers`, and GTK setters bind with `#[bind(field)]`.
+Next, add collection providers for Locus paths that resolve many nodes. The dev bar now proves scalar Locus fields, shared UPower-derived fields, explicit `sources` state, and GTK setters bound with `#[bind(field)]`; collections are the next missing primitive for workspaces, windows, tray items, and media players.

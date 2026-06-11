@@ -13,6 +13,7 @@ pub(super) struct BindingsConfig {
 
 pub(super) struct ComponentConfig {
     pub(super) module: Ident,
+    pub(super) state: Ident,
     pub(super) model: Option<Type>,
     pub(super) bindings: Vec<BindingConfig>,
 }
@@ -46,6 +47,12 @@ impl Parse for BindingsConfig {
                         "module is only supported by #[shell_macros::component]",
                     ));
                 }
+                ConfigEntry::State(ident) => {
+                    return Err(syn::Error::new_spanned(
+                        ident,
+                        "state is only supported by #[shell_macros::component]",
+                    ));
+                }
                 ConfigEntry::Model(ty) => {
                     return Err(syn::Error::new_spanned(
                         ty,
@@ -73,6 +80,7 @@ impl Parse for BindingsConfig {
 impl Parse for ComponentConfig {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let mut module = None;
+        let mut state = None;
         let mut model = None;
         let mut bindings = Vec::new();
         let entries = Punctuated::<ConfigEntry, Token![,]>::parse_terminated(input)?;
@@ -80,6 +88,7 @@ impl Parse for ComponentConfig {
         for entry in entries {
             match entry {
                 ConfigEntry::Module(ident) => module = Some(ident),
+                ConfigEntry::State(ident) => state = Some(ident),
                 ConfigEntry::Binding(binding) => bindings.push(binding),
                 ConfigEntry::Model(ty) => model = Some(ty),
                 ConfigEntry::Component(path) => {
@@ -111,8 +120,12 @@ impl Parse for ComponentConfig {
             validate_bindings(&bindings)?;
         }
 
+        let module = module.unwrap_or_else(|| format_ident!("sources"));
+        let state = state.unwrap_or_else(|| module.clone());
+
         Ok(Self {
-            module: module.unwrap_or_else(|| format_ident!("locus")),
+            module,
+            state,
             model,
             bindings,
         })
@@ -123,7 +136,7 @@ impl Parse for ModelConfig {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         if input.is_empty() {
             return Ok(Self {
-                module: format_ident!("locus"),
+                module: format_ident!("sources"),
             });
         }
 
@@ -132,6 +145,12 @@ impl Parse for ModelConfig {
         for entry in entries {
             match entry {
                 ConfigEntry::Module(ident) => module = Some(ident),
+                ConfigEntry::State(ident) => {
+                    return Err(syn::Error::new_spanned(
+                        ident,
+                        "state is only supported by #[shell_macros::component]",
+                    ));
+                }
                 ConfigEntry::Binding(binding) => {
                     return Err(syn::Error::new_spanned(
                         binding.field,
@@ -154,7 +173,7 @@ impl Parse for ModelConfig {
         }
 
         Ok(Self {
-            module: module.unwrap_or_else(|| format_ident!("locus")),
+            module: module.unwrap_or_else(|| format_ident!("sources")),
         })
     }
 }
@@ -163,6 +182,7 @@ enum ConfigEntry {
     Component(Path),
     Message(Path),
     Module(Ident),
+    State(Ident),
     Model(Type),
     Binding(BindingConfig),
 }
@@ -184,10 +204,15 @@ impl Parse for ConfigEntry {
                         syn::Error::new_spanned(path, "module must be an identifier")
                     })
                 }
+                "state" => path
+                    .get_ident()
+                    .cloned()
+                    .map(Self::State)
+                    .ok_or_else(|| syn::Error::new_spanned(path, "state must be an identifier")),
                 "model" => unreachable!("model is parsed before path entries"),
                 _ => Err(syn::Error::new_spanned(
                     ident,
-                    "expected component, message, module, or a typed binding",
+                    "expected component, message, module, state, or a typed binding",
                 )),
             };
         }

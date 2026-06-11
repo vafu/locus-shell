@@ -137,6 +137,7 @@ name = "dev-widgets"
 version = "0.1.0"
 dependencies = [
  "common-providers",
+ "dbus-provider",
  "futures",
  "locus-provider",
  "providers",
