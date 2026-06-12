@@ -1,8 +1,9 @@
 //! Backend-neutral contracts for asynchronous value providers.
 //!
 //! Providers expose typed value streams without depending on GTK, Relm4,
-//! D-Bus, or any shell widget policy. Consumers own task spawning and keep
-//! returned [`Subscription`] handles alive for as long as updates are wanted.
+//! D-Bus, or any shell widget policy. Framework setup installs the task
+//! spawner, while consumers keep returned [`Subscription`] handles alive for as
+//! long as updates are wanted.
 
 mod error;
 mod runtime;
@@ -14,11 +15,14 @@ mod test;
 
 use std::error::Error as StdError;
 
-use tokio_stream::{Stream, StreamExt};
+pub use tokio_stream::Stream;
+use tokio_stream::StreamExt;
 pub use tokio_util::sync::CancellationToken;
 
 pub use error::ProviderError;
-pub use runtime::spawn;
+pub use runtime::{
+    TaskSpawner, TaskSpawnerAlreadyInstalled, has_task_spawner, install_task_spawner, spawn,
+};
 pub use shared::SharedProvider;
 pub use subscription::{Subscription, SubscriptionGroup};
 

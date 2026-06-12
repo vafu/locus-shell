@@ -8,6 +8,7 @@ use relm4::{Component, RelmApp};
 use crate::css::{
     CssPriority, SassConfig, Stylesheet, StylesheetError, StylesheetSource, StylesheetWatcher,
 };
+use crate::runtime;
 
 #[derive(Debug)]
 pub struct ShellApp {
@@ -99,6 +100,8 @@ impl ShellApp {
         C::Input: Debug + 'static,
         C::Root: AsRef<gtk::Window>,
     {
+        runtime::ensure_provider_runtime();
+
         let app = RelmApp::<C::Input>::new(&self.app_id);
         let watch_stylesheets = self.watch_stylesheets;
         let stylesheets = self

@@ -33,7 +33,7 @@ pub(super) fn expand_locus_module(
         let variant = &binding.variant;
         let ty = &binding.ty;
         quote! {
-            #variant(#ty),
+            #variant(::std::result::Result<#ty, ::providers::ProviderError>),
         }
     });
     let field_variants = bindings.iter().map(|binding| {
@@ -47,59 +47,49 @@ pub(super) fn expand_locus_module(
         let variant = &binding.variant;
         let field_variant = &binding.variant;
         quote! {
-            Msg::#variant(value) => {
-                self.#field = value;
-                self.changed.mark(Field::#field_variant);
-                self.last_error = None;
+            Msg::#variant(result) => {
+                match result {
+                    ::std::result::Result::Ok(value) => {
+                        self.#field = value;
+                        self.changed.mark(Field::#field_variant);
+                        self.last_error = ::std::option::Option::None;
+                    }
+                    ::std::result::Result::Err(error) => {
+                        self.last_error = ::std::option::Option::Some(WatchError {
+                            field: stringify!(#field),
+                            error: error.to_string(),
+                        });
+                    }
+                }
             }
         }
     });
     let watchers = bindings.iter().map(|binding| {
-        let field_name = binding.field.to_string();
         let variant = &binding.variant;
         let source = &binding.source;
         let ty = &binding.ty;
         let input = match &mode {
             ModuleMode::DirectInput => quote! {
-                Msg::#variant(value)
+                Msg::#variant(result)
             },
             ModuleMode::MappedInput(message) => quote! {
-                super::#message(Msg::#variant(value))
-            },
-        };
-        let error_input = match &mode {
-            ModuleMode::DirectInput => quote! {
-                Msg::WatchFailed {
-                    field: #field_name,
-                    error: error.to_string(),
-                }
-            },
-            ModuleMode::MappedInput(message) => quote! {
-                super::#message(Msg::WatchFailed {
-                    field: #field_name,
-                    error: error.to_string(),
-                })
+                super::#message(Msg::#variant(result))
             },
         };
 
         quote! {
             {
-                let mut subscription = ::providers::Subscription::new();
-                let context = subscription.context();
                 let update_sender = sender.clone();
-                let error_sender = sender.clone();
-                let task = ::providers::spawn(async move {
-                    let source = ::providers::provider_for::<#ty, _>(#source);
-                    let result = ::providers::run_provider(source, context, move |value| {
+                let source = ::providers::provider_for::<#ty, _>(#source);
+                let subscription = ::providers::Subscription::spawn(move |cancellation| async move {
+                    ::providers::run_provider(source, cancellation, move |result| {
+                        let result = result.map_err(|error| {
+                            ::providers::ProviderError::new(error.to_string())
+                        });
                         update_sender.input(#input);
                     })
                     .await;
-
-                    if let Err(error) = result {
-                        error_sender.input(#error_input);
-                    }
                 });
-                subscription.set_task(task);
                 subscriptions.push(subscription);
             }
         }
@@ -169,10 +159,6 @@ pub(super) fn expand_locus_module(
             #[derive(Debug)]
             pub enum Msg {
                 #(#message_variants)*
-                WatchFailed {
-                    field: &'static str,
-                    error: ::std::string::String,
-                },
             }
 
             impl Model {
@@ -194,12 +180,6 @@ pub(super) fn expand_locus_module(
                 pub fn update(&mut self, msg: Msg) {
                     match msg {
                         #(#updates)*
-                        Msg::WatchFailed { field, error } => {
-                            self.last_error = ::std::option::Option::Some(WatchError {
-                                field,
-                                error,
-                            });
-                        }
                     }
                 }
             }
@@ -261,7 +241,7 @@ pub(super) fn expand_model_impl(
         let variant = &binding.variant;
         let ty = &binding.ty;
         quote! {
-            #variant(#ty),
+            #variant(::std::result::Result<#ty, ::providers::ProviderError>),
         }
     });
     let field_variants = bindings.iter().map(|binding| {
@@ -276,15 +256,24 @@ pub(super) fn expand_model_impl(
         let field_variant = &binding.variant;
         let module_ident = &module_ident;
         quote! {
-            #module_ident::Msg::#variant(value) => {
-                self.#field = value;
-                self.__shell.mark(#module_ident::Field::#field_variant);
-                self.__shell.clear_error();
+            #module_ident::Msg::#variant(result) => {
+                match result {
+                    ::std::result::Result::Ok(value) => {
+                        self.#field = value;
+                        self.__shell.mark(#module_ident::Field::#field_variant);
+                        self.__shell.clear_error();
+                    }
+                    ::std::result::Result::Err(error) => {
+                        self.__shell.set_error(#module_ident::WatchError {
+                            field: stringify!(#field),
+                            error: error.to_string(),
+                        });
+                    }
+                }
             }
         }
     });
     let watchers = bindings.iter().map(|binding| {
-        let field_name = binding.field.to_string();
         let variant = &binding.variant;
         let source = &binding.source;
         let ty = &binding.ty;
@@ -296,31 +285,20 @@ pub(super) fn expand_model_impl(
 
         quote! {
             {
-                let mut subscription = ::providers::Subscription::new();
-                let context = subscription.context();
                 let update_sender = sender.clone();
-                let error_sender = sender.clone();
                 #(#source_locals)*
                 let source = ::providers::provider_for::<#ty, _>(#source);
-                let task = ::providers::spawn(async move {
-                    let result = ::providers::run_provider(source, context, move |value| {
+                let subscription = ::providers::Subscription::spawn(move |cancellation| async move {
+                    ::providers::run_provider(source, cancellation, move |result| {
+                        let result = result.map_err(|error| {
+                            ::providers::ProviderError::new(error.to_string())
+                        });
                         let input: <Component as ::relm4::Component>::Input =
-                            #module_ident::Msg::#variant(value).into();
+                            #module_ident::Msg::#variant(result).into();
                         update_sender.input(input);
                     })
                     .await;
-
-                    if let Err(error) = result {
-                        let input: <Component as ::relm4::Component>::Input =
-                            #module_ident::Msg::WatchFailed {
-                            field: #field_name,
-                            error: error.to_string(),
-                        }
-                        .into();
-                        error_sender.input(input);
-                    }
                 });
-                subscription.set_task(task);
                 subscriptions.push(subscription);
             }
         }
@@ -371,10 +349,6 @@ pub(super) fn expand_model_impl(
             #[derive(Debug)]
             pub enum Msg {
                 #(#message_variants)*
-                WatchFailed {
-                    field: &'static str,
-                    error: ::std::string::String,
-                },
             }
 
             #[derive(Debug, Default)]
@@ -448,12 +422,6 @@ pub(super) fn expand_model_impl(
             pub fn update(&mut self, msg: #module_ident::Msg) {
                 match msg {
                     #(#updates)*
-                    #module_ident::Msg::WatchFailed { field, error } => {
-                        self.__shell.set_error(#module_ident::WatchError {
-                            field,
-                            error,
-                        });
-                    }
                 }
             }
 

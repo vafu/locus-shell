@@ -48,6 +48,7 @@ Framework crates own:
 ### 2. Shell Core V1
 
 - Add `ShellApp` as the process-level owner for Relm4 app startup, global stylesheets, and long-lived development watchers.
+- Let `ShellApp` install the provider task runtime used by generated provider subscriptions.
 - Finalize `WindowConfig`.
 - Keep the API centered on `create_layer_window(config)`.
 - Keep naming explicit: `SurfaceMargins`, `Anchors`, `Layer`, `Edge`, `ExclusiveZone`.
@@ -73,14 +74,17 @@ Framework crates own:
 - Generate schema-specific `model`, `paths`, relation constants, and extension
   traits inside consuming crates, not inside `locus-provider`.
 - Wrap `io.github.Locus.Graph.Resolve` in `locus-provider`.
-- Implement `providers::Provider<T>` for Locus graph field bindings in `locus-provider`, where `FieldBinding<T>` is owned.
+- Implement raw `providers::Provider<String>` subscriptions for Locus graph
+  property bindings in `locus-provider`; generated schema wrappers adapt those
+  raw wire values into typed `Provider<T>` bindings.
 - Keep the `dbus-provider` crate under `provider/dbus` for generic D-Bus bindings.
+- Keep the `property-provider` crate under `provider/property` for shared property descriptors and property-backed provider traits.
 - Provide generic pure D-Bus property bindings:
   - `dbus_provider::Object<Target>::session(...)`
   - `dbus_provider::Object<Target>::system(...)`
   - `dbus_provider::Property<Target, Value>::new(property)`
   - `object.bind(property)`
-  - `dbus_provider::watch_property(binding, on_value)`
+  - `dbus_provider::watch_property(binding, cancellation)`
 - Implement `providers::Provider<T>` for pure D-Bus property bindings.
 - Keep async D-Bus work off the GTK thread.
 
@@ -94,7 +98,7 @@ Framework crates own:
 ### 5. Macro Crate
 
 - Keep the `shell/macros` crate as the Relm4/provider binding proc-macro crate.
-- Accept generated typed `FieldBinding<T>` expressions instead of raw string tuple paths.
+- Accept generated typed provider expressions instead of raw string tuple paths.
 - Integrate directly with `#[relm4::component]` instead of requiring side modules.
 - Let consumers declare a typed state model with field-level source attributes:
   - `#[shell_macros::model]`
@@ -107,7 +111,7 @@ Framework crates own:
   - typed update messages
   - async watcher startup
 - Dispatch binding expressions through `providers::Provider<T>` instead of backend-specific watcher functions.
-- Generate provider messages from `Result<T, E>` stream items and keep task handles owned by subscriptions. Runtime ownership is still transitional and should be finalized with the ShellApp integration layer before macro APIs stabilize.
+- Generate provider messages from `Result<T, E>` stream items and keep task handles owned by subscriptions.
 - Let component views bind GTK setters with `#[bind(field)]`:
   - closure adapters such as `set_label: |title| title.as_str()`
   - function adapters such as `set_css_classes: window_title_classes`
@@ -146,8 +150,9 @@ Framework crates own:
 
 ### 9. Provider API Hardening
 
-- Finalize runtime ownership for provider task spawning, likely through ShellApp-owned framework runtime setup or a small explicit Tokio integration layer.
-- Keep the current `providers::spawn` runtime only as a transitional provider-core helper until macro and ShellApp integration are updated together.
+- Completed: provider task spawning is owned by framework setup. `ShellApp`
+  installs a Tokio-backed task spawner, while provider core only stores and uses
+  the installed spawner for subscription tasks.
 - Add richer provider combinators only when concrete widget requirements justify them:
   - `distinct`
   - `filter_map`
@@ -155,12 +160,17 @@ Framework crates own:
   - `combine_latest3`
 - Treat any `tokio_stream::Stream<Item = Result<T, E>>` as a provider directly through the blanket `Provider<T>` implementation.
 - Reintroduce `switch_map`/`combine_latest` only as thin stream helpers if real widget requirements prove they are needed.
-- Keep shared latest providers available for connection and subscription reuse.
+- Keep shared latest providers available as the provider-core primitive for
+  connection and subscription reuse. Backend or generated providers should
+  apply sharing from stable provider keys so widget authors do not need local
+  `OnceLock` caches or manual `.shared()` calls.
 - Keep collection providers for Locus paths and reverse relation lookups available as stable node-id lists for workspace lists, window lists, tray items, media players, and agent sessions.
-- Move hand-written development schema descriptors and extension traits into generated Rust schema output once the Locus codegen contract is updated.
+- Move hand-written development schema descriptors and extension traits into generated Rust schema output once the Locus codegen contract is updated. Basic node property helpers, selected-node helpers, relation constants, and filtered reverse collection helpers are generated.
 - Add typed row hydration helpers for collection results so consumers can request summaries such as window id/title, workspace name/focus state, and project display fields without manually wiring one provider per property.
 - Keep descriptor constructors and typed bind APIs public, but consider making raw string descriptor fields private with accessors before the API stabilizes.
 
 ## Next Concrete Step
 
-Next, update Locus Rust codegen to emit consumer-local schema modules with relation descriptors and typed extension traits so hand-written helpers such as `Path<Workspace>::windows()`, `NodeRef<Window>::title()`, and `NodeRef<Window>::is_selected()` can be generated inside the consuming crate instead of maintained manually. In parallel, evaluate whether the manual dev-widget child reconciler should become a Relm4 factory pattern or stay as ordinary consumer code.
+Next, add compile-expanded macro tests for realistic Relm4 components so the
+generated provider subscription and view-binding contracts are validated beyond
+token-shape assertions.

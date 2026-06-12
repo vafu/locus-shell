@@ -1,117 +1,62 @@
 @startuml
-title Locus Shell Architecture\nCurrent crate boundaries plus key generated concepts
+title Locus Shell Architecture\nCurrent crate boundaries
 skinparam packageStyle rectangle
 skinparam classAttributeIconSize 0
 hide empty methods
 
 package "shell/core\ncrate: shell_core" {
-  class "ShellApp<M>" as ShellApp {
-    - app_id: String
-    - stylesheets: Vec<StylesheetRegistration>
-    - watch_stylesheets: bool
+  class ShellApp {
     + new(app_id)
     + with_css(path)
     + with_scss(path)
-    + watch_stylesheets(bool)
-    + run<C>(payload)
-    + try_run<C>(payload)
+    + watch_stylesheets(enabled)
+    + install provider runtime
+    + run(component)
   }
 
-  class StylesheetRegistration {
-    - source: StylesheetSource
-    - priority: CssPriority
+  class ProviderRuntime {
+    + install_provider_runtime()
   }
 
   package "css" {
-    enum CssPriority {
-      Application
-      User
-    }
-
-    enum StylesheetSource {
-      Css(PathBuf)
-      Scss(PathBuf)
-    }
-
     class Stylesheet {
-      - source: StylesheetSource
-      - priority: CssPriority
-      - provider: gtk::CssProvider
-      - fingerprint: Option<StylesheetFingerprint>
-      + new(source, priority)
       + load()
       + install()
       + watch()
     }
 
-    enum StylesheetError {
-      Read
-      Write
-      Compile
-      Fingerprint
+    enum CssPriority {
+      Application
+      User
+    }
+
+    class StylesheetSource {
+      + path()
+      + load()
+      + watch_roots()
     }
   }
 
   package "window" {
-    enum Edge {
-      Top
-      Right
-      Bottom
-      Left
-    }
-
-    enum Layer {
-      Background
-      Bottom
-      Top
-      Overlay
-    }
-
-    class SurfaceMargins {
-      + top: i32
-      + right: i32
-      + bottom: i32
-      + left: i32
-      + ZERO
-      + uniform(value)
-    }
-
-    class Anchors {
-      + top: bool
-      + right: bool
-      + bottom: bool
-      + left: bool
-      + NONE
-      + ALL
-      + new(top, right, bottom, left)
-      + with_edge(edge)
-    }
-
-    enum ExclusiveZone {
-      None
-      Fixed(i32)
-      Auto
-    }
-
     class WindowConfig {
-      + layer: Layer
-      + anchors: Anchors
-      + surface_margins: SurfaceMargins
-      + exclusive_zone: ExclusiveZone
-      + namespace: Option<&'static str>
-      + keyboard_interactive: bool
       + new(layer)
       + with_anchors(anchors)
       + with_surface_margins(margins)
       + with_exclusive_zone(zone)
       + with_auto_exclusive_zone()
       + with_namespace(namespace)
+      + with_keyboard_interactive(enabled)
     }
+
+    enum Layer
+    enum Edge
+    enum ExclusiveZone
+    class Anchors
+    class SurfaceMargins
   }
 
-  ShellApp --> StylesheetRegistration
-  StylesheetRegistration --> StylesheetSource
-  StylesheetRegistration --> CssPriority
+  ShellApp --> Stylesheet
+  ShellApp --> ProviderRuntime
   Stylesheet --> StylesheetSource
   Stylesheet --> CssPriority
   WindowConfig --> Layer
@@ -123,151 +68,56 @@ package "shell/core\ncrate: shell_core" {
 
 package "provider/core\ncrate: providers" {
   interface "Provider<T>" as Provider {
-    + run(context, sender): Future<Result>
+    + stream(cancellation): Stream<Result<T,E>>
   }
 
-  interface "ProviderExt<Input>" as ProviderExt {
-    + map(map)
-    + combine_latest(right, combine)
+  interface "ProviderExt<T>" as ProviderExt {
     + shared()
-    + switch_map(map)
-  }
-
-  class ProviderContext {
-    - cancellation: CancellationToken
-    + new(cancellation)
-    + cancellation()
-    + is_cancelled()
-    + cancelled()
-  }
-
-  class ProviderSender<T> {
-    - send: Arc<Mutex<FnMut(T)>>
-    + new(send)
-    + send(value)
-  }
-
-  class CancellationToken {
-    - inner: Arc<CancellationState>
-    + new()
-    + cancel()
-    + is_cancelled()
-    + cancelled()
-  }
-
-  class CancellationState {
-    - cancelled: AtomicBool
-    - notify: Notify
   }
 
   class Subscription {
-    - cancellation: CancellationToken
-    - task: Option<JoinHandle>
-    + new()
-    + context()
+    + spawn(run)
+    + cancellation()
     + cancel()
-    + set_task(task)
   }
 
   class SubscriptionGroup {
-    - subscriptions: Vec<Subscription>
-    + new()
     + push(subscription)
     + cancel()
-    + len()
-    + is_empty()
-  }
-
-  class ProviderError {
-    - message: String
-    + new(message)
-    + message()
-  }
-
-  class "MapProvider<P,F,Input,Output>" as MapProvider {
-    - provider: P
-    - map: F
-  }
-
-  class "CombineLatestProvider<L,R,F,LV,RV,O>" as CombineLatestProvider {
-    - left: L
-    - right: R
-    - combine: F
   }
 
   class "SharedProvider<P,T>" as SharedProvider {
-    - state: Arc<SharedState<P,T>>
+    + new(provider)
+    + stream(cancellation)
   }
 
-  class "StreamProvider<S,T,E>" as StreamProvider {
-    - stream: S
-  }
-
-  class "SwitchMapProvider<U,F,I,D,O>" as SwitchMapProvider {
-    - upstream: U
-    - map: F
-  }
-
-  class "SharedState<P,T>" as SharedState {
-    - provider: Mutex<Option<P>>
-    - latest: Arc<Mutex<Option<T>>>
-    - events: watch::Sender<SharedEvent<T>>
-    - subscription: Mutex<Option<Subscription>>
-  }
-
-  enum "SharedEvent<T>" as SharedEvent {
-    Pending
-    Value(T)
-    Failed(ProviderError)
-    Finished
-  }
-
-  enum "CombineLatestError<L,R>" as CombineLatestError {
-    Left(L)
-    Right(R)
-  }
-
-  enum "SwitchMapError<U,D>" as SwitchMapError {
-    Upstream(U)
-    Downstream(D)
-  }
-
-  enum "CombineEvent<L,R>" as CombineEvent {
-    Left(L)
-    Right(R)
-  }
-
-  enum "SwitchEvent<I,UE,O,DE>" as SwitchEvent {
-    UpstreamValue(I)
-    UpstreamDone(Result)
-    DownstreamValue(usize,O)
-    DownstreamDone(usize,Result)
+  class CancellationToken
+  class ProviderError
+  interface TaskSpawner {
+    + spawn_boxed(future)
   }
 
   ProviderExt --|> Provider
-  MapProvider ..|> Provider
-  CombineLatestProvider ..|> Provider
   SharedProvider ..|> Provider
-  StreamProvider ..|> Provider
-  SwitchMapProvider ..|> Provider
-
-  Provider --> ProviderContext
-  Provider --> ProviderSender
-  ProviderContext --> CancellationToken
-  CancellationToken --> CancellationState
+  Subscription --> TaskSpawner
   Subscription --> CancellationToken
   SubscriptionGroup --> Subscription
-  MapProvider --> Provider
-  CombineLatestProvider --> Provider
-  CombineLatestProvider --> CombineLatestError
-  CombineLatestProvider --> CombineEvent
-  SharedProvider --> SharedState
-  SharedState --> SharedEvent
-  SharedState --> Subscription
-  StreamProvider --> Provider
-  SwitchMapProvider --> Provider
-  SwitchMapProvider --> SwitchMapError
-  SwitchMapProvider --> SwitchEvent
+}
+
+package "provider/property\ncrate: property_provider" {
+  class "Property<Target,Value>" as SharedProperty {
+    - key: &'static str
+    + new(key)
+    + key()
+  }
+
+  interface "PropertyBinding<T>" as SharedPropertyBinding {
+    + property()
+    + key()
+  }
+
+  SharedPropertyBinding --|> Provider
+  SharedPropertyBinding --> SharedProperty
 }
 
 package "provider/dbus\ncrate: dbus_provider" {
@@ -277,396 +127,167 @@ package "provider/dbus\ncrate: dbus_provider" {
   }
 
   class "Object<Target>" as DbusObject {
-    + bus: DbusBus
-    + service: &'static str
-    + path: &'static str
-    + interface: &'static str
     + session(service,path,interface)
     + system(service,path,interface)
-    + bind(property): PropertyBinding<Value>
+    + bind(property)
+    + bus()
+    + service()
+    + path()
+    + interface()
   }
 
-  class "Property<Target,Value>" as DbusProperty {
-    + key: &'static str
-    + new(key)
+  class "PropertyBinding<Target,Value>" as DbusPropertyBinding {
+    + bus()
+    + service()
+    + path()
+    + interface()
+    + property_name()
+    + binding_key()
+    + stream(cancellation)
   }
 
-  class "PropertyBinding<T>" as DbusPropertyBinding {
-    + bus: DbusBus
-    + service: &'static str
-    + path: &'static str
-    + interface: &'static str
-    + property: &'static str
-  }
+  class DbusPropertyKey
+  class WatchError
 
-  enum DbusWatchError {
-    Fdo
-    Zbus
-  }
-
-  DbusObject --> DbusBus
-  DbusObject --> DbusProperty
   DbusObject --> DbusPropertyBinding
+  DbusObject --> SharedProperty
   DbusPropertyBinding ..|> Provider
-  DbusPropertyBinding --> DbusWatchError
+  DbusPropertyBinding ..|> SharedPropertyBinding
+  DbusPropertyBinding --> DbusPropertyKey
+  DbusPropertyBinding --> WatchError
 }
 
 package "provider/locus\ncrate: locus_provider" {
-  interface DecodeLocusValue {
-    + decode_locus(value)
+  class "Path<Target>" as LocusPath {
+    + new(name,source,relations,many)
+    + raw_property(property)
+    + target()
+    + all()
+    + source()
+    + relations()
   }
 
-  enum LocusWatchError {
-    Decode
-    List
-    Fdo
-    Zbus
+  class "LocusPropertyBinding<Target>" as LocusPropertyBinding {
+    + source()
+    + relations()
+    + property_name()
+    + binding_key()
+    + stream(cancellation)
   }
 
-  enum ListError {
-    UnknownCommand
-    AddIndexOutOfBounds
-    RemoveIndexOutOfBounds
-    RemovedNodeMismatch
+  class "NodeRef<Model>" as NodeRef {
+    + new(id)
+    + id()
+    + raw_property(property)
   }
 
-  enum DecodeError {
-    Bool
-    U32
-    I32
-    F64
+  class "NodePropertyBinding<Model>" as NodePropertyBinding {
+    + node()
+    + property_name()
+    + stream(cancellation)
   }
 
-  package "generic binding" {
-    class "Property<Model,Value>" as LocusProperty {
-      + key: &'static str
-      + new(key)
-    }
-
-    class "Path<Target>" as LocusPath {
-      + name: &'static str
-      + source: &'static str
-      + relations: &'static [&'static str]
-      + many: bool
-      + property(property): FieldBinding<Value>
-      + target(): TargetBinding<Target>
-      + all(): NodeListBinding<Target>
-    }
-
-    class "NodeRef<Model>" as NodeRef {
-      - id: NodeId
-      + new(id)
-      + id(): &str
-      + property(property): NodePropertyBinding<Model,Value>
-    }
-
-    class "NodePropertyBinding<Model,Value>" as NodePropertyBinding {
-      + node: NodeId
-      + property: &'static str
-    }
-
-    class "FieldBinding<Value>" as FieldBinding {
-      + source: &'static str
-      + relations: &'static [&'static str]
-      + property: &'static str
-    }
-
-    class "TargetBinding<Target>" as TargetBinding {
-      + source: &'static str
-      + relations: &'static [&'static str]
-    }
-
-    class "Relation<Source,Target>" as Relation {
-      + name: &'static str
-      + sources(target): NodeListBinding<Source>
-      + targets(source): NodeListBinding<Target>
-    }
-
-    class "NodeListBinding<Target>" as NodeListBinding {
-      + query: NodeListQuery
-      + filter_kind(kind): KindFilteredNodeListBinding<Target>
-    }
-
-    class "KindFilteredNodeListBinding<Target>" as KindFilteredNodeListBinding {
-      + binding: NodeListBinding<Target>
-      + kind: &'static str
-    }
-
-    enum NodeListQuery {
-      ResolveAll
-      Sources
-      Targets
-    }
-
-    enum NodeListDiffCommand {
-      Reset
-      NodeAdded
-      NodeRemoved
-    }
+  class "Relation<Source,Target>" as Relation {
+    + new(name)
+    + sources(target)
+    + targets(source)
   }
 
-  DecodeLocusValue <|.. String
-  DecodeLocusValue <|.. bool
-  DecodeLocusValue <|.. u32
-  DecodeLocusValue <|.. i32
-  DecodeLocusValue <|.. f64
+  class "TargetBinding<Target>" as TargetBinding {
+    + source()
+    + relations()
+    + stream(cancellation)
+  }
 
-  LocusPath --> LocusProperty
-  LocusPath --> FieldBinding
+  class "NodeListBinding<Target>" as NodeListBinding {
+    + resolve_all(source,relations)
+    + sources(target,relation)
+    + targets(source,relation)
+    + filter_kind(kind)
+    + query()
+    + stream(cancellation)
+  }
+
+  class "KindFilteredNodeListBinding<Target>" as KindFilteredNodeListBinding {
+    + binding()
+    + kind()
+    + into_parts()
+    + stream(cancellation)
+  }
+
+  class WatchError
+  class ListError
+  class DecodeError
+
+  LocusPath --> LocusPropertyBinding
   LocusPath --> TargetBinding
   LocusPath --> NodeListBinding
-  FieldBinding ..|> Provider
+  NodeRef --> NodePropertyBinding
+  Relation --> NodeListBinding
+  NodeListBinding --> KindFilteredNodeListBinding
+  LocusPropertyBinding ..|> Provider
+  LocusPropertyBinding ..|> SharedPropertyBinding
+  NodePropertyBinding ..|> Provider
+  NodePropertyBinding ..|> SharedPropertyBinding
   TargetBinding ..|> Provider
   NodeListBinding ..|> Provider
   KindFilteredNodeListBinding ..|> Provider
-  NodePropertyBinding ..|> Provider
-  NodeRef --> LocusProperty
-  NodeRef --> NodePropertyBinding
-  FieldBinding --> DecodeLocusValue
-  NodePropertyBinding --> DecodeLocusValue
-  FieldBinding --> LocusWatchError
-  NodePropertyBinding --> LocusWatchError
-  NodeListBinding --> NodeListQuery
-  KindFilteredNodeListBinding --> NodeListBinding
-  NodeListBinding --> NodeListDiffCommand
-  NodeListDiffCommand --> ListError
-  LocusWatchError --> DecodeError
-  LocusWatchError --> ListError
-}
-
-package "provider/common\ncrate: common_providers" {
-  package "upower" {
-    class DisplayDevice
-    class UPower <<module>> {
-      + DISPLAY_DEVICE: dbus_provider::Object<DisplayDevice>
-      + DisplayDevice::PERCENTAGE: Property<DisplayDevice,f64>
-      + DisplayDevice::STATE: Property<DisplayDevice,u32>
-      + DisplayDevice::TIME_TO_EMPTY: Property<DisplayDevice,i64>
-      + DisplayDevice::TIME_TO_FULL: Property<DisplayDevice,i64>
-      + DisplayDevice::IS_PRESENT: Property<DisplayDevice,bool>
-    }
-  }
-
-  UPower --> DbusObject
-  UPower --> DbusProperty
 }
 
 package "shell/macros\ncrate: shell_macros" {
-  class ProcMacros <<proc-macro crate>> {
-    + bindings(attr,item)
-    + model(attr,item)
-    + component(attr,item)
+  class "#[model]" as ModelMacro {
+    + generated state
+    + result-carrying messages
+    + dirty tracking
+    + subscription ownership
   }
 
-  class BindingsConfig <<parser>>
-  class ComponentConfig <<parser>>
-  class ModelConfig <<parser>>
-  class BindingConfig <<parser>>
-  enum ConfigEntry
-  enum ViewBinding
-
-  class GeneratedInlineModel <<generated>> {
-    + watched fields
-    + last_error: Option<WatchError>
-    - changed: Changed
-    - subscriptions: SubscriptionGroup
-    + update(msg)
-    + start(sender): SubscriptionGroup
+  class "#[component]" as ComponentMacro {
+    + starts provider subscriptions
+    + rewrites bind attributes
   }
 
-  class GeneratedTypedModelExtras <<generated>> {
-    - __shell: Runtime
-    + new(context fields...)
-    + changed(field)
-    + clear_changed()
-    + last_error()
-    + set_subscriptions(group)
-    + update(msg)
-    + start(&self, sender): SubscriptionGroup
-    + requires Component::Input: From<Msg> + Send
+  class "#[bindings]" as BindingsMacro {
+    + legacy compatibility module
   }
 
-  class GeneratedRuntime <<generated>> {
-    - last_error: Option<WatchError>
-    - changed: Changed
-    - subscriptions: SubscriptionGroup
-  }
-
-  enum GeneratedMsg <<generated>> {
-    FieldVariant(T)
-    WatchFailed
-  }
-
-  enum GeneratedField <<generated>> {
-    OneVariantPerBinding
-  }
-
-  class GeneratedChanged <<generated>> {
-    - mask: Cell<u128>
-    + mark(field)
-    + contains(field)
-    + clear()
-  }
-
-  class GeneratedWatchError <<generated>> {
-    + field: &'static str
-    + error: String
-  }
-
-  ProcMacros --> BindingsConfig
-  ProcMacros --> ComponentConfig
-  ProcMacros --> ModelConfig
-  BindingConfig --> Provider
-  GeneratedInlineModel --> SubscriptionGroup
-  GeneratedTypedModelExtras --> SubscriptionGroup
-  GeneratedInlineModel --> GeneratedMsg
-  GeneratedTypedModelExtras --> GeneratedMsg
-  GeneratedInlineModel --> GeneratedChanged
-  GeneratedTypedModelExtras --> GeneratedChanged
-  GeneratedMsg --> GeneratedWatchError
-  GeneratedField --> GeneratedChanged
+  ModelMacro ..> Provider
+  ComponentMacro ..> Provider
+  ComponentMacro --> SubscriptionGroup
+  BindingsMacro ..> Provider
 }
 
-package "dev-widgets\ninternal consumer" {
-  package "local generated Locus schema" {
-    class Unknown
-    class Context
-    class AgentSession
-    class AppInstance
-    class Output
-    class Project
-    class Window
-    class Workspace
-
-    class Paths <<module>> {
-      + SELECTED_WINDOW: Path<Window>
-      + SELECTED_WORKSPACE: Path<Workspace>
-      + SELECTED_PROJECT: Path<Project>
-      + SELECTED_OUTPUT: Path<Output>
-      + SELECTED_AGENT_SESSION: Path<AgentSession>
-      + WINDOW_AGENT_SESSION: Path<AgentSession>
-      + AGENT_SESSION_PROJECT: Path<Project>
-      + AGENT_SESSION_WORKSPACE: Path<Workspace>
-      + AGENT_SESSION_WORKSPACE_PROJECT: Path<Project>
-    }
-
-    class Relations <<module>> {
-      + WINDOW: Relation<Context,Window>
-      + WORKSPACE: Relation<Unknown,Workspace>
-      + OUTPUT: Relation<Workspace,Output>
-      + SESSION_PROJECT: Relation<AgentSession,Project>
-      + AGENT_SESSION: Relation<AppInstance,AgentSession>
-      + APP_INSTANCE: Relation<Window,AppInstance>
-    }
-
-    interface WindowNodeExt {
-      + title(): NodePropertyBinding<Window,String>
-      + is_selected(): Provider<bool>
-    }
-
-    interface WorkspacePathExt {
-      + windows(): WorkspaceWindowsProvider<TargetBinding<Workspace>>
-    }
-
-    class "WorkspaceWindowsProvider<P>" as WorkspaceWindowsProvider {
-      - workspace: P
-      + new(workspace)
-    }
+package "provider/common\ncrate: common_providers" {
+  class upower {
+    + DISPLAY_DEVICE
+    + DisplayDevice::PERCENTAGE
   }
 
-  class BarInit {
-    + title: &'static str
-  }
+  upower --> DbusObject
+  upower --> SharedProperty
+}
 
-  class BarSources <<shell_macros::model>> {
-    + window_nodes: Vec<String>
-    + battery_percent: f64
-    + battery_label: String
-    - __shell: sources::Runtime
-  }
-
-  class Bar <<Relm4 SimpleComponent>> {
-    - sources: BarSources
-    - windows: WindowRows
-  }
-
-  class WindowRows {
-    - container: gtk::Box
-    - rows: BTreeMap<String, Controller<WindowTitle>>
-    - order: Vec<String>
-    + reconcile(nodes)
-  }
-
-  class WindowTitle <<Relm4 SimpleComponent>> {
-    - sources: WindowTitleSources
-  }
-
-  class WindowTitleInit {
-    - window: NodeRef<Window>
-  }
-
-  class WindowTitleSources <<shell_macros::model>> {
-    + window: NodeRef<Window>
-    + title: String
-    + selected: bool
-    - __shell: window_title_sources::Runtime
-  }
-
-  class BarSummary <<test proof>> {
-    + title: String
-    + battery_level: &'static str
-  }
+package "dev-widgets\ncrate: dev_widgets" {
+  class Bar
+  class BarSources
+  class WindowRows
+  class WindowTitle
+  class "generated locus_schema" as DevSchema
 
   Bar --> BarSources
   Bar --> WindowRows
   WindowRows --> WindowTitle
-  WindowTitle --> WindowTitleSources
-  WindowTitleInit --> NodeRef
-  WindowTitleSources --> NodeRef
-  WindowTitleSources --> NodePropertyBinding
-  WindowTitleSources --> TargetBinding
-  BarSources --> WorkspaceWindowsProvider
-  BarSources --> DbusPropertyBinding
-  BarSources --> GeneratedTypedModelExtras
-  WindowTitleSources --> GeneratedTypedModelExtras
-  Bar --> WindowConfig
-  Bar --> ShellApp
-  BarSummary ..> CombineLatestProvider
-
-  AgentSession --> LocusProperty
-  AppInstance --> LocusProperty
-  Output --> LocusProperty
-  Project --> LocusProperty
-  Window --> LocusProperty
-  Workspace --> LocusProperty
-  Paths --> LocusPath
-  Relations --> Relation
-  WindowNodeExt --> NodeRef
-  WindowNodeExt --> NodePropertyBinding
-  WorkspacePathExt --> LocusPath
-  WorkspacePathExt --> WorkspaceWindowsProvider
-  WorkspaceWindowsProvider ..|> Provider
-  WorkspaceWindowsProvider --> TargetBinding
-  WorkspaceWindowsProvider --> KindFilteredNodeListBinding
+  BarSources ..> Provider
+  DevSchema --> LocusPath
+  DevSchema --> SharedProperty
+  DevSchema --> NodeRef
 }
 
-ShellApp ..> Stylesheet
-GeneratedTypedModelExtras ..> Provider
-GeneratedTypedModelExtras --> GeneratedRuntime
-GeneratedInlineModel ..> Provider
-GeneratedTypedModelExtras ..> "providers::spawn"
-GeneratedInlineModel ..> "providers::spawn"
-
-DbusPropertyBinding ..> ProviderContext
-DbusPropertyBinding ..> ProviderSender
-FieldBinding ..> ProviderContext
-FieldBinding ..> ProviderSender
-NodePropertyBinding ..> ProviderContext
-NodePropertyBinding ..> ProviderSender
-
-UPower ..> DbusObject
-BarSources ..> Paths
-BarSources ..> UPower
-WindowTitleSources ..> Paths
+DbusPropertyBinding --> CancellationToken
+LocusPropertyBinding --> CancellationToken
+NodePropertyBinding --> CancellationToken
+TargetBinding --> CancellationToken
+NodeListBinding --> CancellationToken
+KindFilteredNodeListBinding --> CancellationToken
 
 @enduml

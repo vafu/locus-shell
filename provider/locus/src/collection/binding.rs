@@ -6,7 +6,7 @@ pub type NodeId = String;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Relation<Source, Target> {
-    pub name: &'static str,
+    name: &'static str,
     _source: PhantomData<fn() -> Source>,
     _target: PhantomData<fn() -> Target>,
 }
@@ -27,12 +27,16 @@ impl<Source, Target> Relation<Source, Target> {
     pub fn targets(self, source: impl Into<NodeId>) -> NodeListBinding<Target> {
         NodeListBinding::targets(source.into(), self.name)
     }
+
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TargetBinding<Target> {
-    pub source: &'static str,
-    pub relations: &'static [&'static str],
+    source: &'static str,
+    relations: &'static [&'static str],
     _target: PhantomData<fn() -> Target>,
 }
 
@@ -44,11 +48,19 @@ impl<Target> TargetBinding<Target> {
             _target: PhantomData,
         }
     }
+
+    pub const fn source(&self) -> &'static str {
+        self.source
+    }
+
+    pub const fn relations(&self) -> &'static [&'static str] {
+        self.relations
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NodeListBinding<Target> {
-    pub query: NodeListQuery,
+    query: NodeListQuery,
     _target: PhantomData<fn() -> Target>,
 }
 
@@ -70,8 +82,8 @@ pub enum NodeListQuery {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KindFilteredNodeListBinding<Target> {
-    pub binding: NodeListBinding<Target>,
-    pub kind: &'static str,
+    binding: NodeListBinding<Target>,
+    kind: &'static str,
 }
 
 impl<Target> NodeListBinding<Target> {
@@ -114,17 +126,37 @@ impl<Target> NodeListBinding<Target> {
             kind,
         }
     }
+
+    pub fn query(&self) -> &NodeListQuery {
+        &self.query
+    }
 }
 
 impl<Target> Path<Target> {
     pub fn target(self) -> TargetBinding<Target> {
-        TargetBinding::new(self.source, self.relations)
+        TargetBinding::new(self.source(), self.relations())
     }
 
     pub fn all(self) -> NodeListBinding<Target> {
         NodeListBinding::resolve_all(
-            self.source,
-            self.relations.iter().map(|relation| (*relation).to_owned()),
+            self.source(),
+            self.relations()
+                .iter()
+                .map(|relation| (*relation).to_owned()),
         )
+    }
+}
+
+impl<Target> KindFilteredNodeListBinding<Target> {
+    pub fn binding(&self) -> &NodeListBinding<Target> {
+        &self.binding
+    }
+
+    pub const fn kind(&self) -> &'static str {
+        self.kind
+    }
+
+    pub fn into_parts(self) -> (NodeListBinding<Target>, &'static str) {
+        (self.binding, self.kind)
     }
 }

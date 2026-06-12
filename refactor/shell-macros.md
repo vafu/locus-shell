@@ -31,7 +31,7 @@ The crate currently supports both legacy inline binding declarations and the new
 
 ## Behavior Summary
 
-Legacy component bindings generate a local `sources`-style module with a `Model`, `Msg`, dirty tracking, `WatchFailed`, and `start(sender)` function. The component macro inserts `model.sources.set_subscriptions(sources::start(sender.clone()))` after a local `let model = ...` in `init`.
+Legacy component bindings generate a local `sources`-style module with a `Model`, result-carrying `Msg` variants, dirty tracking, last-error state, and `start(sender)` function. The component macro inserts `model.sources.set_subscriptions(sources::start(sender.clone()))` after a local `let model = ...` in `init`.
 
 Typed models keep the user struct as the source state object, remove `#[source]`/legacy `#[locus(source = ...)]` field attributes, append `__shell: sources::Runtime`, generate `new`, optional `Default`, `update`, `start`, `changed`, `clear_changed`, and `last_error` helpers, and let `#[shell_macros::component(model = ..., state = ...)]` wire startup into the Relm4 component.
 
@@ -46,7 +46,7 @@ None yet.
 - Risk: model-mode view bindings do not validate that `#[bind(field)]` refers to a generated source field. A typo generates `sources::Field::Typo` / `model.sources.typo` and fails later as a Rust compile error instead of a macro diagnostic.
 - Risk: component injection is tightly coupled to `init` containing a simple local binding named `model`. Other valid-looking component shapes fail with a macro error or require restructuring.
 - Risk: if `#[shell_macros::component(model = ...)]` is used with a wrapped input enum and no handwritten `update`, the generated fallback update calls `self.state.update(msg)` with `Self::Input`, which only works when `Self::Input` is exactly the generated message type.
-- Risk: generated watcher errors are stringified into `WatchFailed { error: String }`, so source chains from `locus-provider` and `dbus-provider` are lost at the UI state boundary.
+- Risk: generated watcher errors are currently converted into `providers::ProviderError` by display string because arbitrary provider error types are not nameable in generated message enums.
 - Gap: tests assert generated token substrings but do not compile expanded code through realistic Relm4 components or check negative cases for view binding typos, unsupported init shapes, wrapped-input fallback updates, or generated `post_view` signatures.
 - Refactor smell: legacy module generation and typed-model generation duplicate dirty tracking, field enums, watch errors, messages, subscription startup patterns, and update handling.
 

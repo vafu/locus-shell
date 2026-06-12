@@ -1,23 +1,61 @@
 use std::{
     convert::Infallible,
+    future::Future,
     pin::Pin,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, Once,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
 
 use futures::{StreamExt as FuturesStreamExt, stream};
+use tokio::task::JoinHandle;
 use tokio_stream::Stream;
 
 use super::{
     CancellationToken, Provider, ProviderError, ProviderExt, Subscription, SubscriptionGroup,
-    provider_for, run_provider, spawn,
+    TaskSpawner, install_task_spawner, provider_for, run_provider, spawn,
 };
+
+#[derive(Debug)]
+struct TestTaskSpawner {
+    runtime: tokio::runtime::Runtime,
+}
+
+impl TestTaskSpawner {
+    fn new() -> Self {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("providers-test-runtime")
+            .build()
+            .expect("provider test runtime");
+
+        Self { runtime }
+    }
+}
+
+impl TaskSpawner for TestTaskSpawner {
+    fn spawn_boxed(
+        &self,
+        future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+    ) -> JoinHandle<()> {
+        self.runtime.spawn(future)
+    }
+}
+
+fn ensure_test_spawner() {
+    static INSTALL: Once = Once::new();
+
+    INSTALL.call_once(|| {
+        install_task_spawner(TestTaskSpawner::new()).expect("install provider test spawner");
+    });
+}
 
 #[test]
 fn subscription_spawn_token_tracks_cancellation() {
+    ensure_test_spawner();
+
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut subscription = Subscription::spawn(|cancellation| async move {
         sender.send(cancellation).expect("send cancellation token");
@@ -49,6 +87,8 @@ fn cancellation_token_can_be_awaited() {
 
 #[test]
 fn dropping_subscription_aborts_registered_task() {
+    ensure_test_spawner();
+
     let (sender, receiver) = std::sync::mpsc::channel();
     let subscription = Subscription::spawn(|_context| async move {
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -150,6 +190,8 @@ fn provider_for_preserves_matching_provider() {
 
 #[test]
 fn spawn_runs_future_on_provider_runtime() {
+    ensure_test_spawner();
+
     let (sender, receiver) = std::sync::mpsc::channel();
 
     let _task = spawn(async move {
@@ -200,6 +242,8 @@ fn stream_providers_can_use_tokio_stream_ext_directly() {
 
 #[test]
 fn shared_provider_reuses_active_upstream_and_restarts_later() {
+    ensure_test_spawner();
+
     #[derive(Clone)]
     struct CountedProvider {
         runs: Arc<AtomicUsize>,
@@ -247,6 +291,8 @@ fn shared_provider_reuses_active_upstream_and_restarts_later() {
 }
 
 fn subscription_with_cancellation() -> (Subscription, CancellationToken) {
+    ensure_test_spawner();
+
     let (sender, receiver) = std::sync::mpsc::channel();
     let subscription = Subscription::spawn(|cancellation| async move {
         sender.send(cancellation).expect("send cancellation token");

@@ -1,7 +1,7 @@
-use std::sync::{Arc, Mutex};
+use futures::StreamExt;
+use providers::{CancellationToken, Provider};
 
-use super::{DbusBus, Object, Property, PropertyBinding, watch::emit_value_if_active};
-use providers::{CancellationToken, Provider, ProviderContext, ProviderSender};
+use super::{DbusBus, Object, Property, PropertyBinding};
 
 struct Battery;
 
@@ -17,56 +17,52 @@ impl Battery {
 
 #[test]
 fn typed_object_property_creates_typed_dbus_binding() {
-    let binding: PropertyBinding<f64> = BATTERY.bind(Battery::PERCENTAGE);
+    let binding: PropertyBinding<Battery, f64> = BATTERY.bind(Battery::PERCENTAGE);
 
-    assert_eq!(binding.bus, DbusBus::System);
-    assert_eq!(binding.service, "org.freedesktop.UPower");
+    assert_eq!(binding.bus(), DbusBus::System);
+    assert_eq!(binding.service(), "org.freedesktop.UPower");
     assert_eq!(
-        binding.path,
+        binding.path(),
         "/org/freedesktop/UPower/devices/DisplayDevice"
     );
-    assert_eq!(binding.interface, "org.freedesktop.UPower.Device");
-    assert_eq!(binding.property, "Percentage");
+    assert_eq!(binding.interface(), "org.freedesktop.UPower.Device");
+    assert_eq!(binding.property_name(), "Percentage");
+    assert_eq!(binding.property_descriptor().key(), "Percentage");
 }
 
 #[test]
 fn typed_object_property_is_provider() {
     fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
 
-    let binding: PropertyBinding<f64> = BATTERY.bind(Battery::PERCENTAGE);
+    let binding: PropertyBinding<Battery, f64> = BATTERY.bind(Battery::PERCENTAGE);
 
     assert_provider::<f64, _>(binding);
 }
 
 #[test]
-fn cancelled_property_provider_exits_before_dbus_setup() {
-    let binding: PropertyBinding<f64> = BATTERY.bind(Battery::PERCENTAGE);
-    let cancellation = CancellationToken::new();
-    cancellation.cancel();
-    let sent = Arc::new(Mutex::new(Vec::new()));
-    let captured = sent.clone();
+fn typed_object_property_is_property_binding() {
+    fn assert_property_binding<T, P>(_provider: P)
+    where
+        T: Send + 'static,
+        P: property_provider::PropertyBinding<T>,
+    {
+    }
 
-    let result = futures::executor::block_on(binding.run(
-        ProviderContext::new(cancellation),
-        ProviderSender::new(move |value| {
-            captured.lock().expect("sent lock").push(value);
-        }),
-    ));
+    let binding: PropertyBinding<Battery, f64> = BATTERY.bind(Battery::PERCENTAGE);
 
-    assert!(result.is_ok());
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert_property_binding::<f64, _>(binding);
 }
 
 #[test]
-fn initial_value_respects_cancellation() {
+fn cancelled_property_provider_exits_before_dbus_setup() {
+    let binding: PropertyBinding<Battery, f64> = BATTERY.bind(Battery::PERCENTAGE);
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let context = ProviderContext::new(cancellation);
-    let mut sent = Vec::new();
+    let mut stream = binding.stream(cancellation);
 
-    emit_value_if_active(&context, 42_u32, &mut |value| sent.push(value));
+    let result = futures::executor::block_on(stream.next());
 
-    assert!(sent.is_empty());
+    assert!(result.is_none());
 }
 
 #[test]
@@ -80,7 +76,7 @@ fn session_object_targets_session_bus() {
     impl Notifications {
         const NAME: Property<Self, String> = Property::new("Name");
     }
-    let binding: PropertyBinding<String> = NOTIFICATIONS.bind(Notifications::NAME);
+    let binding: PropertyBinding<Notifications, String> = NOTIFICATIONS.bind(Notifications::NAME);
 
-    assert_eq!(binding.bus, DbusBus::Session);
+    assert_eq!(binding.bus(), DbusBus::Session);
 }

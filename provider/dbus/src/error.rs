@@ -1,9 +1,9 @@
-use std::{error::Error as StdError, fmt};
+use std::{error::Error as StdError, fmt, sync::Arc};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum WatchError {
-    Fdo(zbus::fdo::Error),
-    Zbus(zbus::Error),
+    Fdo(Arc<zbus::fdo::Error>),
+    Zbus(Arc<zbus::Error>),
 }
 
 impl fmt::Display for WatchError {
@@ -18,20 +18,20 @@ impl fmt::Display for WatchError {
 impl StdError for WatchError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
-            Self::Fdo(error) => Some(error),
-            Self::Zbus(error) => Some(error),
+            Self::Fdo(error) => Some(error.as_ref()),
+            Self::Zbus(error) => Some(error.as_ref()),
         }
     }
 }
 
 impl From<zbus::Error> for WatchError {
     fn from(error: zbus::Error) -> Self {
-        Self::Zbus(error)
+        Self::Zbus(Arc::new(error))
     }
 }
 
 impl From<zbus::fdo::Error> for WatchError {
     fn from(error: zbus::fdo::Error) -> Self {
-        Self::Fdo(error)
+        Self::Fdo(Arc::new(error))
     }
 }

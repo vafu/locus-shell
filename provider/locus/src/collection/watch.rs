@@ -1,11 +1,12 @@
-use std::future::Future;
+use std::pin::Pin;
 
 use futures_util::StreamExt;
 use locus_dbus::{
     BUS_NAME, GRAPH_READ_INTERFACE, GRAPH_RESOLVE_INTERFACE, GraphReadProxy, GraphResolveProxy,
     NodeListDiffCommandTuple, ROOT_PATH,
 };
-use providers::{Provider, ProviderContext, ProviderSender};
+use providers::{CancellationToken, Provider};
+use tokio_stream::Stream;
 use zbus::Proxy;
 use zbus::proxy::Builder as ProxyBuilder;
 
@@ -20,150 +21,188 @@ const RESOLVE_ALL_CHANGED_SIGNAL: &str = "ResolveAllChanged";
 const SOURCES_CHANGED_SIGNAL: &str = "SourcesChanged";
 const TARGETS_CHANGED_SIGNAL: &str = "TargetsChanged";
 
-pub async fn watch_target<Target, OnValue>(
+pub type WatchStream<T> = Pin<Box<dyn Stream<Item = Result<T, WatchError>> + Send>>;
+
+pub fn watch_target<Target>(
     binding: TargetBinding<Target>,
-    on_value: OnValue,
-) -> Result<(), WatchError>
+    cancellation: CancellationToken,
+) -> WatchStream<NodeId>
 where
     Target: Send + 'static,
-    OnValue: FnMut(NodeId) + Send + 'static,
 {
-    watch_target_with_context(binding, ProviderContext::default(), on_value).await
+    binding.stream(cancellation)
 }
 
-async fn watch_target_with_context<Target, OnValue>(
+pub fn watch_node_list<Target>(
+    binding: NodeListBinding<Target>,
+    cancellation: CancellationToken,
+) -> WatchStream<Vec<NodeId>>
+where
+    Target: Send + 'static,
+{
+    binding.stream(cancellation)
+}
+
+fn target_stream<Target>(
     binding: TargetBinding<Target>,
-    context: ProviderContext,
-    mut on_value: OnValue,
-) -> Result<(), WatchError>
+    cancellation: CancellationToken,
+) -> WatchStream<NodeId>
 where
     Target: Send + 'static,
-    OnValue: FnMut(NodeId) + Send + 'static,
 {
-    if context.is_cancelled() {
-        return Ok(());
-    }
-
-    let connection = zbus::Connection::session().await?;
-    let resolve = GraphResolveProxy::new(&connection).await?;
-    let proxy = signal_proxy(&connection, GRAPH_RESOLVE_INTERFACE).await?;
-    let mut updates = proxy.receive_signal(RESOLVE_CHANGED_SIGNAL).await?;
-    let relations = relations_to_vec(binding.relations);
-    let current = resolve
-        .subscribe_resolve(binding.source, relations.clone())
-        .await?;
-    emit_value_if_active(&context, current, &mut on_value);
-
-    loop {
-        let signal = tokio::select! {
-            _ = context.cancelled() => break,
-            signal = updates.next() => signal,
-        };
-        let Some(signal) = signal else {
-            break;
-        };
-        let (source, path, target) = signal
-            .body()
-            .deserialize::<(String, Vec<String>, String)>()?;
-        if source == binding.source && path == relations {
-            emit_value_if_active(&context, target, &mut on_value);
+    Box::pin(async_stream::stream! {
+        if cancellation.is_cancelled() {
+            return;
         }
-    }
 
-    Ok(())
-}
-
-pub async fn watch_node_list<Target, OnValue>(
-    binding: NodeListBinding<Target>,
-    on_value: OnValue,
-) -> Result<(), WatchError>
-where
-    Target: Send + 'static,
-    OnValue: FnMut(Vec<NodeId>) + Send + 'static,
-{
-    watch_node_list_with_context(binding, ProviderContext::default(), on_value).await
-}
-
-async fn watch_node_list_with_context<Target, OnValue>(
-    binding: NodeListBinding<Target>,
-    context: ProviderContext,
-    mut on_value: OnValue,
-) -> Result<(), WatchError>
-where
-    Target: Send + 'static,
-    OnValue: FnMut(Vec<NodeId>) + Send + 'static,
-{
-    watch_node_list_query_with_context(binding.query, None, context, &mut on_value).await
-}
-
-async fn watch_kind_filtered_node_list_with_context<Target, OnValue>(
-    binding: KindFilteredNodeListBinding<Target>,
-    context: ProviderContext,
-    mut on_value: OnValue,
-) -> Result<(), WatchError>
-where
-    Target: Send + 'static,
-    OnValue: FnMut(Vec<NodeId>) + Send + 'static,
-{
-    watch_node_list_query_with_context(
-        binding.binding.query,
-        Some(binding.kind),
-        context,
-        &mut on_value,
-    )
-    .await
-}
-
-async fn watch_node_list_query_with_context<OnValue>(
-    query: NodeListQuery,
-    kind_filter: Option<&str>,
-    context: ProviderContext,
-    on_value: &mut OnValue,
-) -> Result<(), WatchError>
-where
-    OnValue: FnMut(Vec<NodeId>) + Send,
-{
-    if context.is_cancelled() {
-        return Ok(());
-    }
-
-    let connection = zbus::Connection::session().await?;
-    let signal = ListSignal::new(&connection, &query).await?;
-    let mut updates = signal.proxy.receive_signal(signal.name).await?;
-    let initial = subscribe_node_list(&connection, &query).await?;
-    let mut nodes = Vec::new();
-    apply_and_emit(
-        &connection,
-        &context,
-        &mut nodes,
-        initial,
-        kind_filter,
-        on_value,
-    )
-    .await?;
-
-    loop {
-        let signal = tokio::select! {
-            _ = context.cancelled() => break,
-            signal = updates.next() => signal,
+        let connection = match zbus::Connection::session().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
         };
-        let Some(signal) = signal else {
-            break;
+        let resolve = match GraphResolveProxy::new(&connection).await {
+            Ok(resolve) => resolve,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
         };
-        if let Some(commands) = changed_commands(&query, &signal)? {
-            apply_and_emit(
-                &connection,
-                &context,
-                &mut nodes,
-                commands,
-                kind_filter,
-                on_value,
-            )
-            .await?;
+        let proxy = match signal_proxy(&connection, GRAPH_RESOLVE_INTERFACE).await {
+            Ok(proxy) => proxy,
+            Err(error) => {
+                yield Err(error);
+                return;
+            }
+        };
+        let mut updates = match proxy.receive_signal(RESOLVE_CHANGED_SIGNAL).await {
+            Ok(updates) => updates,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
+        };
+        let relations = relations_to_vec(binding.relations());
+        match resolve
+            .subscribe_resolve(binding.source(), relations.clone())
+            .await
+        {
+            Ok(current) => {
+                if !cancellation.is_cancelled() {
+                    yield Ok(current);
+                }
+            }
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
         }
-    }
 
-    Ok(())
+        loop {
+            let signal = tokio::select! {
+                _ = cancellation.cancelled() => break,
+                signal = updates.next() => signal,
+            };
+            let Some(signal) = signal else {
+                break;
+            };
+            let body = signal.body().deserialize::<(String, Vec<String>, String)>();
+            let (source, path, target) = match body {
+                Ok(body) => body,
+                Err(error) => {
+                    yield Err(error.into());
+                    continue;
+                }
+            };
+            if source == binding.source() && path == relations && !cancellation.is_cancelled() {
+                yield Ok(target);
+            }
+        }
+    })
+}
+
+fn node_list_stream<Target>(
+    binding: NodeListBinding<Target>,
+    kind_filter: Option<&'static str>,
+    cancellation: CancellationToken,
+) -> WatchStream<Vec<NodeId>>
+where
+    Target: Send + 'static,
+{
+    Box::pin(async_stream::stream! {
+        if cancellation.is_cancelled() {
+            return;
+        }
+
+        let connection = match zbus::Connection::session().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
+        };
+        let signal = match ListSignal::new(&connection, binding.query()).await {
+            Ok(signal) => signal,
+            Err(error) => {
+                yield Err(error);
+                return;
+            }
+        };
+        let mut updates = match signal.proxy.receive_signal(signal.name).await {
+            Ok(updates) => updates,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
+        };
+        let initial = match subscribe_node_list(&connection, binding.query()).await {
+            Ok(initial) => initial,
+            Err(error) => {
+                yield Err(error);
+                return;
+            }
+        };
+        let mut nodes = Vec::new();
+        match apply_and_materialize(&connection, &mut nodes, initial, kind_filter).await {
+            Ok(visible_nodes) => {
+                if !cancellation.is_cancelled() {
+                    yield Ok(visible_nodes);
+                }
+            }
+            Err(error) => {
+                yield Err(error);
+            }
+        }
+
+        loop {
+            let signal = tokio::select! {
+                _ = cancellation.cancelled() => break,
+                signal = updates.next() => signal,
+            };
+            let Some(signal) = signal else {
+                break;
+            };
+            let commands = match changed_commands(binding.query(), &signal) {
+                Ok(Some(commands)) => commands,
+                Ok(None) => continue,
+                Err(error) => {
+                    yield Err(error);
+                    continue;
+                }
+            };
+            match apply_and_materialize(&connection, &mut nodes, commands, kind_filter).await {
+                Ok(visible_nodes) => {
+                    if !cancellation.is_cancelled() {
+                        yield Ok(visible_nodes);
+                    }
+                }
+                Err(error) => {
+                    yield Err(error);
+                }
+            }
+        }
+    })
 }
 
 struct ListSignal<'proxy> {
@@ -254,24 +293,18 @@ fn changed_commands(
     }
 }
 
-async fn apply_and_emit<OnValue>(
+async fn apply_and_materialize(
     connection: &zbus::Connection,
-    context: &ProviderContext,
     nodes: &mut Vec<NodeId>,
     commands: Vec<NodeListDiffCommandTuple>,
     kind_filter: Option<&str>,
-    on_value: &mut OnValue,
-) -> Result<(), WatchError>
-where
-    OnValue: FnMut(Vec<NodeId>) + Send,
-{
+) -> Result<Vec<NodeId>, WatchError> {
     apply_commands(nodes, commands_from_tuples(commands)?)?;
     let visible_nodes = match kind_filter {
         Some(kind) => filter_nodes_by_kind(connection, nodes, kind).await?,
         None => nodes.clone(),
     };
-    emit_value_if_active(context, visible_nodes, on_value);
-    Ok(())
+    Ok(visible_nodes)
 }
 
 async fn filter_nodes_by_kind(
@@ -291,15 +324,6 @@ async fn filter_nodes_by_kind(
     Ok(filtered)
 }
 
-fn emit_value_if_active<T, OnValue>(context: &ProviderContext, value: T, on_value: &mut OnValue)
-where
-    OnValue: FnMut(T) + Send,
-{
-    if !context.is_cancelled() {
-        on_value(value);
-    }
-}
-
 fn relations_to_vec(relations: &[&str]) -> Vec<String> {
     relations
         .iter()
@@ -312,18 +336,10 @@ where
     Target: Send + 'static,
 {
     type Error = WatchError;
+    type Stream = WatchStream<NodeId>;
 
-    fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<NodeId>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            watch_target_with_context(self, context, move |value| {
-                sender.send(value);
-            })
-            .await
-        }
+    fn stream(self, cancellation: CancellationToken) -> Self::Stream {
+        target_stream(self, cancellation)
     }
 }
 
@@ -332,18 +348,10 @@ where
     Target: Send + 'static,
 {
     type Error = WatchError;
+    type Stream = WatchStream<Vec<NodeId>>;
 
-    fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<Vec<NodeId>>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            watch_node_list_with_context(self, context, move |value| {
-                sender.send(value);
-            })
-            .await
-        }
+    fn stream(self, cancellation: CancellationToken) -> Self::Stream {
+        node_list_stream(self, None, cancellation)
     }
 }
 
@@ -352,17 +360,10 @@ where
     Target: Send + 'static,
 {
     type Error = WatchError;
+    type Stream = WatchStream<Vec<NodeId>>;
 
-    fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<Vec<NodeId>>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            watch_kind_filtered_node_list_with_context(self, context, move |value| {
-                sender.send(value);
-            })
-            .await
-        }
+    fn stream(self, cancellation: CancellationToken) -> Self::Stream {
+        let (binding, kind) = self.into_parts();
+        node_list_stream(binding, Some(kind), cancellation)
     }
 }

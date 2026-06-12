@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+async-stream = "0.3.6"
 dbus-provider.workspace = true
 locus-provider.workspace = true
 providers.workspace = true
@@ -14,6 +15,8 @@ relm4.workspace = true
 shell-core.workspace = true
 shell-macros.workspace = true
 common-providers = { workspace = true, features = ["upower"] }
+tokio = { version = "1.52.3", features = ["macros"] }
+tokio-stream = "0.1.17"
 
 [dev-dependencies]
 futures = "0.3.32"

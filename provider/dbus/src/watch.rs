@@ -1,109 +1,143 @@
-use std::future::Future;
+use std::pin::Pin;
 
 use futures_util::StreamExt;
-use providers::{Provider, ProviderContext, ProviderSender};
+use providers::{CancellationToken, Provider};
+use tokio_stream::Stream;
 use zbus::Proxy;
 use zbus::proxy::{Builder as ProxyBuilder, CacheProperties};
 use zbus::zvariant::OwnedValue;
 
 use crate::{DbusBus, PropertyBinding, WatchError};
 
-pub async fn watch_property<T, OnValue>(
-    binding: PropertyBinding<T>,
-    on_value: OnValue,
-) -> Result<(), WatchError>
+pub type WatchStream<T> = Pin<Box<dyn Stream<Item = Result<T, WatchError>> + Send>>;
+
+pub fn watch_property<Target, T>(
+    binding: PropertyBinding<Target, T>,
+    cancellation: CancellationToken,
+) -> WatchStream<T>
 where
+    Target: Send + 'static,
     T: TryFrom<OwnedValue> + Send + Sync + Unpin + 'static,
     T::Error: Into<zbus::Error>,
-    OnValue: FnMut(T) + Send + 'static,
 {
-    watch_property_with_context(binding, ProviderContext::default(), on_value).await
+    binding.stream(cancellation)
 }
 
-async fn watch_property_with_context<T, OnValue>(
-    binding: PropertyBinding<T>,
-    context: ProviderContext,
-    mut on_value: OnValue,
-) -> Result<(), WatchError>
+impl<Target, T> Provider<T> for PropertyBinding<Target, T>
 where
-    T: TryFrom<OwnedValue> + Send + Sync + Unpin + 'static,
-    T::Error: Into<zbus::Error>,
-    OnValue: FnMut(T) + Send + 'static,
-{
-    if context.is_cancelled() {
-        return Ok(());
-    }
-
-    let connection = match binding.bus {
-        DbusBus::Session => zbus::Connection::session().await?,
-        DbusBus::System => zbus::Connection::system().await?,
-    };
-    let proxy = ProxyBuilder::<Proxy<'_>>::new(&connection)
-        .destination(binding.service)?
-        .path(binding.path)?
-        .interface(binding.interface)?
-        .cache_properties(CacheProperties::Yes)
-        .build()
-        .await?;
-
-    emit_value_if_active(
-        &context,
-        proxy.get_property::<T>(binding.property).await?,
-        &mut on_value,
-    );
-    if context.is_cancelled() {
-        return Ok(());
-    }
-
-    let mut updates = proxy.receive_property_changed::<T>(binding.property).await;
-
-    loop {
-        let update = tokio::select! {
-            _ = context.cancelled() => break,
-            update = updates.next() => update,
-        };
-        let Some(update) = update else {
-            break;
-        };
-        let value = tokio::select! {
-            _ = context.cancelled() => break,
-            value = update.get() => value?,
-        };
-        emit_value_if_active(&context, value, &mut on_value);
-    }
-
-    Ok(())
-}
-
-pub(crate) fn emit_value_if_active<T, OnValue>(
-    context: &ProviderContext,
-    value: T,
-    on_value: &mut OnValue,
-) where
-    OnValue: FnMut(T) + Send,
-{
-    if !context.is_cancelled() {
-        on_value(value);
-    }
-}
-
-impl<T> Provider<T> for PropertyBinding<T>
-where
+    Target: Send + 'static,
     T: TryFrom<OwnedValue> + Send + Sync + Unpin + 'static,
     T::Error: Into<zbus::Error>,
 {
     type Error = WatchError;
+    type Stream = WatchStream<T>;
 
-    fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<T>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            watch_property_with_context(self, context, move |value| {
-                sender.send(value);
-            })
-            .await
-        }
+    fn stream(self, cancellation: CancellationToken) -> Self::Stream {
+        Box::pin(async_stream::stream! {
+            if cancellation.is_cancelled() {
+                return;
+            }
+
+            let connection = match self.bus() {
+                DbusBus::Session => match zbus::Connection::session().await {
+                    Ok(connection) => connection,
+                    Err(error) => {
+                        yield Err(error.into());
+                        return;
+                    }
+                },
+                DbusBus::System => match zbus::Connection::system().await {
+                    Ok(connection) => connection,
+                    Err(error) => {
+                        yield Err(error.into());
+                        return;
+                    }
+                },
+            };
+
+            let proxy = match ProxyBuilder::<Proxy<'_>>::new(&connection)
+                .destination(self.service())
+                .and_then(|builder| builder.path(self.path()))
+                .and_then(|builder| builder.interface(self.interface()))
+            {
+                Ok(builder) => match builder
+                    .cache_properties(CacheProperties::Yes)
+                    .build()
+                    .await
+                {
+                    Ok(proxy) => proxy,
+                    Err(error) => {
+                        yield Err(error.into());
+                        return;
+                    }
+                },
+                Err(error) => {
+                    yield Err(error.into());
+                    return;
+                }
+            };
+
+            match proxy.get_property::<T>(self.property_name()).await {
+                Ok(value) => {
+                    if !cancellation.is_cancelled() {
+                        yield Ok(value);
+                    }
+                }
+                Err(error) => {
+                    yield Err(error.into());
+                    return;
+                }
+            }
+
+            if cancellation.is_cancelled() {
+                return;
+            }
+
+            let mut updates = proxy.receive_property_changed::<T>(self.property_name()).await;
+
+            loop {
+                let update = tokio::select! {
+                    _ = cancellation.cancelled() => break,
+                    update = updates.next() => update,
+                };
+                let Some(update) = update else {
+                    break;
+                };
+
+                let value = tokio::select! {
+                    _ = cancellation.cancelled() => break,
+                    value = update.get() => value,
+                };
+
+                match value {
+                    Ok(value) => {
+                        if !cancellation.is_cancelled() {
+                            yield Ok(value);
+                        }
+                    }
+                    Err(error) => {
+                        yield Err(error.into());
+                    }
+                }
+            }
+        })
+    }
+}
+
+impl<Target, T> property_provider::PropertyBinding<T> for PropertyBinding<Target, T>
+where
+    Target: Send + 'static,
+    T: TryFrom<OwnedValue> + Send + Sync + Unpin + 'static,
+    T::Error: Into<zbus::Error>,
+{
+    type Target = Target;
+    type Key = crate::DbusPropertyKey;
+
+    fn property(&self) -> property_provider::Property<Self::Target, T> {
+        self.property_descriptor()
+    }
+
+    fn key(&self) -> Self::Key {
+        self.binding_key()
     }
 }

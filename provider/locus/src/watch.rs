@@ -1,207 +1,206 @@
-use std::future::Future;
+use std::{collections::HashMap, pin::Pin};
 
 use futures_util::StreamExt;
 use locus_dbus::{BUS_NAME, GraphReadProxy, GraphResolveProxy, NONE_STRING, WATCH_INTERFACE};
-use providers::{Provider, ProviderContext, ProviderSender};
+use providers::{CancellationToken, Provider};
+use tokio_stream::Stream;
 use zbus::Proxy;
 use zbus::proxy::{Builder as ProxyBuilder, CacheProperties};
 
-use crate::{DecodeLocusValue, FieldBinding, NodeId, WatchError, decode_wire_field};
+use crate::{LocusPropertyBinding, NodeId, WatchError};
 
 const PROPERTIES_UPDATED_SIGNAL: &str = "PropertiesUpdated";
 
-pub async fn watch_field<T, OnValue>(
-    binding: FieldBinding<T>,
-    on_value: OnValue,
-) -> Result<(), WatchError>
+pub type WatchStream<T> = Pin<Box<dyn Stream<Item = Result<T, WatchError>> + Send>>;
+
+pub fn watch_field<Target>(
+    binding: LocusPropertyBinding<Target>,
+    cancellation: CancellationToken,
+) -> WatchStream<String>
 where
-    T: DecodeLocusValue + Default + Send + 'static,
-    OnValue: FnMut(T) + Send + 'static,
+    Target: Send + 'static,
 {
-    watch_field_with_context(binding, ProviderContext::default(), on_value).await
+    binding.stream(cancellation)
 }
 
-async fn watch_field_with_context<T, OnValue>(
-    binding: FieldBinding<T>,
-    context: ProviderContext,
-    mut on_value: OnValue,
-) -> Result<(), WatchError>
-where
-    T: DecodeLocusValue + Default + Send + 'static,
-    OnValue: FnMut(T) + Send + 'static,
-{
-    watch_node_path_property_with_context(
-        binding.source.to_owned(),
-        binding
-            .relations
-            .iter()
-            .map(|relation| (*relation).to_owned())
-            .collect(),
-        binding.property,
-        context,
-        &mut on_value,
-    )
-    .await
-}
-
-pub(crate) async fn watch_node_property_with_context<T, OnValue>(
+pub(crate) fn watch_node_property(
     node: NodeId,
     property: &'static str,
-    context: ProviderContext,
-    mut on_value: OnValue,
-) -> Result<(), WatchError>
-where
-    T: DecodeLocusValue + Default + Send + 'static,
-    OnValue: FnMut(T) + Send + 'static,
-{
-    watch_node_path_property_with_context(node, Vec::new(), property, context, &mut on_value).await
+    cancellation: CancellationToken,
+) -> WatchStream<String> {
+    watch_node_path_property(node, Vec::new(), property, cancellation)
 }
 
-async fn watch_node_path_property_with_context<T, OnValue>(
+fn watch_node_path_property(
     source: String,
     relations: Vec<String>,
     property: &'static str,
-    context: ProviderContext,
-    on_value: &mut OnValue,
-) -> Result<(), WatchError>
-where
-    T: DecodeLocusValue + Default + Send + 'static,
-    OnValue: FnMut(T) + Send,
-{
-    if context.is_cancelled() {
-        return Ok(());
-    }
-
-    let connection = zbus::Connection::session().await?;
-    let read = GraphReadProxy::new(&connection).await?;
-    let resolve = GraphResolveProxy::new(&connection).await?;
-    let object_path = resolve.watch_node(&source, relations).await?;
-    let watch = ProxyBuilder::<Proxy<'_>>::new(&connection)
-        .destination(BUS_NAME)?
-        .path(object_path.as_str())?
-        .interface(WATCH_INTERFACE)?
-        .cache_properties(CacheProperties::No)
-        .build()
-        .await?;
-
-    let watch_result = stream_field_updates(&read, &watch, property, &context, on_value).await;
-    let close_result = watch.call::<_, _, ()>("Close", &()).await;
-
-    match (watch_result, close_result) {
-        (Err(error), _) => Err(error),
-        (Ok(()), Err(error)) => Err(error.into()),
-        (Ok(()), Ok(())) => Ok(()),
-    }
-}
-
-async fn stream_field_updates<T, OnValue>(
-    read: &GraphReadProxy<'_>,
-    watch: &Proxy<'_>,
-    property: &str,
-    context: &ProviderContext,
-    on_value: &mut OnValue,
-) -> Result<(), WatchError>
-where
-    T: DecodeLocusValue + Default + Send + 'static,
-    OnValue: FnMut(T) + Send,
-{
-    if context.is_cancelled() {
-        return Ok(());
-    }
-
-    emit_current_field(read, watch, property, context, on_value).await?;
-    if context.is_cancelled() {
-        return Ok(());
-    }
-
-    let mut updated = watch.receive_signal(PROPERTIES_UPDATED_SIGNAL).await?;
-
-    loop {
-        let signal = tokio::select! {
-            _ = context.cancelled() => break,
-            signal = updated.next() => signal,
-        };
-        let Some(signal) = signal else {
-            break;
-        };
-        let (changed, removed) = signal
-            .body()
-            .deserialize::<(std::collections::HashMap<String, String>, Vec<String>)>()?;
-        if let Some(value) = changed.get(property) {
-            emit_field_value(context, value, on_value)?;
-        } else if removed.iter().any(|key| key == property) {
-            emit_value_if_active(context, T::default(), on_value);
+    cancellation: CancellationToken,
+) -> WatchStream<String> {
+    Box::pin(async_stream::stream! {
+        if cancellation.is_cancelled() {
+            return;
         }
-    }
 
-    Ok(())
+        let connection = match zbus::Connection::session().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
+        };
+        let read = match GraphReadProxy::new(&connection).await {
+            Ok(read) => read,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
+        };
+        let resolve = match GraphResolveProxy::new(&connection).await {
+            Ok(resolve) => resolve,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
+        };
+        let object_path = match resolve.watch_node(&source, relations).await {
+            Ok(object_path) => object_path,
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
+        };
+        let watch = match ProxyBuilder::<Proxy<'_>>::new(&connection)
+            .destination(BUS_NAME)
+            .and_then(|builder| builder.path(object_path.as_str()))
+            .and_then(|builder| builder.interface(WATCH_INTERFACE))
+        {
+            Ok(builder) => match builder
+                .cache_properties(CacheProperties::No)
+                .build()
+                .await
+            {
+                Ok(watch) => watch,
+                Err(error) => {
+                    yield Err(error.into());
+                    return;
+                }
+            },
+            Err(error) => {
+                yield Err(error.into());
+                return;
+            }
+        };
+
+        if let Some(value) = current_field(&read, &watch, property).await {
+            yield value;
+        }
+
+        if cancellation.is_cancelled() {
+            close_watch(&watch, &cancellation).await;
+            return;
+        }
+
+        let mut updated = match watch.receive_signal(PROPERTIES_UPDATED_SIGNAL).await {
+            Ok(updated) => updated,
+            Err(error) => {
+                yield Err(error.into());
+                close_watch(&watch, &cancellation).await;
+                return;
+            }
+        };
+
+        loop {
+            let signal = tokio::select! {
+                _ = cancellation.cancelled() => break,
+                signal = updated.next() => signal,
+            };
+            let Some(signal) = signal else {
+                break;
+            };
+
+            let body = signal
+                .body()
+                .deserialize::<(HashMap<String, String>, Vec<String>)>();
+            let (changed, removed) = match body {
+                Ok(body) => body,
+                Err(error) => {
+                    yield Err(error.into());
+                    continue;
+                }
+            };
+
+            if let Some(value) = changed.get(property) {
+                yield Ok(value.clone());
+            } else if removed.iter().any(|key| key == property) {
+                yield Ok(NONE_STRING.to_owned());
+            }
+        }
+
+        close_watch(&watch, &cancellation).await;
+    })
 }
 
-pub(crate) fn emit_value_if_active<T, OnValue>(
-    context: &ProviderContext,
-    value: T,
-    on_value: &mut OnValue,
-) where
-    OnValue: FnMut(T) + Send,
-{
-    if !context.is_cancelled() {
-        on_value(value);
-    }
-}
-
-pub(crate) fn emit_field_value<T, OnValue>(
-    context: &ProviderContext,
-    value: impl AsRef<str>,
-    on_value: &mut OnValue,
-) -> Result<(), WatchError>
-where
-    T: DecodeLocusValue + Default,
-    OnValue: FnMut(T) + Send,
-{
-    if !context.is_cancelled() {
-        on_value(decode_wire_field(value.as_ref())?);
-    }
-
-    Ok(())
-}
-
-async fn emit_current_field<T, OnValue>(
+async fn current_field(
     read: &GraphReadProxy<'_>,
     watch: &Proxy<'_>,
     property: &str,
-    context: &ProviderContext,
-    on_value: &mut OnValue,
-) -> Result<(), WatchError>
-where
-    T: DecodeLocusValue + Default,
-    OnValue: FnMut(T) + Send,
-{
-    let target = watch.get_property::<String>("Target").await?;
+) -> Option<Result<String, WatchError>> {
+    let target = match watch.get_property::<String>("Target").await {
+        Ok(target) => target,
+        Err(error) => return Some(Err(error.into())),
+    };
     if target == NONE_STRING {
-        emit_value_if_active(context, T::default(), on_value);
-        return Ok(());
+        return Some(Ok(NONE_STRING.to_owned()));
     }
 
-    let value = read.get_property(&target, property).await?;
-    emit_field_value(context, value, on_value)
+    Some(
+        read.get_property(&target, property)
+            .await
+            .map_err(Into::into),
+    )
 }
 
-impl<T> Provider<T> for FieldBinding<T>
+async fn close_watch(watch: &Proxy<'_>, cancellation: &CancellationToken) {
+    if let Err(error) = watch.call::<_, _, ()>("Close", &()).await
+        && !cancellation.is_cancelled()
+    {
+        eprintln!("failed to close Locus watch: {error}");
+    }
+}
+
+impl<Target> Provider<String> for LocusPropertyBinding<Target>
 where
-    T: DecodeLocusValue + Default + Send + 'static,
+    Target: Send + 'static,
 {
     type Error = WatchError;
+    type Stream = WatchStream<String>;
 
-    fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<T>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            watch_field_with_context(self, context, move |value| {
-                sender.send(value);
-            })
-            .await
-        }
+    fn stream(self, cancellation: CancellationToken) -> Self::Stream {
+        watch_node_path_property(
+            self.source().to_owned(),
+            self.relations()
+                .iter()
+                .map(|relation| (*relation).to_owned())
+                .collect(),
+            self.property_name(),
+            cancellation,
+        )
+    }
+}
+
+impl<Target> property_provider::PropertyBinding<String> for LocusPropertyBinding<Target>
+where
+    Target: Send + 'static,
+{
+    type Target = Target;
+    type Key = crate::LocusPropertyKey;
+
+    fn property(&self) -> property_provider::Property<Self::Target, String> {
+        property_provider::Property::new(self.property_name())
+    }
+
+    fn key(&self) -> Self::Key {
+        self.binding_key()
     }
 }

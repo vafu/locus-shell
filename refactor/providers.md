@@ -4,7 +4,7 @@
 
 `providers` is the backend-neutral contract crate for asynchronous typed value sources. It intentionally stays independent of GTK, Relm4, D-Bus transport details, and shell widget policy.
 
-The crate now owns the stream-native provider contract, direct Tokio cancellation, subscription task ownership, shared latest fanout, and a transitional runtime spawn helper used by current framework code.
+The crate now owns the stream-native provider contract, direct Tokio cancellation, subscription task ownership, shared latest fanout, and an installable task-spawner hook used by framework runtime setup.
 
 ## Public Surface
 
@@ -13,7 +13,7 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 - `Subscription` and `SubscriptionGroup` define lifecycle ownership and cancel plus abort owned tasks.
 - `ProviderExt` currently only exposes `shared`.
 - Any `tokio_stream::Stream<Item = Result<T, E>>` is a provider through the blanket `Provider<T>` implementation.
-- `spawn` exposes the crate-owned Tokio runtime.
+- `TaskSpawner`, `install_task_spawner`, `has_task_spawner`, and `spawn` define the installed task-spawner hook used by subscriptions.
 - `ProviderError` remains as a small display-level error type; provider stream errors are otherwise structured through each provider's `Error` associated type.
 
 ## Step-By-Step File Walkthrough
@@ -22,14 +22,14 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 2. `provider/core/src/subscription.rs` - subscription and subscription group ownership. Read after the trait to understand direct `CancellationToken` lifecycle and task abort semantics.
 3. `provider/core/src/shared.rs` - shared latest provider wrapper. Read after subscription because it coordinates one upstream task across active stream subscribers.
 4. `provider/core/src/error.rs` - small display-level provider error type.
-5. `provider/core/src/runtime.rs` - shared Tokio runtime and transitional `spawn` entrypoint.
+5. `provider/core/src/runtime.rs` - installed task-spawner hook and `spawn` dispatch entrypoint.
 6. `provider/core/src/test.rs` - contract, lifecycle, stream, and shared fanout tests.
 
 ## Internal Structure
 
 - The contract layer is centered on `Provider<T>::stream(self, CancellationToken) -> Stream<Item = Result<T, E>>`.
 - Lifecycle state is split between cooperative Tokio cancellation and RAII subscription ownership (`Subscription`, `SubscriptionGroup`).
-- `runtime.rs` owns one global Tokio multi-thread runtime used by provider helpers and combinators that need to spawn background work.
+- `runtime.rs` stores one process-wide task spawner installed by framework setup. Provider core does not create its own Tokio runtime.
 - Custom map/combine/switch operators were removed from provider core; ordinary stream adapters should be used until concrete framework needs justify thin helpers.
 
 ## Behavior Summary
@@ -65,7 +65,7 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 - Provider error state should be structured, not string-only.
 - Prefer generated source messages shaped as one variant per field carrying `Result<T, E>` instead of separate success and failure variants.
 - The macro/provider contract needs a way to make each provider's error type nameable so generated models can store structured per-field errors.
-- Provider runtime ownership should move out of `providers`; `ShellApp` should own provider async runtime setup as part of process lifecycle.
+- Provider runtime ownership belongs to `ShellApp` framework setup as part of process lifecycle.
 - Macro-generated code should not depend on a hidden global runtime owned by `providers`. Prefer a framework spawn path initialized/owned by `ShellApp`, while keeping macro ergonomics simple.
 - `StreamProvider` should disappear if `Provider<T>` becomes stream-native; streams should be the core provider value-flow shape rather than an adapter.
 - Provider stream items should be `Result<T, E>` universally so generated source messages can carry `Result<T, E>` per field.
@@ -87,25 +87,29 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 - Completed: `SharedProvider` has explicit active-subscriber refcounting with stop-on-last-drop and restart-on-later-subscriber behavior.
 - Direction: `rxrust` should not be adopted now. Locus should own graph reactivity server-side, and Rust/Tokio primitives cover current provider-core needs.
 - Direction: automatic descriptor-keyed sharing still belongs in D-Bus/Locus descriptor/runtime policy rather than as a manual generic combinator requirement.
-- Gap: downstream crates (`provider/dbus`, `provider/locus`, `shell/macros`, `dev-widgets`) still need migration from the removed callback provider API.
-- Gap: `providers::spawn` is still a transitional global runtime helper; long-term runtime ownership should move toward ShellApp/framework initialization.
+- Completed: downstream crates (`provider/dbus`, `provider/locus`, `shell/macros`, `dev-widgets`) have been migrated from the removed callback provider API.
+- Completed: provider runtime ownership moved to ShellApp/framework initialization. `providers::spawn` now dispatches to the installed task spawner instead of creating a hidden runtime.
+- Completed: property-backed providers now share a dedicated `provider/property` crate that owns typed property descriptors and property-binding traits. DBus and Locus are backends for that property provider family.
+- Completed: DBus and Locus descriptor fields are private behind accessors, so generated code and tests no longer rely on raw public struct fields.
 
 ## Refactor Plan
 
-1. Migrate `dbus-provider` to implement `Provider<T>::stream(self, CancellationToken)` and produce `Stream<Item = Result<T, WatchError>>`.
-2. Migrate `locus-provider` to the same stream-native provider contract.
-3. Update macro-generated forwarding code to drive provider streams and generate `Msg::Field(Result<T, E>)`-style messages with nameable error types.
-4. Replace dev-widget examples that rely on removed generic `combine_latest`/`switch_map` with direct stream composition or semantic schema helpers.
-5. Design automatic descriptor-keyed sharing for reusable D-Bus/Locus sources so repeated source use does not create duplicate upstream subscriptions.
-6. Move provider runtime/spawn ownership from `providers` into `shell-core::ShellApp` or a ShellApp-initialized runtime module.
-7. Reintroduce richer stream helpers only when concrete widget code proves they are needed.
+1. Completed: migrate `dbus-provider` to implement `Provider<T>::stream(self, CancellationToken)` and produce `Stream<Item = Result<T, WatchError>>`.
+2. Completed: migrate `locus-provider` to the same stream-native provider contract.
+3. Completed: add `provider/property` for shared property descriptors and property-binding traits.
+4. Completed: update DBus and Locus property-backed bindings to implement the property crate traits.
+5. Completed: update macro-generated forwarding code to drive provider streams and generate result-carrying field messages.
+6. Completed: replace dev-widget examples that rely on removed generic `combine_latest`/`switch_map` with direct stream composition or semantic schema helpers.
+7. Design automatic descriptor-keyed sharing for reusable D-Bus/Locus sources so repeated source use does not create duplicate upstream subscriptions.
+8. Completed: move provider runtime/spawn ownership from `providers` into `shell-core::ShellApp` via an installed task-spawner hook.
+9. Reintroduce richer stream helpers only when concrete widget code proves they are needed.
 
 ## Tests And Verification
 
 - `cargo test -p providers` passes: 12 unit tests, 0 doctests.
-- `cargo check` for the full workspace is expected to fail until downstream crates are migrated from the removed callback provider API.
+- Downstream migration verification now includes `cargo test -p dbus-provider`, `cargo test -p locus-provider`, `cargo test -p shell-macros`, `cargo test -p common-providers --features upower`, and `cargo check -p dev-widgets`.
 
 ## Open Questions
 
-- Should the global provider runtime remain the default long-term API, or should the roadmap's possible `ProviderSpawner` / `providers-tokio` split happen before macro output depends heavily on `providers::spawn`?
+- Should `providers::spawn` remain a public convenience dispatch function, or should macro output eventually call through a more explicit framework runtime handle?
 - Should `ProviderError` preserve structured error sources instead of flattening all provider runner failures to strings?

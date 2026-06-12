@@ -1,10 +1,8 @@
-use std::{future::Future, marker::PhantomData};
+use std::marker::PhantomData;
 
-use providers::{Provider, ProviderContext, ProviderSender};
+use providers::{CancellationToken, Provider};
 
-use crate::{
-    DecodeLocusValue, NodeId, Property, WatchError, watch::watch_node_property_with_context,
-};
+use crate::{NodeId, Property, WatchError, watch::watch_node_property};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NodeRef<Model> {
@@ -24,48 +22,90 @@ impl<Model> NodeRef<Model> {
         &self.id
     }
 
-    pub fn property<Value>(
+    pub fn raw_property<Value>(
         &self,
         property: Property<Model, Value>,
-    ) -> NodePropertyBinding<Model, Value> {
+    ) -> NodePropertyBinding<Model> {
         NodePropertyBinding {
             node: self.id.clone(),
-            property: property.key,
+            property: property.key(),
             _model: PhantomData,
-            _value: PhantomData,
         }
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NodePropertyBinding<Model, Value> {
-    pub node: NodeId,
-    pub property: &'static str,
+#[derive(Clone, Debug)]
+pub struct NodePropertyBinding<Model> {
+    node: NodeId,
+    property: &'static str,
     _model: PhantomData<fn() -> Model>,
-    _value: PhantomData<fn() -> Value>,
+}
+
+impl<Model> PartialEq for NodePropertyBinding<Model> {
+    fn eq(&self, other: &Self) -> bool {
+        self.node == other.node && self.property == other.property
+    }
+}
+
+impl<Model> Eq for NodePropertyBinding<Model> {}
+
+impl<Model> NodePropertyBinding<Model> {
+    pub fn node(&self) -> &str {
+        &self.node
+    }
+
+    pub const fn property_name(&self) -> &'static str {
+        self.property
+    }
 }
 
 pub fn node<Model>(id: impl Into<NodeId>) -> NodeRef<Model> {
     NodeRef::new(id)
 }
 
-impl<Model, Value> Provider<Value> for NodePropertyBinding<Model, Value>
+impl<Model> Provider<String> for NodePropertyBinding<Model>
 where
     Model: Send + 'static,
-    Value: DecodeLocusValue + Default + Send + 'static,
 {
     type Error = WatchError;
+    type Stream = crate::watch::WatchStream<String>;
 
-    fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<Value>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            watch_node_property_with_context(self.node, self.property, context, move |value| {
-                sender.send(value);
-            })
-            .await
+    fn stream(self, cancellation: CancellationToken) -> Self::Stream {
+        watch_node_property(self.node, self.property, cancellation)
+    }
+}
+
+impl<Model> property_provider::PropertyBinding<String> for NodePropertyBinding<Model>
+where
+    Model: Send + 'static,
+{
+    type Target = Model;
+    type Key = NodePropertyKey;
+
+    fn property(&self) -> property_provider::Property<Self::Target, String> {
+        property_provider::Property::new(self.property)
+    }
+
+    fn key(&self) -> Self::Key {
+        NodePropertyKey {
+            node: self.node.clone(),
+            property: self.property,
         }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct NodePropertyKey {
+    node: NodeId,
+    property: &'static str,
+}
+
+impl NodePropertyKey {
+    pub fn node(&self) -> &str {
+        &self.node
+    }
+
+    pub const fn property_name(&self) -> &'static str {
+        self.property
     }
 }

@@ -5,6 +5,7 @@ members = [
     "provider/core",
     "provider/locus",
     "provider/dbus",
+    "provider/property",
     "provider/common",
     "shell/macros",
 ]
@@ -21,6 +22,7 @@ gtk4-layer-shell = "0.8.0"
 dbus-provider = { path = "provider/dbus" }
 locus-provider = { path = "provider/locus" }
 providers = { path = "provider/core" }
+property-provider = { path = "provider/property" }
 relm4 = "0.11.0"
 shell-core = { path = "shell/core" }
 shell-macros = { path = "shell/macros" }

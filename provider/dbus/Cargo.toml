@@ -7,8 +7,11 @@ license.workspace = true
 publish = false
 
 [dependencies]
+async-stream = "0.3.6"
 futures-util = "0.3.32"
+property-provider.workspace = true
 providers.workspace = true
+tokio-stream = { version = "0.1.17", features = ["sync"] }
 tokio = { version = "1.52.3", features = ["macros"] }
 zbus = { version = "5.15.0", default-features = false, features = ["tokio"] }
 

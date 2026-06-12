@@ -17,12 +17,13 @@ Interactive review of the `locus-shell` framework workspace. The default deliver
 
 ## Review Queue
 
-All initial review units have first-pass notes.
+All workspace units have first-pass notes.
 
 ## Completed Units
 
 - `shell-core` (`shell/core`) - notes in `refactor/shell-core.md`.
 - `providers` (`provider/core`) - notes in `refactor/providers.md`.
+- `property-provider` (`provider/property`) - notes in `refactor/property-provider.md`.
 - `locus-provider` (`provider/locus`) - notes in `refactor/locus-provider.md`.
 - `dbus-provider` (`provider/dbus`) - notes in `refactor/dbus-provider.md`.
 - `common-providers` (`provider/common`) - notes in `refactor/common-providers.md`.
@@ -32,12 +33,12 @@ All initial review units have first-pass notes.
 ## Cross-Cutting Findings
 
 - `shell-core`: stylesheet watching uses modification-time fingerprinting; revisit if development reload correctness matters more than lightweight polling.
-- `providers`: core refactor is complete. The contract is now stream-native with direct Tokio `CancellationToken`; downstream crates still need migration from the removed callback API.
-- `locus-provider`: descriptor fields are still raw/public and collection kind filtering can become N+1 D-Bus work; both align with roadmap hardening items.
+- `providers`: core refactor is complete. The contract is now stream-native with direct Tokio `CancellationToken`, and downstream workspace crates have migrated from the removed callback API.
+- `locus-provider`: descriptor fields are now private behind accessors; collection kind filtering can still become N+1 D-Bus work and remains a runtime hardening item.
 - `dbus-provider`: initial property reads happen before property-change subscription, so strict no-gap watching needs a closer look.
 - `common-providers`: boundary is clean; future ergonomics question is whether raw integer-coded properties should gain typed enums.
 - `shell-macros`: generated-code confidence needs compile-expanded tests, especially around typed model view binding validation and wrapped component inputs.
-- `dev-widgets`: boundary is clean; manual schema extension traits and child reconciliation match the roadmap's next evaluation points.
+- `dev-widgets`: boundary is clean; generated schema helpers and Relm4 factory-backed rows now match the current roadmap direction.
 
 ## User-Wide Guidance
 
@@ -47,12 +48,14 @@ All initial review units have first-pass notes.
 - Do not update `PLAN.md` unless the user agrees the roadmap has changed.
 - During explicit review, proceed file by file: explain the next file briefly, separate facts from opinions, pause for user questions, then capture user notes before moving on.
 - Collect action points in the relevant `refactor/*.md` files during review. Do not execute them immediately; execute accepted actions at the end of the review pass.
+- Macro/source integration should be backend-agnostic: DBus and Locus source expressions should both compile through `providers::Provider<T>`, new macro usage should prefer `#[source(...)]`, and generated messages should carry `Result<T, E>` per field.
+- Property-backed providers are a distinct provider family. The `provider/property` crate now holds shared property descriptors and property-binding traits; DBus and Locus should implement those traits while macros continue to depend only on `providers::Provider<T>`.
 
 ## Deferred Action Points
 
-- Tighten `rust-guide` wording so public API traits, structs, type aliases, and re-exports belong in `mod.rs` or `lib.rs`, while implementation files stay focused on implementation details.
+None.
 
 ## Open Questions
 
-- Which review unit should be read first: the roadmap order above, or a specific crate the user wants to inspect now?
-- Should review notes include line-level findings only after a full crate pass, or should likely findings be captured immediately as they appear?
+- Should row selection be lifted to parent-owned shared state if repeated selected-window subscriptions become measurable overhead?
+- Should property helper wrappers such as `with_default` live in `property-provider`, or remain generic provider/stream adapters until repeated use proves a property-specific need?

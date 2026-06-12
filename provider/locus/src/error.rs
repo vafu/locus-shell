@@ -56,6 +56,7 @@ impl From<zbus::fdo::Error> for WatchError {
 
 #[derive(Debug)]
 pub enum DecodeError {
+    MissingValue,
     Bool {
         value: String,
     },
@@ -126,6 +127,7 @@ impl StdError for ListError {}
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingValue => write!(f, "missing Locus value for non-optional property"),
             Self::Bool { value } => write!(f, "invalid bool value from Locus: {value:?}"),
             Self::U32 { value, .. } => write!(f, "invalid u32 value from Locus: {value:?}"),
             Self::I32 { value, .. } => write!(f, "invalid i32 value from Locus: {value:?}"),
@@ -137,6 +139,7 @@ impl fmt::Display for DecodeError {
 impl StdError for DecodeError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
+            Self::MissingValue => None,
             Self::Bool { .. } => None,
             Self::U32 { source, .. } => Some(source),
             Self::I32 { source, .. } => Some(source),

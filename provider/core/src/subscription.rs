@@ -23,7 +23,7 @@ impl Subscription {
         }
     }
 
-    /// Spawns a task on the provider runtime and owns it as a subscription.
+    /// Spawns a task on the installed provider task spawner and owns it as a subscription.
     pub fn spawn<F, Fut>(run: F) -> Self
     where
         F: FnOnce(CancellationToken) -> Fut,

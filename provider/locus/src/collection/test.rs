@@ -1,6 +1,5 @@
-use std::sync::{Arc, Mutex};
-
-use providers::{CancellationToken, Provider, ProviderContext, ProviderSender};
+use futures::StreamExt;
+use providers::{CancellationToken, Provider};
 
 use crate::{
     NodeListBinding, NodeListDiffCommand, Path, Relation, TargetBinding,
@@ -36,8 +35,8 @@ mod schema {
 fn path_target_creates_typed_binding() {
     let binding: TargetBinding<schema::Workspace> = schema::SELECTED_WORKSPACE.target();
 
-    assert_eq!(binding.source, "context:selected");
-    assert_eq!(binding.relations, &["workspace"]);
+    assert_eq!(binding.source(), "context:selected");
+    assert_eq!(binding.relations(), &["workspace"]);
 }
 
 #[test]
@@ -45,8 +44,8 @@ fn path_all_creates_resolve_all_binding() {
     let binding: NodeListBinding<schema::Workspace> = schema::SELECTED_WORKSPACE.all();
 
     assert_eq!(
-        binding.query,
-        super::binding::NodeListQuery::ResolveAll {
+        binding.query(),
+        &super::binding::NodeListQuery::ResolveAll {
             source: "context:selected".to_owned(),
             relations: vec!["workspace".to_owned()],
         }
@@ -58,8 +57,8 @@ fn relation_sources_creates_source_list_binding() {
     let binding = schema::WORKSPACE.sources("workspace:1");
 
     assert_eq!(
-        binding.query,
-        super::binding::NodeListQuery::Sources {
+        binding.query(),
+        &super::binding::NodeListQuery::Sources {
             target: "workspace:1".to_owned(),
             relation: "workspace",
         }
@@ -71,8 +70,8 @@ fn relation_targets_creates_target_list_binding() {
     let binding = schema::APP_INSTANCE.targets("window:1");
 
     assert_eq!(
-        binding.query,
-        super::binding::NodeListQuery::Targets {
+        binding.query(),
+        &super::binding::NodeListQuery::Targets {
             source: "window:1".to_owned(),
             relation: "app-instance",
         }
@@ -145,57 +144,36 @@ fn node_list_commands_reject_unknown_command() {
 fn cancelled_target_provider_exits_before_dbus_setup() {
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let sent = Arc::new(Mutex::new(Vec::new()));
-    let captured = sent.clone();
+    let mut stream = schema::SELECTED_WORKSPACE.target().stream(cancellation);
 
-    let result = futures::executor::block_on(schema::SELECTED_WORKSPACE.target().run(
-        ProviderContext::new(cancellation),
-        ProviderSender::new(move |value| {
-            captured.lock().expect("sent lock").push(value);
-        }),
-    ));
+    let result = futures::executor::block_on(stream.next());
 
-    assert!(result.is_ok());
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert!(result.is_none());
 }
 
 #[test]
 fn cancelled_node_list_provider_exits_before_dbus_setup() {
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let sent = Arc::new(Mutex::new(Vec::new()));
-    let captured = sent.clone();
+    let mut stream = schema::WORKSPACE
+        .sources("workspace:1")
+        .stream(cancellation);
 
-    let result = futures::executor::block_on(schema::WORKSPACE.sources("workspace:1").run(
-        ProviderContext::new(cancellation),
-        ProviderSender::new(move |value| {
-            captured.lock().expect("sent lock").push(value);
-        }),
-    ));
+    let result = futures::executor::block_on(stream.next());
 
-    assert!(result.is_ok());
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert!(result.is_none());
 }
 
 #[test]
 fn cancelled_kind_filtered_node_list_provider_exits_before_dbus_setup() {
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let sent = Arc::new(Mutex::new(Vec::new()));
-    let captured = sent.clone();
+    let mut stream = schema::WORKSPACE
+        .sources("workspace:1")
+        .filter_kind("window")
+        .stream(cancellation);
 
-    let result = futures::executor::block_on(
-        schema::WORKSPACE
-            .sources("workspace:1")
-            .filter_kind("window")
-            .run(
-                ProviderContext::new(cancellation),
-                ProviderSender::new(move |value| {
-                    captured.lock().expect("sent lock").push(value);
-                }),
-            ),
-    );
+    let result = futures::executor::block_on(stream.next());
 
-    assert!(result.is_ok());
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert!(result.is_none());
 }

@@ -31,6 +31,7 @@ locus/
 │   ├── core/        # package: providers
 │   ├── locus/       # package: locus-provider
 │   ├── dbus/        # package: dbus-provider
+│   ├── property/    # package: property-provider
 │   └── common/      # package: common-providers
 ```
 
@@ -64,6 +65,7 @@ Common UI support crate for GTK4/Relm4 widgets.
 Responsibilities:
 
 - Provide a generic process-level app wrapper for GTK/Relm4 shell widget binaries.
+- Install the process-level provider task runtime used by generated provider subscriptions.
 - Register global CSS/SCSS stylesheets and optional development-time stylesheet watchers.
 - Create GTK windows with explicit layer-shell options.
 - Encapsulate setup for GTK4 layer-shell integration.
@@ -122,9 +124,10 @@ selected_window_title: String = schema::paths::SELECTED_WINDOW
 - Generate message handling for field updates.
 - Generate async subscription setup that forwards provider updates into Relm4 input messages.
 - Support binding providers:
-  - Locus graph field bindings through generated schema expressions backed by
-    `locus_provider::FieldBinding<T>`.
-  - Pure D-Bus property bindings through typed `dbus_provider::Object<Target>` and `dbus_provider::Property<Target, Value>` pairs.
+  - Locus graph property bindings through generated schema expressions backed by
+    raw `locus_provider::LocusPropertyBinding<Target>` streams and generated
+    typed schema wrappers.
+  - Pure D-Bus property bindings through typed `dbus_provider::Object<Target>` and shared `property_provider::Property<Target, Value>` descriptors.
   - Consumer-defined providers that implement `providers::Provider<T>`.
 - Rewrite `#[bind(field)]` view setters into Relm4 `#[track(...)]` updates so only widgets bound to the changed field redraw. `#[locus(...)]` remains a compatibility spelling during the transition.
 
@@ -183,6 +186,8 @@ Responsibilities:
 - Use `tokio_util::sync::CancellationToken` directly for cooperative cancellation.
 - Provide `Subscription` and `SubscriptionGroup` for lifecycle ownership.
 - Provide shared latest providers for reusing one upstream source across multiple derived fields.
+- Use a framework-installed task spawner for subscription tasks; the provider
+  contract crate does not create its own Tokio runtime.
 - Prefer `tokio_stream::StreamExt` and ordinary Tokio primitives over custom reactive combinator layers until concrete widget requirements justify them.
 - Stay independent of GTK, Relm4, D-Bus, and product-specific shell behavior.
 
@@ -198,11 +203,12 @@ Generic Locus graph binding primitives plus the direct Locus-over-D-Bus provider
 
 Responsibilities:
 
-- Expose generic `Property<Model, Value>`, `Path<Target>`, `FieldBinding<T>`,
-  `NodeRef<Model>`, relation, target, and node-list binding primitives.
-- Own generic binding types so the crate can implement `providers::Provider<T>`
-  without violating Rust coherence rules.
-- Decode Locus wire values into typed Rust values.
+- Expose generic `Property<Model, Value>`, `Path<Target>`,
+  raw `LocusPropertyBinding<Target>`, `NodeRef<Model>`, relation, target, and
+  node-list binding primitives.
+- Own generic binding types so the crate can implement raw Locus
+  `providers::Provider<String>` subscriptions without violating Rust coherence
+  rules.
 - Watch `io.github.Locus.Graph.Resolve` through `locus-dbus`.
 - Expose typed node-id providers for resolved targets and node-list providers backed by `SubscribeResolveAll`, `SubscribeSources`, and `SubscribeTargets`.
 - Keep async Locus D-Bus work off the GTK thread.
@@ -211,6 +217,8 @@ Non-responsibilities:
 
 - No generated schema markers, paths, relations, or schema-specific convenience
   helpers such as `Window::TITLE` or `SELECTED_WORKSPACE.windows()`.
+- No schema-specific typed decoding. Generated consumer schema modules adapt
+  raw Locus wire strings into typed property providers.
 - No generic D-Bus object/property model.
 - No common service definitions such as UPower.
 - No GTK or Relm4 widget policy.
@@ -224,14 +232,14 @@ Generic typed D-Bus object/property provider crate.
 
 Responsibilities:
 
-- Expose `dbus_provider::Object<T>`, `dbus_provider::Property<T, V>`, and `dbus_provider::PropertyBinding<V>`.
+- Expose `dbus_provider::Object<T>`, shared `dbus_provider::Property<T, V>`, and `dbus_provider::PropertyBinding<T, V>`.
 - Support session and system bus objects.
 - Implement `providers::Provider<T>` for pure D-Bus property bindings.
 - Emit initial property values before subscribing to property changes.
 
 Non-responsibilities:
 
-- No Locus graph schema or `FieldBinding<T>`.
+- No Locus graph schema or Locus graph property resolution.
 - No generated graph contracts.
 - No common service definitions.
 

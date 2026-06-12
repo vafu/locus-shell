@@ -6,5 +6,6 @@ mod watch;
 mod test;
 
 pub use error::WatchError;
-pub use property::{DbusBus, Object, Property, PropertyBinding};
+pub use property::{DbusBus, DbusPropertyKey, Object, PropertyBinding};
+pub use property_provider::Property;
 pub use watch::watch_property;
