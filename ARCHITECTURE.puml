@@ -353,6 +353,11 @@ package "provider/locus\ncrate: locus_provider" {
       + all(): NodeListBinding<Target>
     }
 
+    class "WorkspaceWindowsProvider<P>" as WorkspaceWindowsProvider {
+      - workspace: P
+      + new(workspace)
+    }
+
     class "FieldBinding<Value>" as FieldBinding {
       + source: &'static str
       + relations: &'static [&'static str]
@@ -422,9 +427,13 @@ package "provider/locus\ncrate: locus_provider" {
   LocusPath --> FieldBinding
   LocusPath --> TargetBinding
   LocusPath --> NodeListBinding
+  LocusPath --> WorkspaceWindowsProvider
   FieldBinding ..|> Provider
   TargetBinding ..|> Provider
   NodeListBinding ..|> Provider
+  WorkspaceWindowsProvider ..|> Provider
+  WorkspaceWindowsProvider --> TargetBinding
+  WorkspaceWindowsProvider --> NodeListBinding
   FieldBinding --> DecodeLocusValue
   FieldBinding --> LocusWatchError
   NodeListBinding --> NodeListQuery
@@ -490,6 +499,7 @@ package "shell/macros\ncrate: shell_macros" {
     + set_subscriptions(group)
     + update(msg)
     + start(sender): SubscriptionGroup
+    + requires Component::Input: From<Msg> + Send
   }
 
   class GeneratedRuntime <<generated>> {

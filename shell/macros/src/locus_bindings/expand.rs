@@ -267,15 +267,20 @@ pub(super) fn expand_model_impl(
                 let task = ::providers::spawn(async move {
                     let source = ::providers::provider_for::<#ty, _>(#source);
                     let result = ::providers::run_provider(source, context, move |value| {
-                        update_sender.input(#module_ident::Msg::#variant(value));
+                        let input: <Component as ::relm4::Component>::Input =
+                            #module_ident::Msg::#variant(value).into();
+                        update_sender.input(input);
                     })
                     .await;
 
                     if let Err(error) = result {
-                        error_sender.input(#module_ident::Msg::WatchFailed {
+                        let input: <Component as ::relm4::Component>::Input =
+                            #module_ident::Msg::WatchFailed {
                             field: #field_name,
                             error: error.to_string(),
-                        });
+                        }
+                        .into();
+                        error_sender.input(input);
                     }
                 });
                 subscription.set_task(task);
@@ -421,7 +426,9 @@ pub(super) fn expand_model_impl(
                 sender: ::relm4::ComponentSender<Component>,
             ) -> ::providers::SubscriptionGroup
             where
-                Component: ::relm4::Component<Input = #module_ident::Msg> + 'static,
+                Component: ::relm4::Component + 'static,
+                <Component as ::relm4::Component>::Input:
+                    ::std::convert::From<#module_ident::Msg> + Send,
                 <Component as ::relm4::Component>::Output: Send,
                 <Component as ::relm4::Component>::CommandOutput: Send,
             {

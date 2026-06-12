@@ -11,7 +11,7 @@ use zbus::proxy::Builder as ProxyBuilder;
 
 use crate::{
     NodeId, NodeListBinding, TargetBinding, WatchError,
-    collection::binding::NodeListQuery,
+    collection::binding::{KindFilteredNodeListBinding, NodeListQuery},
     collection::diff::{apply_commands, commands_from_tuples},
 };
 
@@ -93,16 +93,54 @@ where
     Target: Send + 'static,
     OnValue: FnMut(Vec<NodeId>) + Send + 'static,
 {
+    watch_node_list_query_with_context(binding.query, None, context, &mut on_value).await
+}
+
+async fn watch_kind_filtered_node_list_with_context<Target, OnValue>(
+    binding: KindFilteredNodeListBinding<Target>,
+    context: ProviderContext,
+    mut on_value: OnValue,
+) -> Result<(), WatchError>
+where
+    Target: Send + 'static,
+    OnValue: FnMut(Vec<NodeId>) + Send + 'static,
+{
+    watch_node_list_query_with_context(
+        binding.binding.query,
+        Some(binding.kind),
+        context,
+        &mut on_value,
+    )
+    .await
+}
+
+async fn watch_node_list_query_with_context<OnValue>(
+    query: NodeListQuery,
+    kind_filter: Option<&str>,
+    context: ProviderContext,
+    on_value: &mut OnValue,
+) -> Result<(), WatchError>
+where
+    OnValue: FnMut(Vec<NodeId>) + Send,
+{
     if context.is_cancelled() {
         return Ok(());
     }
 
     let connection = zbus::Connection::session().await?;
-    let signal = ListSignal::new(&connection, &binding.query).await?;
+    let signal = ListSignal::new(&connection, &query).await?;
     let mut updates = signal.proxy.receive_signal(signal.name).await?;
-    let initial = subscribe_node_list(&connection, &binding.query).await?;
+    let initial = subscribe_node_list(&connection, &query).await?;
     let mut nodes = Vec::new();
-    apply_and_emit(&context, &mut nodes, initial, &mut on_value)?;
+    apply_and_emit(
+        &connection,
+        &context,
+        &mut nodes,
+        initial,
+        kind_filter,
+        on_value,
+    )
+    .await?;
 
     loop {
         let signal = tokio::select! {
@@ -112,8 +150,16 @@ where
         let Some(signal) = signal else {
             break;
         };
-        if let Some(commands) = changed_commands(&binding.query, &signal)? {
-            apply_and_emit(&context, &mut nodes, commands, &mut on_value)?;
+        if let Some(commands) = changed_commands(&query, &signal)? {
+            apply_and_emit(
+                &connection,
+                &context,
+                &mut nodes,
+                commands,
+                kind_filter,
+                on_value,
+            )
+            .await?;
         }
     }
 
@@ -208,18 +254,41 @@ fn changed_commands(
     }
 }
 
-fn apply_and_emit<OnValue>(
+async fn apply_and_emit<OnValue>(
+    connection: &zbus::Connection,
     context: &ProviderContext,
     nodes: &mut Vec<NodeId>,
     commands: Vec<NodeListDiffCommandTuple>,
+    kind_filter: Option<&str>,
     on_value: &mut OnValue,
 ) -> Result<(), WatchError>
 where
     OnValue: FnMut(Vec<NodeId>) + Send,
 {
     apply_commands(nodes, commands_from_tuples(commands)?)?;
-    emit_value_if_active(context, nodes.clone(), on_value);
+    let visible_nodes = match kind_filter {
+        Some(kind) => filter_nodes_by_kind(connection, nodes, kind).await?,
+        None => nodes.clone(),
+    };
+    emit_value_if_active(context, visible_nodes, on_value);
     Ok(())
+}
+
+async fn filter_nodes_by_kind(
+    connection: &zbus::Connection,
+    nodes: &[NodeId],
+    expected: &str,
+) -> Result<Vec<NodeId>, WatchError> {
+    let read = GraphReadProxy::new(connection).await?;
+    let mut filtered = Vec::new();
+
+    for node in nodes {
+        if read.get_property(node, "kind").await? == expected {
+            filtered.push(node.clone());
+        }
+    }
+
+    Ok(filtered)
 }
 
 fn emit_value_if_active<T, OnValue>(context: &ProviderContext, value: T, on_value: &mut OnValue)
@@ -271,6 +340,26 @@ where
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async move {
             watch_node_list_with_context(self, context, move |value| {
+                sender.send(value);
+            })
+            .await
+        }
+    }
+}
+
+impl<Target> Provider<Vec<NodeId>> for KindFilteredNodeListBinding<Target>
+where
+    Target: Send + 'static,
+{
+    type Error = WatchError;
+
+    fn run(
+        self,
+        context: ProviderContext,
+        sender: ProviderSender<Vec<NodeId>>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        async move {
+            watch_kind_filtered_node_list_with_context(self, context, move |value| {
                 sender.send(value);
             })
             .await

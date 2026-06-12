@@ -75,3 +75,11 @@ Added `tokio-stream` to the provider core as an implementation-facing stream sub
 ## Locus Collection Providers
 
 Added Locus target and node-list bindings in `locus-provider`. `Path<T>::target()` now provides the resolved target node id, `Path<T>::all()` materializes `SubscribeResolveAll` diffs into `Vec<NodeId>`, and relation descriptors can create `sources(...)` or `targets(...)` list providers. A dev-widget compile test proves the intended selected-workspace-to-window-list shape through `switch_map`; the next cleanup is moving relation descriptors into Locus Rust codegen.
+
+## Semantic Workspace Windows
+
+Added `Path<Workspace>::windows()` as the first consumer-facing semantic collection helper. It resolves the selected workspace, switches the live Locus subscription when selection changes, and hides the raw `sources("workspace")` direction from widget authors. The current implementation keeps no independent shell-side cache; repeated consumers can opt into `ProviderExt::shared()` today, while backend-wide subscription registries remain an optional later optimization.
+
+## Wrapped Component Inputs
+
+Relaxed typed model subscription startup so generated provider messages can feed any Relm4 component input that implements `From<sources::Msg> + Send`. This lets a component keep the convenient generated source model while still defining local messages for dynamic child widgets, factory updates, or imperative GTK reconciliation.

@@ -17,8 +17,8 @@ mod watch;
 mod test;
 
 pub use collection::{
-    NodeId, NodeListBinding, NodeListDiffCommand, Relation, TargetBinding, relations,
-    watch_node_list, watch_target,
+    NodeId, NodeListBinding, NodeListDiffCommand, Relation, TargetBinding,
+    WorkspaceWindowsProvider, relations, watch_node_list, watch_target,
 };
 pub use decode::DecodeLocusValue;
 pub(crate) use decode::decode_wire_field;

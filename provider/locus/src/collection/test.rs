@@ -69,6 +69,13 @@ fn node_list_binding_is_provider() {
 }
 
 #[test]
+fn workspace_path_windows_is_provider() {
+    fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
+
+    assert_provider::<Vec<String>, _>(paths::SELECTED_WORKSPACE.windows());
+}
+
+#[test]
 fn node_list_commands_materialize_nodes() {
     let mut nodes = Vec::new();
 
@@ -131,6 +138,24 @@ fn cancelled_node_list_provider_exits_before_dbus_setup() {
     let captured = sent.clone();
 
     let result = futures::executor::block_on(relations::WORKSPACE.sources("workspace:1").run(
+        ProviderContext::new(cancellation),
+        ProviderSender::new(move |value| {
+            captured.lock().expect("sent lock").push(value);
+        }),
+    ));
+
+    assert!(result.is_ok());
+    assert!(sent.lock().expect("sent lock").is_empty());
+}
+
+#[test]
+fn cancelled_workspace_windows_provider_exits_before_dbus_setup() {
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let captured = sent.clone();
+
+    let result = futures::executor::block_on(paths::SELECTED_WORKSPACE.windows().run(
         ProviderContext::new(cancellation),
         ProviderSender::new(move |value| {
             captured.lock().expect("sent lock").push(value);

@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 
 use crate::{binding::Path, model};
 
+use super::WorkspaceWindowsProvider;
+
 pub type NodeId = String;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,6 +70,12 @@ pub enum NodeListQuery {
     },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct KindFilteredNodeListBinding<Target> {
+    pub(crate) binding: NodeListBinding<Target>,
+    pub(crate) kind: &'static str,
+}
+
 impl<Target> NodeListBinding<Target> {
     pub fn resolve_all(
         source: impl Into<NodeId>,
@@ -101,6 +109,13 @@ impl<Target> NodeListBinding<Target> {
             _target: PhantomData,
         }
     }
+
+    pub(crate) fn filter_kind(self, kind: &'static str) -> KindFilteredNodeListBinding<Target> {
+        KindFilteredNodeListBinding {
+            binding: self,
+            kind,
+        }
+    }
 }
 
 impl<Target> Path<Target> {
@@ -113,6 +128,12 @@ impl<Target> Path<Target> {
             self.source,
             self.relations.iter().map(|relation| (*relation).to_owned()),
         )
+    }
+}
+
+impl Path<model::Workspace> {
+    pub fn windows(self) -> WorkspaceWindowsProvider<TargetBinding<model::Workspace>> {
+        WorkspaceWindowsProvider::new(self.target())
     }
 }
 

@@ -141,7 +141,7 @@ mod test {
         sync::{Arc, Mutex},
     };
 
-    use locus_provider::{paths, relations};
+    use locus_provider::paths;
     use providers::{Provider, ProviderContext, ProviderExt, ProviderSender, run_provider};
 
     #[derive(Debug, PartialEq)]
@@ -199,12 +199,10 @@ mod test {
     }
 
     #[test]
-    fn selected_workspace_window_ids_compose_through_switch_map() {
+    fn selected_workspace_windows_are_semantic_provider() {
         fn assert_provider<T: Send + 'static, P: Provider<T>>(_provider: P) {}
 
-        let provider = paths::SELECTED_WORKSPACE
-            .target()
-            .switch_map(|workspace| relations::WORKSPACE.sources(workspace));
+        let provider = paths::SELECTED_WORKSPACE.windows();
 
         assert_provider::<Vec<String>, _>(provider);
     }

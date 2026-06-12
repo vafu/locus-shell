@@ -295,6 +295,76 @@ fn expands_model_component_impl() {
 }
 
 #[test]
+fn expands_model_component_with_wrapped_input() {
+    let attr = quote! {
+        model = BarLocus,
+        state = sources
+    };
+    let item = quote! {
+        impl SimpleComponent for Bar {
+            type Init = BarInit;
+            type Input = BarMsg;
+            type Output = ();
+
+            view! {
+                gtk::Window {
+                    gtk::Label {
+                    #[bind(selected_window_title)]
+                        set_label: |title| title.as_str(),
+                    }
+                }
+            }
+
+            fn init(
+                init: Self::Init,
+                root: Self::Root,
+                sender: ComponentSender<Self>,
+            ) -> ComponentParts<Self> {
+                let model = Bar {
+                    title: init.title,
+                    sources: BarLocus::default(),
+                };
+                let widgets = view_output!();
+                ComponentParts { model, widgets }
+            }
+
+            fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+                match msg {
+                    BarMsg::Sources(msg) => self.sources.update(msg),
+                    BarMsg::Refresh => {}
+                }
+            }
+        }
+    };
+
+    let expanded = expand_component(attr, item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("BarLocus :: start"));
+    assert!(source.contains("BarMsg :: Sources"));
+    assert!(!source.contains("self . sources . update (msg) ;"));
+}
+
+#[test]
+fn expands_model_start_for_wrapped_component_input() {
+    let item = quote! {
+        pub struct BarLocus {
+            #[source(locus_provider::paths::SELECTED_WINDOW
+                .property(locus_provider::model::Window::TITLE))]
+            pub selected_window_title: String,
+        }
+    };
+
+    let expanded = expand_model(TokenStream::new(), item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("< Component as :: relm4 :: Component > :: Input"));
+    assert!(source.contains("From < sources :: Msg >"));
+    assert!(source.contains("+ Send"));
+    assert!(source.contains("sources :: Msg :: SelectedWindowTitle (value) . into"));
+}
+
+#[test]
 fn rejects_duplicate_binding_fields() {
     let error = component_parse_error(quote! {
         selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
