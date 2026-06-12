@@ -179,10 +179,11 @@ Small reusable provider contract crate.
 
 Responsibilities:
 
-- Define `Provider<T>` for typed asynchronous value sources.
-- Provide `ProviderContext`, `ProviderSender<T>`, `Subscription`, and `SubscriptionGroup`.
-- Provide small provider combinators such as `ProviderExt::map`.
-- Provide shared/replay providers for reusing one upstream source across multiple derived fields.
+- Define `Provider<T>` for typed asynchronous value sources backed by `tokio_stream::Stream<Item = Result<T, E>>`.
+- Use `tokio_util::sync::CancellationToken` directly for cooperative cancellation.
+- Provide `Subscription` and `SubscriptionGroup` for lifecycle ownership.
+- Provide shared latest providers for reusing one upstream source across multiple derived fields.
+- Prefer `tokio_stream::StreamExt` and ordinary Tokio primitives over custom reactive combinator layers until concrete widget requirements justify them.
 - Stay independent of GTK, Relm4, D-Bus, and product-specific shell behavior.
 
 Non-responsibilities:

@@ -38,8 +38,8 @@ Framework crates own:
 - Keep related crates grouped by family: `shell/core`, `shell/macros`, `provider/core`, `provider/locus`, `provider/dbus`, and `provider/common`.
 - `shell-core` only exposes generic framework primitives.
 - `dev-widgets` remains internal and proves ergonomics.
-- `provider/core` publishes the `providers` crate with reusable provider traits, subscription handles, cancellation, runtime spawning, and backend-neutral combinators.
-- Provider internals may use `tokio-stream` for stream adaptation and dynamic subscription switching, but widget-facing APIs should remain centered on `Provider<T>`.
+- `provider/core` publishes the `providers` crate with reusable provider traits, stream-oriented subscription handles, cancellation, shared latest fanout, and minimal runtime spawning.
+- Provider APIs are centered on `Provider<T>` as a typed Tokio stream source: `Stream<Item = Result<T, E>>`. Prefer `tokio_stream::StreamExt` and ordinary Rust/Tokio primitives over custom reactive combinator layers.
 - `provider/locus` publishes the `locus-provider` crate with generic Locus graph binding primitives plus the Locus-over-D-Bus provider implementation.
 - `provider/dbus` publishes the `dbus-provider` crate with generic D-Bus object/property provider implementation.
 - `provider/common` publishes `common-providers` with feature-gated common service definitions and contains no watcher/runtime policy.
@@ -107,7 +107,7 @@ Framework crates own:
   - typed update messages
   - async watcher startup
 - Dispatch binding expressions through `providers::Provider<T>` instead of backend-specific watcher functions.
-- Spawn generated provider tasks through `providers::spawn`, backed by the provider Tokio runtime, and keep task handles owned by subscriptions.
+- Generate provider messages from `Result<T, E>` stream items and keep task handles owned by subscriptions. Runtime ownership is still transitional and should be finalized with the ShellApp integration layer before macro APIs stabilize.
 - Let component views bind GTK setters with `#[bind(field)]`:
   - closure adapters such as `set_label: |title| title.as_str()`
   - function adapters such as `set_css_classes: window_title_classes`
@@ -120,8 +120,8 @@ Framework crates own:
 - Translate provider updates, including Locus `ResolveChanged` updates, into Relm4 input messages.
 - Maintain cached model state for watched GTK properties.
 - Avoid client-side polling or a separate reactive runtime.
-- Use shared/replay providers when multiple model fields derive from the same upstream source.
-- Use `ProviderExt::switch_map` when one provider value selects another long-lived provider, such as selected workspace -> windows in that workspace.
+- Use shared latest providers when multiple model fields derive from the same upstream source.
+- Push selected graph node -> dependent collection flows into Locus/schema helpers where possible before adding custom switch/combine provider APIs.
 - Prefer semantic collection helpers such as `paths::SELECTED_WORKSPACE.windows()` over raw graph direction at widget call sites.
 - Prefer dynamic child components with local typed bindings for repeated graph
   items, such as `WindowTitle` taking a `NodeRef<Window>` and binding
@@ -146,16 +146,16 @@ Framework crates own:
 
 ### 9. Provider API Hardening
 
-- Decide whether the neutral provider contract should split runtime spawning into a follow-up crate such as `providers-tokio` or a configurable `ProviderSpawner`.
-- Keep the current `providers::spawn` runtime as the transitional default used by macro output.
+- Finalize runtime ownership for provider task spawning, likely through ShellApp-owned framework runtime setup or a small explicit Tokio integration layer.
+- Keep the current `providers::spawn` runtime only as a transitional provider-core helper until macro and ShellApp integration are updated together.
 - Add richer provider combinators only when concrete widget requirements justify them:
   - `distinct`
   - `filter_map`
   - `fallible_map`
   - `combine_latest3`
-- Keep `stream_provider` available as the adapter from `tokio_stream::Stream<Item = Result<T, E>>` into `Provider<T>` for custom network, socket, timer, and service integrations.
-- Keep `switch_map` available for dynamic provider replacement; this is the core primitive for selected graph node -> dependent collection subscription flows.
-- Keep shared/replay providers available for connection and subscription reuse.
+- Treat any `tokio_stream::Stream<Item = Result<T, E>>` as a provider directly through the blanket `Provider<T>` implementation.
+- Reintroduce `switch_map`/`combine_latest` only as thin stream helpers if real widget requirements prove they are needed.
+- Keep shared latest providers available for connection and subscription reuse.
 - Keep collection providers for Locus paths and reverse relation lookups available as stable node-id lists for workspace lists, window lists, tray items, media players, and agent sessions.
 - Move hand-written development schema descriptors and extension traits into generated Rust schema output once the Locus codegen contract is updated.
 - Add typed row hydration helpers for collection results so consumers can request summaries such as window id/title, workspace name/focus state, and project display fields without manually wiring one provider per property.

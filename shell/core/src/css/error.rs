@@ -1,11 +1,25 @@
 use std::{fmt, io, path::PathBuf};
 
 #[derive(Debug)]
-pub enum StylesheetError {
-    Read { path: PathBuf, source: io::Error },
-    Watch { path: PathBuf, source: io::Error },
-    SpawnSass { source: io::Error },
-    CompileScss { path: PathBuf, message: String },
+pub(crate) enum StylesheetError {
+    Read {
+        path: PathBuf,
+        source: io::Error,
+    },
+    UnsupportedExtension {
+        path: PathBuf,
+    },
+    Watch {
+        path: PathBuf,
+        source: notify::Error,
+    },
+    SpawnSass {
+        source: io::Error,
+    },
+    CompileScss {
+        path: PathBuf,
+        message: String,
+    },
 }
 
 impl fmt::Display for StylesheetError {
@@ -14,8 +28,15 @@ impl fmt::Display for StylesheetError {
             Self::Read { path, source } => {
                 write!(formatter, "failed to read {}: {source}", path.display())
             }
+            Self::UnsupportedExtension { path } => {
+                write!(
+                    formatter,
+                    "unsupported stylesheet extension for {}; expected css, scss, or sass",
+                    path.display()
+                )
+            }
             Self::Watch { path, source } => {
-                write!(formatter, "failed to inspect {}: {source}", path.display())
+                write!(formatter, "failed to watch {}: {source}", path.display())
             }
             Self::SpawnSass { source } => {
                 write!(formatter, "failed to run sass compiler: {source}")

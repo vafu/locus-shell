@@ -1,36 +1,51 @@
-use crate::{CancellationToken, ProviderContext};
+use std::future::Future;
 
 use tokio::task::JoinHandle;
+
+use crate::{CancellationToken, spawn};
 
 /// Owns cancellation for a running provider subscription.
 ///
 /// Dropping the subscription requests cooperative cancellation and aborts the
-/// associated runtime task when one has been registered.
-#[derive(Debug, Default)]
+/// associated runtime task.
+#[derive(Debug)]
 pub struct Subscription {
     cancellation: CancellationToken,
     task: Option<JoinHandle<()>>,
 }
 
 impl Subscription {
-    /// Creates an active subscription handle.
-    pub fn new() -> Self {
-        Self::default()
+    /// Creates a subscription from an existing cancellation token and task.
+    pub fn from_task(cancellation: CancellationToken, task: JoinHandle<()>) -> Self {
+        Self {
+            cancellation,
+            task: Some(task),
+        }
     }
 
-    /// Creates a context that shares this subscription's cancellation state.
-    pub fn context(&self) -> ProviderContext {
-        ProviderContext::new(self.cancellation.clone())
+    /// Spawns a task on the provider runtime and owns it as a subscription.
+    pub fn spawn<F, Fut>(run: F) -> Self
+    where
+        F: FnOnce(CancellationToken) -> Fut,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let cancellation = CancellationToken::new();
+        let task = spawn(run(cancellation.clone()));
+
+        Self::from_task(cancellation, task)
     }
 
-    /// Requests cancellation for the associated provider.
-    pub fn cancel(&self) {
+    /// Returns the cancellation token owned by this subscription.
+    pub fn cancellation(&self) -> CancellationToken {
+        self.cancellation.clone()
+    }
+
+    /// Stops the associated provider task.
+    pub fn cancel(&mut self) {
         self.cancellation.cancel();
-    }
-
-    /// Associates the runtime task owned by this subscription.
-    pub fn set_task(&mut self, task: JoinHandle<()>) {
-        self.task = Some(task);
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
 
@@ -60,9 +75,9 @@ impl SubscriptionGroup {
         self.subscriptions.push(subscription);
     }
 
-    /// Requests cancellation for every subscription in the group.
-    pub fn cancel(&self) {
-        for subscription in &self.subscriptions {
+    /// Stops and removes every subscription in the group.
+    pub fn cancel(&mut self) {
+        for mut subscription in self.subscriptions.drain(..) {
             subscription.cancel();
         }
     }

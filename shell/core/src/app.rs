@@ -1,34 +1,55 @@
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc};
 
 use gtk::prelude::ApplicationExt;
 use relm4::{Component, RelmApp};
 
-use crate::css::{CssPriority, Stylesheet, StylesheetError, StylesheetSource};
+use crate::css::{
+    CssPriority, SassConfig, Stylesheet, StylesheetError, StylesheetSource, StylesheetWatcher,
+};
 
 #[derive(Debug)]
-pub struct ShellApp<M: Debug + 'static> {
+pub struct ShellApp {
     app_id: String,
     stylesheets: Vec<StylesheetRegistration>,
     watch_stylesheets: bool,
-    marker: PhantomData<M>,
+    sass_config: SassConfig,
 }
 
-impl<M: Debug + 'static> ShellApp<M> {
+impl ShellApp {
     pub fn new(app_id: impl Into<String>) -> Self {
         Self {
             app_id: app_id.into(),
             stylesheets: Vec::new(),
             watch_stylesheets: false,
-            marker: PhantomData,
+            sass_config: SassConfig::default(),
         }
+    }
+
+    pub fn with_stylesheet(mut self, path: impl Into<PathBuf>) -> Self {
+        self.stylesheets.push(StylesheetRegistration {
+            source: StylesheetSource::new(path),
+            priority: CssPriority::Application,
+        });
+        self
+    }
+
+    pub fn with_stylesheet_at_priority(
+        mut self,
+        path: impl Into<PathBuf>,
+        priority: CssPriority,
+    ) -> Self {
+        self.stylesheets.push(StylesheetRegistration {
+            source: StylesheetSource::new(path),
+            priority,
+        });
+        self
     }
 
     pub fn with_css(mut self, path: impl Into<PathBuf>) -> Self {
         self.stylesheets.push(StylesheetRegistration {
-            source: StylesheetSource::css(path),
+            source: StylesheetSource::new(path),
             priority: CssPriority::Application,
         });
         self
@@ -36,7 +57,7 @@ impl<M: Debug + 'static> ShellApp<M> {
 
     pub fn with_css_at_priority(mut self, path: impl Into<PathBuf>, priority: CssPriority) -> Self {
         self.stylesheets.push(StylesheetRegistration {
-            source: StylesheetSource::css(path),
+            source: StylesheetSource::new(path),
             priority,
         });
         self
@@ -44,7 +65,7 @@ impl<M: Debug + 'static> ShellApp<M> {
 
     pub fn with_scss(mut self, path: impl Into<PathBuf>) -> Self {
         self.stylesheets.push(StylesheetRegistration {
-            source: StylesheetSource::scss(path),
+            source: StylesheetSource::new(path),
             priority: CssPriority::Application,
         });
         self
@@ -56,9 +77,14 @@ impl<M: Debug + 'static> ShellApp<M> {
         priority: CssPriority,
     ) -> Self {
         self.stylesheets.push(StylesheetRegistration {
-            source: StylesheetSource::scss(path),
+            source: StylesheetSource::new(path),
             priority,
         });
+        self
+    }
+
+    pub fn with_sass_load_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.sass_config.add_load_path(path);
         self
     }
 
@@ -69,23 +95,19 @@ impl<M: Debug + 'static> ShellApp<M> {
 
     pub fn run<C>(self, payload: C::Init)
     where
-        C: Component<Input = M>,
+        C: Component,
+        C::Input: Debug + 'static,
         C::Root: AsRef<gtk::Window>,
     {
-        self.try_run::<C>(payload)
-            .expect("failed to initialize shell app");
-    }
-
-    pub fn try_run<C>(self, payload: C::Init) -> Result<(), StylesheetError>
-    where
-        C: Component<Input = M>,
-        C::Root: AsRef<gtk::Window>,
-    {
-        let app = RelmApp::new(&self.app_id);
+        let app = RelmApp::<C::Input>::new(&self.app_id);
         let watch_stylesheets = self.watch_stylesheets;
-        let stylesheets = self.prepare_stylesheets()?;
+        let stylesheets = self
+            .prepare_stylesheets()
+            .expect("failed to initialize shell app stylesheets");
         let gtk_app = relm4::main_application();
         let stylesheets = Rc::new(RefCell::new(Some(stylesheets)));
+        let stylesheet_watchers: Rc<RefCell<Vec<StylesheetWatcher>>> =
+            Rc::new(RefCell::new(Vec::new()));
 
         gtk_app.connect_startup(move |_| {
             let Some(stylesheets) = stylesheets.borrow_mut().take() else {
@@ -96,20 +118,26 @@ impl<M: Debug + 'static> ShellApp<M> {
                 stylesheet.install();
 
                 if watch_stylesheets {
-                    stylesheet.watch();
+                    let watcher = stylesheet
+                        .watch()
+                        .expect("failed to initialize shell app stylesheet watcher");
+                    stylesheet_watchers.borrow_mut().push(watcher);
                 }
             }
         });
 
         app.run::<C>(payload);
-        Ok(())
     }
 
     fn prepare_stylesheets(self) -> Result<Vec<Stylesheet>, StylesheetError> {
         let mut stylesheets = Vec::new();
 
         for registration in self.stylesheets {
-            let mut stylesheet = Stylesheet::new(registration.source, registration.priority);
+            let mut stylesheet = Stylesheet::new(
+                registration.source,
+                registration.priority,
+                self.sass_config.clone(),
+            );
             stylesheet.load()?;
             stylesheets.push(stylesheet);
         }

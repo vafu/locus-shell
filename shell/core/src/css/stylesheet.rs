@@ -1,34 +1,34 @@
-use super::{
-    CssPriority, StylesheetError, StylesheetSource,
-    fingerprint::{StylesheetFingerprint, stylesheet_fingerprint},
-};
+use super::{CssPriority, SassConfig, StylesheetError, StylesheetSource, watcher};
 
 #[derive(Debug)]
-pub struct Stylesheet {
+pub(crate) struct Stylesheet {
     source: StylesheetSource,
     priority: CssPriority,
     provider: gtk::CssProvider,
-    fingerprint: Option<StylesheetFingerprint>,
+    sass_config: SassConfig,
 }
 
 impl Stylesheet {
-    pub fn new(source: StylesheetSource, priority: CssPriority) -> Self {
+    pub(crate) fn new(
+        source: StylesheetSource,
+        priority: CssPriority,
+        sass_config: SassConfig,
+    ) -> Self {
         Self {
             source,
             priority,
             provider: gtk::CssProvider::new(),
-            fingerprint: None,
+            sass_config,
         }
     }
 
-    pub fn load(&mut self) -> Result<(), StylesheetError> {
-        let css = self.source.load()?;
+    pub(crate) fn load(&mut self) -> Result<(), StylesheetError> {
+        let css = self.source.load(&self.sass_config)?;
         self.provider.load_from_data(&css);
-        self.fingerprint = Some(stylesheet_fingerprint(&self.source.watch_root())?);
         Ok(())
     }
 
-    pub fn install(&self) {
+    pub(crate) fn install(&self) {
         if let Some(display) = gtk::gdk::Display::default() {
             gtk::style_context_add_provider_for_display(
                 &display,
@@ -38,37 +38,27 @@ impl Stylesheet {
         }
     }
 
-    pub fn watch(self) {
-        let source = self.source;
+    pub(crate) fn watch(self) -> Result<StylesheetWatcher, StylesheetError> {
+        let source = self.source.clone();
         let provider = self.provider;
-        let mut fingerprint = self.fingerprint;
+        let sass_config = self.sass_config.clone();
+        let (reload_sender, reload_receiver) = async_channel::bounded(1);
 
-        gtk::glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
-            let watch_root = source.watch_root();
-            let next_fingerprint = match stylesheet_fingerprint(&watch_root) {
-                Ok(fingerprint) => fingerprint,
-                Err(error) => {
-                    eprintln!("{error}");
-                    return gtk::glib::ControlFlow::Continue;
-                }
-            };
-
-            if fingerprint.as_ref() == Some(&next_fingerprint) {
-                return gtk::glib::ControlFlow::Continue;
-            }
-
-            match source.load() {
-                Ok(css) => {
-                    provider.load_from_data(&css);
-                    fingerprint = Some(next_fingerprint);
-                }
-                Err(error) => {
-                    fingerprint = Some(next_fingerprint);
-                    eprintln!("{error}");
+        gtk::glib::MainContext::default().spawn_local(async move {
+            while reload_receiver.recv().await.is_ok() {
+                match source.load(&sass_config) {
+                    Ok(css) => {
+                        provider.load_from_data(&css);
+                    }
+                    Err(error) => {
+                        eprintln!("{error}");
+                    }
                 }
             }
-
-            gtk::glib::ControlFlow::Continue
         });
+
+        watcher::watch_stylesheet(&self.source, &self.sass_config, reload_sender)
     }
 }
+
+pub(crate) use watcher::StylesheetWatcher;

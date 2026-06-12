@@ -1,5 +1,6 @@
 use std::{
     convert::Infallible,
+    pin::Pin,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -7,141 +8,53 @@ use std::{
     time::Duration,
 };
 
+use futures::{StreamExt as FuturesStreamExt, stream};
+use tokio_stream::Stream;
+
 use super::{
-    Provider, ProviderContext, ProviderError, ProviderExt, ProviderSender, Subscription,
-    SubscriptionGroup, provider_for, run_provider, spawn, stream_provider,
+    CancellationToken, Provider, ProviderError, ProviderExt, Subscription, SubscriptionGroup,
+    provider_for, run_provider, spawn,
 };
 
-struct StaticProvider(&'static str);
-
-impl Provider<String> for StaticProvider {
-    type Error = Infallible;
-
-    async fn run(
-        self,
-        _context: ProviderContext,
-        sender: ProviderSender<String>,
-    ) -> Result<(), Self::Error> {
-        sender.send(self.0.to_owned());
-        Ok(())
-    }
-}
-
-struct ValueProvider<T>(T);
-
-impl<T> Provider<T> for ValueProvider<T>
-where
-    T: Send + 'static,
-{
-    type Error = Infallible;
-
-    async fn run(
-        self,
-        _context: ProviderContext,
-        sender: ProviderSender<T>,
-    ) -> Result<(), Self::Error> {
-        sender.send(self.0);
-        Ok(())
-    }
-}
-
-struct DelayedValueProvider<T> {
-    delay: Duration,
-    value: T,
-}
-
-impl<T> Provider<T> for DelayedValueProvider<T>
-where
-    T: Send + 'static,
-{
-    type Error = Infallible;
-
-    async fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<T>,
-    ) -> Result<(), Self::Error> {
-        tokio::select! {
-            _ = context.cancelled() => {}
-            _ = tokio::time::sleep(self.delay) => {
-                sender.send(self.value);
-            }
-        }
-
-        Ok(())
-    }
-}
-
-struct TimedSequenceProvider<T> {
-    values: Vec<(Duration, T)>,
-}
-
-impl<T> Provider<T> for TimedSequenceProvider<T>
-where
-    T: Send + 'static,
-{
-    type Error = Infallible;
-
-    async fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<T>,
-    ) -> Result<(), Self::Error> {
-        for (delay, value) in self.values {
-            tokio::select! {
-                _ = context.cancelled() => return Ok(()),
-                _ = tokio::time::sleep(delay) => {
-                    sender.send(value);
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
 #[test]
-fn subscription_context_tracks_cancellation() {
-    let subscription = Subscription::new();
-    let context = subscription.context();
+fn subscription_spawn_token_tracks_cancellation() {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let mut subscription = Subscription::spawn(|cancellation| async move {
+        sender.send(cancellation).expect("send cancellation token");
+        futures::future::pending::<()>().await;
+    });
+    let cancellation = receiver.recv().expect("cancellation token");
 
-    assert!(!context.is_cancelled());
+    assert!(!cancellation.is_cancelled());
     subscription.cancel();
-    assert!(context.is_cancelled());
+    assert!(cancellation.is_cancelled());
 }
 
 #[test]
-fn dropping_subscription_cancels_context() {
-    let context = {
-        let subscription = Subscription::new();
-        let context = subscription.context();
+fn dropping_subscription_cancels_token() {
+    let (subscription, cancellation) = subscription_with_cancellation();
 
-        assert!(!context.is_cancelled());
-        context
-    };
+    drop(subscription);
 
-    assert!(context.is_cancelled());
+    assert!(cancellation.is_cancelled());
 }
 
 #[test]
-fn cancellation_context_can_be_awaited() {
-    let subscription = Subscription::new();
-    let context = subscription.context();
+fn cancellation_token_can_be_awaited() {
+    let token = CancellationToken::new();
 
-    subscription.cancel();
-    futures::executor::block_on(context.cancelled());
+    token.cancel();
+    futures::executor::block_on(token.cancelled());
 }
 
 #[test]
 fn dropping_subscription_aborts_registered_task() {
     let (sender, receiver) = std::sync::mpsc::channel();
-    let mut subscription = Subscription::new();
-    let task = spawn(async move {
+    let subscription = Subscription::spawn(|_context| async move {
         tokio::time::sleep(Duration::from_millis(250)).await;
         sender.send("late").expect("send runtime result");
     });
 
-    subscription.set_task(task);
     drop(subscription);
 
     assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
@@ -150,77 +63,89 @@ fn dropping_subscription_aborts_registered_task() {
 #[test]
 fn subscription_group_cancels_all_contexts() {
     let mut subscriptions = SubscriptionGroup::new();
-    let first = Subscription::new();
-    let second = Subscription::new();
-    let first_context = first.context();
-    let second_context = second.context();
+    let first = subscription_with_cancellation();
+    let second = subscription_with_cancellation();
+    let first_cancellation = first.1;
+    let second_cancellation = second.1;
 
-    subscriptions.push(first);
-    subscriptions.push(second);
+    subscriptions.push(first.0);
+    subscriptions.push(second.0);
 
     assert_eq!(subscriptions.len(), 2);
     assert!(!subscriptions.is_empty());
-    assert!(!first_context.is_cancelled());
-    assert!(!second_context.is_cancelled());
+    assert!(!first_cancellation.is_cancelled());
+    assert!(!second_cancellation.is_cancelled());
 
     subscriptions.cancel();
 
-    assert!(first_context.is_cancelled());
-    assert!(second_context.is_cancelled());
+    assert!(subscriptions.is_empty());
+    assert!(first_cancellation.is_cancelled());
+    assert!(second_cancellation.is_cancelled());
 }
 
 #[test]
 fn dropping_subscription_group_cancels_all_contexts() {
-    let (first_context, second_context) = {
+    let (first_cancellation, second_cancellation) = {
         let mut subscriptions = SubscriptionGroup::new();
-        let first = Subscription::new();
-        let second = Subscription::new();
-        let first_context = first.context();
-        let second_context = second.context();
+        let first = subscription_with_cancellation();
+        let second = subscription_with_cancellation();
+        let first_cancellation = first.1;
+        let second_cancellation = second.1;
 
-        subscriptions.push(first);
-        subscriptions.push(second);
+        subscriptions.push(first.0);
+        subscriptions.push(second.0);
 
-        (first_context, second_context)
+        (first_cancellation, second_cancellation)
     };
 
-    assert!(first_context.is_cancelled());
-    assert!(second_context.is_cancelled());
+    assert!(first_cancellation.is_cancelled());
+    assert!(second_cancellation.is_cancelled());
 }
 
 #[test]
-fn provider_runner_forwards_values() {
+fn provider_runner_forwards_result_items() {
     let values = Arc::new(Mutex::new(Vec::new()));
     let captured = values.clone();
+    let provider = tokio_stream::iter([
+        Ok::<_, ProviderError>(1_u32),
+        Err(ProviderError::new("watch failed")),
+        Ok(2),
+    ]);
 
-    let result = futures::executor::block_on(run_provider(
-        StaticProvider("ready"),
-        ProviderContext::default(),
+    futures::executor::block_on(run_provider(
+        provider,
+        CancellationToken::new(),
         move |value| {
             captured.lock().expect("values lock").push(value);
         },
     ));
 
-    assert!(result.is_ok());
-    assert_eq!(*values.lock().expect("values lock"), ["ready".to_owned()]);
+    assert_eq!(
+        *values.lock().expect("values lock"),
+        [Ok(1), Err(ProviderError::new("watch failed")), Ok(2)]
+    );
 }
 
 #[test]
 fn provider_for_preserves_matching_provider() {
     let values = Arc::new(Mutex::new(Vec::new()));
     let captured = values.clone();
-    let provider = provider_for::<String, _>(StaticProvider("ready"));
+    let provider = provider_for::<String, _>(tokio_stream::iter([Ok::<_, Infallible>(
+        "ready".to_owned(),
+    )]));
 
-    let result = futures::executor::block_on(run_provider(
+    futures::executor::block_on(run_provider(
         provider,
-        ProviderContext::default(),
+        CancellationToken::new(),
         move |value| {
             captured.lock().expect("values lock").push(value);
         },
     ));
 
-    assert!(result.is_ok());
-    assert_eq!(*values.lock().expect("values lock"), ["ready".to_owned()]);
+    assert_eq!(
+        *values.lock().expect("values lock"),
+        [Ok::<_, Infallible>("ready".to_owned())]
+    );
 }
 
 #[test]
@@ -248,145 +173,86 @@ fn provider_error_exposes_message() {
 }
 
 #[test]
-fn provider_map_derives_values() {
+fn stream_providers_can_use_tokio_stream_ext_directly() {
     let values = Arc::new(Mutex::new(Vec::new()));
     let captured = values.clone();
-
-    let result = futures::executor::block_on(run_provider(
-        StaticProvider("ready").map(|value| value.len()),
-        ProviderContext::default(),
-        move |value| {
-            captured.lock().expect("values lock").push(value);
-        },
-    ));
-
-    assert!(result.is_ok());
-    assert_eq!(*values.lock().expect("values lock"), [5]);
-}
-
-#[test]
-fn provider_combine_latest_derives_from_two_sources() {
-    let values = Arc::new(Mutex::new(Vec::new()));
-    let captured = values.clone();
-    let provider =
-        ValueProvider(2_u32).combine_latest(ValueProvider(40_u32), |left, right| left + right);
-
-    let result = futures::executor::block_on(run_provider(
-        provider,
-        ProviderContext::default(),
-        move |value| {
-            captured.lock().expect("values lock").push(value);
-        },
-    ));
-
-    assert!(result.is_ok());
-    assert_eq!(*values.lock().expect("values lock"), [42]);
-}
-
-#[test]
-fn stream_provider_forwards_stream_values() {
-    let values = Arc::new(Mutex::new(Vec::new()));
-    let captured = values.clone();
-    let stream = tokio_stream::iter([
-        Ok::<_, Infallible>(1_u32),
-        Ok::<_, Infallible>(2_u32),
-        Ok::<_, Infallible>(3_u32),
+    let provider = tokio_stream::iter([
+        Ok::<_, Infallible>("ready".to_owned()),
+        Ok("steady".to_owned()),
     ]);
-
-    let result = futures::executor::block_on(run_provider(
-        stream_provider(stream),
-        ProviderContext::default(),
-        move |value| {
-            captured.lock().expect("values lock").push(value);
-        },
-    ));
-
-    assert!(result.is_ok());
-    assert_eq!(*values.lock().expect("values lock"), [1, 2, 3]);
-}
-
-#[test]
-fn provider_switch_map_keeps_latest_downstream() {
-    let values = Arc::new(Mutex::new(Vec::new()));
-    let captured = values.clone();
-    let upstream = TimedSequenceProvider {
-        values: vec![(Duration::ZERO, 1_u32), (Duration::from_millis(25), 2_u32)],
-    };
-    let provider = upstream.switch_map(|value| DelayedValueProvider {
-        delay: if value == 1 {
-            Duration::from_millis(100)
-        } else {
-            Duration::ZERO
-        },
-        value,
+    let provider = FuturesStreamExt::map(provider, |value: Result<String, Infallible>| {
+        value.map(|value| value.len())
     });
 
-    let result = futures::executor::block_on(run_provider(
+    futures::executor::block_on(run_provider(
         provider,
-        ProviderContext::default(),
+        CancellationToken::new(),
         move |value| {
             captured.lock().expect("values lock").push(value);
         },
     ));
 
-    assert!(result.is_ok());
-    assert_eq!(*values.lock().expect("values lock"), [2]);
+    assert_eq!(
+        *values.lock().expect("values lock"),
+        [Ok::<_, Infallible>(5), Ok(6)]
+    );
 }
 
 #[test]
-fn shared_provider_reuses_upstream_and_replays_latest() {
+fn shared_provider_reuses_active_upstream_and_restarts_later() {
+    #[derive(Clone)]
     struct CountedProvider {
         runs: Arc<AtomicUsize>,
     }
 
     impl Provider<u32> for CountedProvider {
-        type Error = Infallible;
+        type Error = ProviderError;
+        type Stream = Pin<Box<dyn Stream<Item = Result<u32, ProviderError>> + Send>>;
 
-        async fn run(
-            self,
-            _context: ProviderContext,
-            sender: ProviderSender<u32>,
-        ) -> Result<(), Self::Error> {
+        fn stream(self, _cancellation: CancellationToken) -> Self::Stream {
             self.runs.fetch_add(1, Ordering::SeqCst);
-            sender.send(7);
-            Ok(())
+            Box::pin(FuturesStreamExt::chain(
+                stream::iter([Ok(7)]),
+                stream::pending(),
+            ))
         }
     }
 
     let runs = Arc::new(AtomicUsize::new(0));
     let shared = CountedProvider { runs: runs.clone() }.shared();
-    let first_values = Arc::new(Mutex::new(Vec::new()));
-    let first_captured = first_values.clone();
 
-    let first = futures::executor::block_on(run_provider(
-        shared.clone(),
-        ProviderContext::default(),
-        move |value| {
-            first_captured
-                .lock()
-                .expect("first values lock")
-                .push(value);
-        },
-    ));
-
-    assert!(first.is_ok());
-    assert_eq!(*first_values.lock().expect("first values lock"), [7]);
+    let mut first = shared.clone().stream(CancellationToken::new());
+    assert_eq!(
+        futures::executor::block_on(FuturesStreamExt::next(&mut first)),
+        Some(Ok(7))
+    );
     assert_eq!(runs.load(Ordering::SeqCst), 1);
 
-    let second_values = Arc::new(Mutex::new(Vec::new()));
-    let second_captured = second_values.clone();
-    let second = futures::executor::block_on(run_provider(
-        shared,
-        ProviderContext::default(),
-        move |value| {
-            second_captured
-                .lock()
-                .expect("second values lock")
-                .push(value);
-        },
-    ));
-
-    assert!(second.is_ok());
-    assert_eq!(*second_values.lock().expect("second values lock"), [7]);
+    let mut second = shared.clone().stream(CancellationToken::new());
+    assert_eq!(
+        futures::executor::block_on(FuturesStreamExt::next(&mut second)),
+        Some(Ok(7))
+    );
     assert_eq!(runs.load(Ordering::SeqCst), 1);
+
+    drop(first);
+    drop(second);
+
+    let mut third = shared.stream(CancellationToken::new());
+    assert_eq!(
+        futures::executor::block_on(FuturesStreamExt::next(&mut third)),
+        Some(Ok(7))
+    );
+    assert_eq!(runs.load(Ordering::SeqCst), 2);
+}
+
+fn subscription_with_cancellation() -> (Subscription, CancellationToken) {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let subscription = Subscription::spawn(|cancellation| async move {
+        sender.send(cancellation).expect("send cancellation token");
+        futures::future::pending::<()>().await;
+    });
+    let cancellation = receiver.recv().expect("cancellation token");
+
+    (subscription, cancellation)
 }

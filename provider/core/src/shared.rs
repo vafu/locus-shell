@@ -1,53 +1,131 @@
 use std::{
-    future::Future,
-    sync::{Arc, Mutex},
+    pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    task::{Context, Poll},
 };
 
 use tokio::sync::watch;
+use tokio_stream::{Stream, StreamExt, wrappers::WatchStream};
 
-use crate::{
-    Provider, ProviderContext, ProviderError, ProviderSender, Subscription, run_provider, spawn,
-};
+use crate::{Provider, Subscription};
 
 /// Cloneable provider handle returned by [`ProviderExt::shared`](crate::ProviderExt::shared).
 #[derive(Debug)]
-pub struct SharedProvider<P, T> {
+pub struct SharedProvider<P, T>
+where
+    P: Provider<T>,
+    T: Clone + Send + 'static,
+{
     state: Arc<SharedState<P, T>>,
 }
 
 #[derive(Debug)]
-struct SharedState<P, T> {
-    provider: Mutex<Option<P>>,
-    latest: Arc<Mutex<Option<T>>>,
-    events: watch::Sender<SharedEvent<T>>,
+struct SharedState<P, T>
+where
+    P: Provider<T>,
+    T: Clone + Send + 'static,
+{
+    provider: P,
+    events: watch::Sender<SharedEvent<T, P::Error>>,
+    active_subscribers: AtomicUsize,
     subscription: Mutex<Option<Subscription>>,
 }
 
 #[derive(Clone, Debug)]
-enum SharedEvent<T> {
+enum SharedEvent<T, E> {
     Pending,
     Value(T),
-    Failed(ProviderError),
+    Error(E),
     Finished,
 }
 
-impl<P, T> SharedProvider<P, T> {
+impl<P, T> SharedProvider<P, T>
+where
+    P: Provider<T> + Sync,
+    T: Clone + Send + Sync + 'static,
+    P::Error: Clone,
+{
     /// Creates a shared provider handle around `provider`.
     pub fn new(provider: P) -> Self {
         let (events, _) = watch::channel(SharedEvent::Pending);
 
         Self {
             state: Arc::new(SharedState {
-                provider: Mutex::new(Some(provider)),
-                latest: Arc::new(Mutex::new(None)),
+                provider,
                 events,
+                active_subscribers: AtomicUsize::new(0),
                 subscription: Mutex::new(None),
             }),
         }
     }
+
+    fn subscribe(&self) -> watch::Receiver<SharedEvent<T, P::Error>>
+    where
+        P: Clone,
+    {
+        let receiver = self.state.events.subscribe();
+
+        if self.state.active_subscribers.fetch_add(1, Ordering::SeqCst) == 0 {
+            self.start_upstream();
+        }
+
+        receiver
+    }
+
+    fn start_upstream(&self)
+    where
+        P: Clone,
+    {
+        let provider = self.state.provider.clone();
+        let events = self.state.events.clone();
+        let mut subscription = self
+            .state
+            .subscription
+            .lock()
+            .expect("shared provider subscription lock");
+
+        if let Some(mut previous) = subscription.take() {
+            previous.cancel();
+        }
+
+        let _ = events.send_replace(SharedEvent::Pending);
+
+        *subscription = Some(Subscription::spawn(move |cancellation| async move {
+            let stream = provider.stream(cancellation.clone());
+            tokio::pin!(stream);
+
+            loop {
+                let item = tokio::select! {
+                    _ = cancellation.cancelled() => return,
+                    item = stream.next() => item,
+                };
+
+                match item {
+                    Some(Ok(value)) => {
+                        let _ = events.send_replace(SharedEvent::Value(value));
+                    }
+                    Some(Err(error)) => {
+                        let _ = events.send_replace(SharedEvent::Error(error));
+                        return;
+                    }
+                    None => {
+                        let _ = events.send_replace(SharedEvent::Finished);
+                        return;
+                    }
+                }
+            }
+        }));
+    }
 }
 
-impl<P, T> Clone for SharedProvider<P, T> {
+impl<P, T> Clone for SharedProvider<P, T>
+where
+    P: Provider<T>,
+    T: Clone + Send + 'static,
+{
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
@@ -55,133 +133,121 @@ impl<P, T> Clone for SharedProvider<P, T> {
     }
 }
 
-impl<P, T> SharedProvider<P, T>
+impl<P, T> Provider<T> for SharedProvider<P, T>
 where
-    P: Provider<T>,
+    P: Provider<T> + Clone + Sync,
     T: Clone + Send + Sync + 'static,
+    P::Error: Clone,
 {
-    fn start_once(&self) {
-        let Some(provider) = self
-            .state
-            .provider
-            .lock()
-            .expect("shared provider lock")
-            .take()
-        else {
-            return;
-        };
+    type Error = P::Error;
+    type Stream = SharedProviderStream<P, T>;
 
-        let mut subscription = Subscription::new();
-        let context = subscription.context();
-        let latest = self.state.latest.clone();
-        let events = self.state.events.clone();
-        let task = spawn(async move {
-            let value_events = events.clone();
-            let result = run_provider(provider, context, move |value: T| {
-                *latest.lock().expect("shared provider latest lock") = Some(value.clone());
-                let _ = value_events.send(SharedEvent::Value(value));
-            })
-            .await;
-
-            match result {
-                Ok(()) => {
-                    let _ = events.send(SharedEvent::Finished);
-                }
-                Err(error) => {
-                    let _ = events.send(SharedEvent::Failed(error));
-                }
-            }
-        });
-
-        subscription.set_task(task);
-        *self
-            .state
-            .subscription
-            .lock()
-            .expect("shared provider subscription lock") = Some(subscription);
+    fn stream(self, _cancellation: crate::CancellationToken) -> Self::Stream {
+        SharedProviderStream {
+            events: WatchStream::new(self.subscribe()),
+            provider: self,
+            finished: false,
+        }
     }
 }
 
-impl<P, T> Provider<T> for SharedProvider<P, T>
+/// Stream returned by [`SharedProvider`].
+#[derive(Debug)]
+pub struct SharedProviderStream<P, T>
 where
-    P: Provider<T>,
-    T: Clone + Send + Sync + 'static,
+    P: Provider<T> + Sync,
+    T: Clone + Send + 'static,
 {
-    type Error = ProviderError;
+    events: WatchStream<SharedEvent<T, P::Error>>,
+    provider: SharedProvider<P, T>,
+    finished: bool,
+}
 
-    fn run(
-        self,
-        context: ProviderContext,
-        sender: ProviderSender<T>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            self.start_once();
+impl<P, T> Stream for SharedProviderStream<P, T>
+where
+    P: Provider<T> + Clone + Sync,
+    T: Clone + Send + Sync + 'static,
+    P::Error: Clone,
+{
+    type Item = Result<T, P::Error>;
 
-            let mut receiver = self.state.events.subscribe();
-            let mut skip_initial_value = false;
-            let mut sent_value = false;
-            if let Some(value) = self
-                .state
-                .latest
-                .lock()
-                .expect("shared provider latest lock")
-                .clone()
-            {
-                sender.send(value);
-                skip_initial_value = true;
-                sent_value = true;
-            }
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
 
-            loop {
-                match receiver.borrow_and_update().clone() {
-                    SharedEvent::Pending => {}
-                    SharedEvent::Value(value) => {
-                        if skip_initial_value {
-                            skip_initial_value = false;
-                        } else {
-                            sender.send(value);
-                            sent_value = true;
-                        }
-                    }
-                    SharedEvent::Failed(error) => return Err(error),
-                    SharedEvent::Finished => {
-                        if !sent_value {
-                            if let Some(value) = self
-                                .state
-                                .latest
-                                .lock()
-                                .expect("shared provider latest lock")
-                                .clone()
-                            {
-                                sender.send(value);
-                            }
-                        }
-                        return Ok(());
-                    }
+        if this.finished {
+            return Poll::Ready(None);
+        }
+
+        loop {
+            match Pin::new(&mut this.events).poll_next(context) {
+                Poll::Ready(Some(SharedEvent::Pending)) => {}
+                Poll::Ready(Some(SharedEvent::Value(value))) => {
+                    return Poll::Ready(Some(Ok(value)));
                 }
-
-                tokio::select! {
-                    _ = context.cancelled() => return Ok(()),
-                    changed = receiver.changed() => {
-                        if changed.is_err() {
-                            return Ok(());
-                        }
-                    }
+                Poll::Ready(Some(SharedEvent::Error(error))) => {
+                    this.finished = true;
+                    return Poll::Ready(Some(Err(error)));
                 }
+                Poll::Ready(Some(SharedEvent::Finished)) | Poll::Ready(None) => {
+                    this.finished = true;
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => return Poll::Pending,
             }
         }
     }
 }
 
-impl<P, T> Drop for SharedState<P, T> {
+impl<P, T> Drop for SharedProviderStream<P, T>
+where
+    P: Provider<T> + Sync,
+    T: Clone + Send + 'static,
+{
     fn drop(&mut self) {
-        if let Some(subscription) = self
+        self.provider.unsubscribe();
+    }
+}
+
+impl<P, T> Drop for SharedState<P, T>
+where
+    P: Provider<T>,
+    T: Clone + Send + 'static,
+{
+    fn drop(&mut self) {
+        if let Some(mut subscription) = self
             .subscription
             .lock()
             .expect("shared provider subscription lock")
             .take()
         {
-            drop(subscription);
+            subscription.cancel();
         }
     }
+}
+
+impl<P, T> SharedProvider<P, T>
+where
+    P: Provider<T> + Sync,
+    T: Clone + Send + 'static,
+{
+    fn unsubscribe(&self) {
+        if self.state.active_subscribers.fetch_sub(1, Ordering::SeqCst) == 1 {
+            if let Some(mut subscription) = self
+                .state
+                .subscription
+                .lock()
+                .expect("shared provider subscription lock")
+                .take()
+            {
+                subscription.cancel();
+            }
+        }
+    }
+}
+
+impl<P, T> Unpin for SharedProviderStream<P, T>
+where
+    P: Provider<T> + Sync,
+    T: Clone + Send,
+{
 }

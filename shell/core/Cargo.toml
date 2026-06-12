@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+async-channel = "2.5.0"
 gtk.workspace = true
 gtk4-layer-shell.workspace = true
+notify = "6.1.1"
 relm4.workspace = true
