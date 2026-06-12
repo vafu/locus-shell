@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{binding::Path, model};
-
-use super::WorkspaceWindowsProvider;
+use crate::Path;
 
 pub type NodeId = String;
 
@@ -71,9 +69,9 @@ pub enum NodeListQuery {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct KindFilteredNodeListBinding<Target> {
-    pub(crate) binding: NodeListBinding<Target>,
-    pub(crate) kind: &'static str,
+pub struct KindFilteredNodeListBinding<Target> {
+    pub binding: NodeListBinding<Target>,
+    pub kind: &'static str,
 }
 
 impl<Target> NodeListBinding<Target> {
@@ -110,7 +108,7 @@ impl<Target> NodeListBinding<Target> {
         }
     }
 
-    pub(crate) fn filter_kind(self, kind: &'static str) -> KindFilteredNodeListBinding<Target> {
+    pub fn filter_kind(self, kind: &'static str) -> KindFilteredNodeListBinding<Target> {
         KindFilteredNodeListBinding {
             binding: self,
             kind,
@@ -129,24 +127,4 @@ impl<Target> Path<Target> {
             self.relations.iter().map(|relation| (*relation).to_owned()),
         )
     }
-}
-
-impl Path<model::Workspace> {
-    pub fn windows(self) -> WorkspaceWindowsProvider<TargetBinding<model::Workspace>> {
-        WorkspaceWindowsProvider::new(self.target())
-    }
-}
-
-pub mod relations {
-    use super::{Relation, model};
-
-    pub const WINDOW: Relation<model::Context, model::Window> = Relation::new("window");
-    pub const WORKSPACE: Relation<model::Unknown, model::Workspace> = Relation::new("workspace");
-    pub const OUTPUT: Relation<model::Workspace, model::Output> = Relation::new("output");
-    pub const SESSION_PROJECT: Relation<model::AgentSession, model::Project> =
-        Relation::new("session-project");
-    pub const AGENT_SESSION: Relation<model::AppInstance, model::AgentSession> =
-        Relation::new("agent-session");
-    pub const APP_INSTANCE: Relation<model::Window, model::AppInstance> =
-        Relation::new("app-instance");
 }

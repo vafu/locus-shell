@@ -104,8 +104,8 @@ Responsibilities:
 ```rust
 #[shell_macros::model]
 pub struct BarSources {
-    #[source(locus_provider::paths::SELECTED_WINDOW
-        .property(locus_provider::model::Window::TITLE))]
+    #[source(schema::paths::SELECTED_WINDOW
+        .property(schema::model::Window::TITLE))]
     pub selected_window_title: String,
 }
 ```
@@ -114,15 +114,16 @@ pub struct BarSources {
 - Preserve legacy component-level bindings during the transition:
 
 ```rust
-selected_window_title: String = locus_provider::paths::SELECTED_WINDOW
-    .property(locus_provider::model::Window::TITLE)
+selected_window_title: String = schema::paths::SELECTED_WINDOW
+    .property(schema::model::Window::TITLE)
 ```
 
 - Generate model state for resolved values.
 - Generate message handling for field updates.
 - Generate async subscription setup that forwards provider updates into Relm4 input messages.
 - Support binding providers:
-  - Locus graph field bindings through generated `FieldBinding<T>` expressions.
+  - Locus graph field bindings through generated schema expressions backed by
+    `locus_provider::FieldBinding<T>`.
   - Pure D-Bus property bindings through typed `dbus_provider::Object<Target>` and `dbus_provider::Property<Target, Value>` pairs.
   - Consumer-defined providers that implement `providers::Provider<T>`.
 - Rewrite `#[bind(field)]` view setters into Relm4 `#[track(...)]` updates so only widgets bound to the changed field redraw. `#[locus(...)]` remains a compatibility spelling during the transition.
@@ -192,13 +193,14 @@ Non-responsibilities:
 
 ### `locus-provider`
 
-Generated Locus graph contracts plus the direct Locus-over-D-Bus provider implementation.
+Generic Locus graph binding primitives plus the direct Locus-over-D-Bus provider implementation.
 
 Responsibilities:
 
-- Vendor generated Rust contracts from `~/proj/locus/locus-codegen`.
-- Expose generated `binding`, `model`, and `paths` modules.
-- Own `FieldBinding<T>` so the crate can implement `providers::Provider<T>` without violating Rust coherence rules.
+- Expose generic `Property<Model, Value>`, `Path<Target>`, `FieldBinding<T>`,
+  `NodeRef<Model>`, relation, target, and node-list binding primitives.
+- Own generic binding types so the crate can implement `providers::Provider<T>`
+  without violating Rust coherence rules.
 - Decode Locus wire values into typed Rust values.
 - Watch `io.github.Locus.Graph.Resolve` through `locus-dbus`.
 - Expose typed node-id providers for resolved targets and node-list providers backed by `SubscribeResolveAll`, `SubscribeSources`, and `SubscribeTargets`.
@@ -206,9 +208,14 @@ Responsibilities:
 
 Non-responsibilities:
 
+- No generated schema markers, paths, relations, or schema-specific convenience
+  helpers such as `Window::TITLE` or `SELECTED_WORKSPACE.windows()`.
 - No generic D-Bus object/property model.
 - No common service definitions such as UPower.
 - No GTK or Relm4 widget policy.
+
+Generated schema code belongs to the consuming crate. In this workspace,
+`dev-widgets` carries its own development schema module to prove ergonomics.
 
 ### `dbus-provider`
 

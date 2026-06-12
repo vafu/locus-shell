@@ -1,5 +1,4 @@
 use common_providers::upower::{DISPLAY_DEVICE, DisplayDevice};
-use locus_provider::{model, paths};
 use providers::ProviderExt;
 use relm4::prelude::*;
 use shell_core::{
@@ -10,6 +9,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::OnceLock,
 };
+
+use crate::locus_schema::{WindowNodeExt, WorkspacePathExt, model, paths};
 
 type WindowNode = locus_provider::NodeRef<model::Window>;
 
@@ -276,7 +277,7 @@ mod test {
         sync::{Arc, Mutex},
     };
 
-    use locus_provider::paths;
+    use crate::locus_schema::{WindowNodeExt, WorkspacePathExt, model, paths};
     use providers::{Provider, ProviderContext, ProviderExt, ProviderSender, run_provider};
 
     #[derive(Debug, PartialEq)]
@@ -346,7 +347,7 @@ mod test {
     fn window_title_sources_are_local_to_window_node() {
         fn assert_provider<T: Send + 'static, P: Provider<T>>(_provider: P) {}
 
-        let window = locus_provider::node::<locus_provider::model::Window>("window:1");
+        let window = locus_provider::node::<model::Window>("window:1");
 
         assert_provider::<String, _>(window.title());
         assert_provider::<bool, _>(window.is_selected());

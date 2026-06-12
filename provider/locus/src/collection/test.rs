@@ -3,21 +3,46 @@ use std::sync::{Arc, Mutex};
 use providers::{CancellationToken, Provider, ProviderContext, ProviderSender};
 
 use crate::{
-    NodeListBinding, NodeListDiffCommand, TargetBinding, collection::diff::apply_commands, model,
-    paths, relations,
+    NodeListBinding, NodeListDiffCommand, Path, Relation, TargetBinding,
+    collection::diff::apply_commands,
 };
 
+mod schema {
+    use super::{Path, Relation};
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct Unknown;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct Workspace;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct Window;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct AppInstance;
+
+    pub const SELECTED_WORKSPACE: Path<Workspace> = Path::new(
+        "selected-workspace",
+        "context:selected",
+        &["workspace"],
+        false,
+    );
+    pub const WORKSPACE: Relation<Unknown, Workspace> = Relation::new("workspace");
+    pub const APP_INSTANCE: Relation<Window, AppInstance> = Relation::new("app-instance");
+}
+
 #[test]
-fn generated_path_target_creates_typed_binding() {
-    let binding: TargetBinding<model::Workspace> = paths::SELECTED_WORKSPACE.target();
+fn path_target_creates_typed_binding() {
+    let binding: TargetBinding<schema::Workspace> = schema::SELECTED_WORKSPACE.target();
 
     assert_eq!(binding.source, "context:selected");
     assert_eq!(binding.relations, &["workspace"]);
 }
 
 #[test]
-fn generated_path_all_creates_resolve_all_binding() {
-    let binding: NodeListBinding<model::Workspace> = paths::SELECTED_WORKSPACE.all();
+fn path_all_creates_resolve_all_binding() {
+    let binding: NodeListBinding<schema::Workspace> = schema::SELECTED_WORKSPACE.all();
 
     assert_eq!(
         binding.query,
@@ -30,7 +55,7 @@ fn generated_path_all_creates_resolve_all_binding() {
 
 #[test]
 fn relation_sources_creates_source_list_binding() {
-    let binding = relations::WORKSPACE.sources("workspace:1");
+    let binding = schema::WORKSPACE.sources("workspace:1");
 
     assert_eq!(
         binding.query,
@@ -43,7 +68,7 @@ fn relation_sources_creates_source_list_binding() {
 
 #[test]
 fn relation_targets_creates_target_list_binding() {
-    let binding = relations::APP_INSTANCE.targets("window:1");
+    let binding = schema::APP_INSTANCE.targets("window:1");
 
     assert_eq!(
         binding.query,
@@ -58,21 +83,25 @@ fn relation_targets_creates_target_list_binding() {
 fn target_binding_is_provider() {
     fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
 
-    assert_provider::<String, _>(paths::SELECTED_WORKSPACE.target());
+    assert_provider::<String, _>(schema::SELECTED_WORKSPACE.target());
 }
 
 #[test]
 fn node_list_binding_is_provider() {
     fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
 
-    assert_provider::<Vec<String>, _>(relations::WORKSPACE.sources("workspace:1"));
+    assert_provider::<Vec<String>, _>(schema::WORKSPACE.sources("workspace:1"));
 }
 
 #[test]
-fn workspace_path_windows_is_provider() {
+fn kind_filtered_node_list_binding_is_provider() {
     fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
 
-    assert_provider::<Vec<String>, _>(paths::SELECTED_WORKSPACE.windows());
+    assert_provider::<Vec<String>, _>(
+        schema::WORKSPACE
+            .sources("workspace:1")
+            .filter_kind("window"),
+    );
 }
 
 #[test]
@@ -119,7 +148,7 @@ fn cancelled_target_provider_exits_before_dbus_setup() {
     let sent = Arc::new(Mutex::new(Vec::new()));
     let captured = sent.clone();
 
-    let result = futures::executor::block_on(paths::SELECTED_WORKSPACE.target().run(
+    let result = futures::executor::block_on(schema::SELECTED_WORKSPACE.target().run(
         ProviderContext::new(cancellation),
         ProviderSender::new(move |value| {
             captured.lock().expect("sent lock").push(value);
@@ -137,7 +166,7 @@ fn cancelled_node_list_provider_exits_before_dbus_setup() {
     let sent = Arc::new(Mutex::new(Vec::new()));
     let captured = sent.clone();
 
-    let result = futures::executor::block_on(relations::WORKSPACE.sources("workspace:1").run(
+    let result = futures::executor::block_on(schema::WORKSPACE.sources("workspace:1").run(
         ProviderContext::new(cancellation),
         ProviderSender::new(move |value| {
             captured.lock().expect("sent lock").push(value);
@@ -149,18 +178,23 @@ fn cancelled_node_list_provider_exits_before_dbus_setup() {
 }
 
 #[test]
-fn cancelled_workspace_windows_provider_exits_before_dbus_setup() {
+fn cancelled_kind_filtered_node_list_provider_exits_before_dbus_setup() {
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     let sent = Arc::new(Mutex::new(Vec::new()));
     let captured = sent.clone();
 
-    let result = futures::executor::block_on(paths::SELECTED_WORKSPACE.windows().run(
-        ProviderContext::new(cancellation),
-        ProviderSender::new(move |value| {
-            captured.lock().expect("sent lock").push(value);
-        }),
-    ));
+    let result = futures::executor::block_on(
+        schema::WORKSPACE
+            .sources("workspace:1")
+            .filter_kind("window")
+            .run(
+                ProviderContext::new(cancellation),
+                ProviderSender::new(move |value| {
+                    captured.lock().expect("sent lock").push(value);
+                }),
+            ),
+    );
 
     assert!(result.is_ok());
     assert!(sent.lock().expect("sent lock").is_empty());

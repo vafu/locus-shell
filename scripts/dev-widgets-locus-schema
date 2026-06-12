@@ -22,7 +22,7 @@ esac
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 locus_repo=${LOCUS_REPO:-"$repo_root/../locus"}
 schema=${LOCUS_SCHEMA:-"$locus_repo/schema.yaml"}
-generated="$repo_root/provider/locus/src/generated.rs"
+generated="$repo_root/dev-widgets/src/locus_schema/generated.rs"
 
 if [ -n "${LOCUS_CODEGEN:-}" ]; then
     codegen="$LOCUS_CODEGEN"
@@ -37,13 +37,24 @@ fi
 
 case "$command" in
     generate)
-        "$codegen" --schema "$schema" --language rust --out "$generated"
-        rustfmt "$generated"
-        ;;
-    check)
         tmp=$(mktemp)
         trap 'rm -f "$tmp"' EXIT
         "$codegen" --schema "$schema" --language rust --out "$tmp"
+        {
+            printf '%s\n\n' '#![allow(dead_code)]'
+            cat "$tmp"
+        } > "$generated"
+        rustfmt "$generated"
+        ;;
+    check)
+        raw=$(mktemp)
+        tmp=$(mktemp)
+        trap 'rm -f "$raw" "$tmp"' EXIT
+        "$codegen" --schema "$schema" --language rust --out "$raw"
+        {
+            printf '%s\n\n' '#![allow(dead_code)]'
+            cat "$raw"
+        } > "$tmp"
         rustfmt "$tmp"
         diff -u "$generated" "$tmp"
         ;;

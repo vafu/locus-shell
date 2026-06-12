@@ -10,11 +10,11 @@ Migrated current Locus graph field bindings and pure D-Bus property bindings to 
 
 ## Locus Graph Split
 
-Split direct Locus graph support into `locus-provider`, which owns generated graph contracts, typed decoding, `watch_field`, and the provider implementation for `FieldBinding<T>`. The generic `dbus-provider` crate now only owns reusable D-Bus object/property bindings, which keeps optional end-user features separated by capability.
+Split direct Locus graph support into `locus-provider`, which owns generic graph binding primitives, typed decoding, `watch_field`, and provider implementations for Locus bindings. The generic `dbus-provider` crate now only owns reusable D-Bus object/property bindings, which keeps optional end-user features separated by capability.
 
 ## Generated Schema Workflow
 
-Added `scripts/locus-provider-schema` so generated graph contracts can be regenerated or checked against the adjacent `~/proj/locus` checkout. This keeps generated code vendored for normal builds while making drift explicit.
+Added a schema regeneration workflow so consumer-local graph contracts can be regenerated or checked against the adjacent `~/proj/locus` checkout. Generated schema now belongs to consuming crates, with `dev-widgets` carrying the local development schema used for ergonomics tests.
 
 ## Provider Output Validation
 
@@ -91,3 +91,7 @@ Added direct typed node property bindings through `locus_provider::node::<model:
 ## Row-Local Window Bindings
 
 Moved window row title and selection subscriptions into a dedicated `WindowTitle` Relm4 component. Typed source models can now start subscriptions from instance data, so a child model can hold `window: NodeRef<Window>` and declare `#[source(window.title())]` plus `#[source(window.is_selected())]`. Models with context fields get a generated constructor, for example `WindowTitleSources::new(window)`, instead of requiring invalid placeholder defaults. The bar only reconciles the list of child components, which removes the parent-level title message boilerplate and better matches the intended widget composition model.
+
+## Consumer-Local Locus Schema
+
+Moved schema-specific Locus concepts out of `locus-provider`. The provider crate now exposes generic graph binding primitives and D-Bus-backed providers only. `dev-widgets` owns the current development schema module with model markers, path constants, relation constants, and extension traits such as `WindowNodeExt` and `WorkspacePathExt`, matching the intended future codegen boundary for consuming shell crates.

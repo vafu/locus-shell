@@ -4,10 +4,25 @@ use std::{
 };
 
 use super::{
-    DecodeLocusValue, FieldBinding, decode_wire_field, model, node, paths,
+    DecodeLocusValue, FieldBinding, Path, Property, decode_wire_field, node,
     watch::{emit_field_value, emit_value_if_active},
 };
 use providers::{CancellationToken, Provider, ProviderContext, ProviderSender};
+
+mod schema {
+    use super::{Path, Property};
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct Window;
+
+    impl Window {
+        pub const ID: Property<Self, u32> = Property::new("id");
+        pub const TITLE: Property<Self, String> = Property::new("title");
+    }
+
+    pub const SELECTED_WINDOW: Path<Window> =
+        Path::new("selected-window", "context:selected", &["window"], false);
+}
 
 #[test]
 fn decodes_primitive_values() {
@@ -45,8 +60,8 @@ fn decodes_none_wire_value_as_default() {
 }
 
 #[test]
-fn generated_path_property_creates_typed_binding() {
-    let binding: FieldBinding<String> = paths::SELECTED_WINDOW.property(model::Window::TITLE);
+fn path_property_creates_typed_binding() {
+    let binding: FieldBinding<String> = schema::SELECTED_WINDOW.property(schema::Window::TITLE);
 
     assert_eq!(binding.source, "context:selected");
     assert_eq!(binding.relations, &["window"]);
@@ -54,58 +69,41 @@ fn generated_path_property_creates_typed_binding() {
 }
 
 #[test]
-fn generated_path_property_is_provider() {
+fn path_property_is_provider() {
     fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
 
-    let binding: FieldBinding<String> = paths::SELECTED_WINDOW.property(model::Window::TITLE);
+    let binding: FieldBinding<String> = schema::SELECTED_WINDOW.property(schema::Window::TITLE);
 
     assert_provider::<String, _>(binding);
 }
 
 #[test]
-fn generated_numeric_properties_keep_value_type() {
-    let binding: FieldBinding<u32> = paths::SELECTED_WINDOW.property(model::Window::ID);
+fn numeric_properties_keep_value_type() {
+    let binding: FieldBinding<u32> = schema::SELECTED_WINDOW.property(schema::Window::ID);
 
     assert_eq!(binding.property, "id");
 }
 
 #[test]
 fn direct_node_property_creates_typed_binding() {
-    let binding = node::<model::Window>("window:1").property(model::Window::TITLE);
+    let binding = node::<schema::Window>("window:1").property(schema::Window::TITLE);
 
     assert_eq!(binding.node, "window:1");
     assert_eq!(binding.property, "title");
 }
 
 #[test]
-fn window_node_exposes_typed_property_helpers() {
-    let window = node::<model::Window>("window:1");
-    let title = window.title();
-
-    assert_eq!(window.id(), "window:1");
-    assert_eq!(title.node, "window:1");
-    assert_eq!(title.property, "title");
-}
-
-#[test]
 fn direct_node_property_is_provider() {
     fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
 
-    let binding = node::<model::Window>("window:1").property(model::Window::TITLE);
+    let binding = node::<schema::Window>("window:1").property(schema::Window::TITLE);
 
     assert_provider::<String, _>(binding);
 }
 
 #[test]
-fn window_selected_helper_is_provider() {
-    fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
-
-    assert_provider::<bool, _>(node::<model::Window>("window:1").is_selected());
-}
-
-#[test]
 fn cancelled_field_provider_exits_before_dbus_setup() {
-    let binding: FieldBinding<String> = paths::SELECTED_WINDOW.property(model::Window::TITLE);
+    let binding: FieldBinding<String> = schema::SELECTED_WINDOW.property(schema::Window::TITLE);
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     let sent = Arc::new(Mutex::new(Vec::new()));
@@ -124,7 +122,7 @@ fn cancelled_field_provider_exits_before_dbus_setup() {
 
 #[test]
 fn cancelled_direct_node_property_provider_exits_before_dbus_setup() {
-    let binding = node::<model::Window>("window:1").property(model::Window::TITLE);
+    let binding = node::<schema::Window>("window:1").property(schema::Window::TITLE);
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     let sent = Arc::new(Mutex::new(Vec::new()));

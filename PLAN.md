@@ -40,7 +40,7 @@ Framework crates own:
 - `dev-widgets` remains internal and proves ergonomics.
 - `provider/core` publishes the `providers` crate with reusable provider traits, subscription handles, cancellation, runtime spawning, and backend-neutral combinators.
 - Provider internals may use `tokio-stream` for stream adaptation and dynamic subscription switching, but widget-facing APIs should remain centered on `Provider<T>`.
-- `provider/locus` publishes the `locus-provider` crate with generated Locus graph contracts plus the Locus-over-D-Bus provider implementation.
+- `provider/locus` publishes the `locus-provider` crate with generic Locus graph binding primitives plus the Locus-over-D-Bus provider implementation.
 - `provider/dbus` publishes the `dbus-provider` crate with generic D-Bus object/property provider implementation.
 - `provider/common` publishes `common-providers` with feature-gated common service definitions and contains no watcher/runtime policy.
 - Do not put user-facing bar, OSD, notification, launcher, or workspace switcher behavior in framework crates.
@@ -63,12 +63,15 @@ Framework crates own:
   - notification-like popup
 - Each dev widget defines its own role-specific config locally.
 - Use external SCSS registered through `ShellApp`.
+- Carry development-only generated Locus schema code locally, including marker
+  structs, path constants, relation constants, and schema extension traits.
 - Use these widgets to test whether `shell-core` stays generic and ergonomic.
 
 ### 4. D-Bus Integration Crates
 
-- Keep the `locus-provider` crate under `provider/locus` for typed Locus graph bindings.
-- Generate `locus-provider::{model, paths, binding}` from the Locus schema/codegen output.
+- Keep the `locus-provider` crate under `provider/locus` for generic Locus graph bindings.
+- Generate schema-specific `model`, `paths`, relation constants, and extension
+  traits inside consuming crates, not inside `locus-provider`.
 - Wrap `io.github.Locus.Graph.Resolve` in `locus-provider`.
 - Implement `providers::Provider<T>` for Locus graph field bindings in `locus-provider`, where `FieldBinding<T>` is owned.
 - Keep the `dbus-provider` crate under `provider/dbus` for generic D-Bus bindings.
@@ -154,10 +157,10 @@ Framework crates own:
 - Keep `switch_map` available for dynamic provider replacement; this is the core primitive for selected graph node -> dependent collection subscription flows.
 - Keep shared/replay providers available for connection and subscription reuse.
 - Keep collection providers for Locus paths and reverse relation lookups available as stable node-id lists for workspace lists, window lists, tray items, media players, and agent sessions.
-- Move hand-written relation descriptors into generated Rust schema output once the Locus codegen contract is updated.
+- Move hand-written development schema descriptors and extension traits into generated Rust schema output once the Locus codegen contract is updated.
 - Add typed row hydration helpers for collection results so consumers can request summaries such as window id/title, workspace name/focus state, and project display fields without manually wiring one provider per property.
 - Keep descriptor constructors and typed bind APIs public, but consider making raw string descriptor fields private with accessors before the API stabilizes.
 
 ## Next Concrete Step
 
-Next, update Locus Rust codegen to emit relation descriptors and typed collection helpers so hand-written helpers such as `Path<Workspace>::windows()`, `NodeRef<Window>::title()`, and `NodeRef<Window>::is_selected()` can be generated instead of maintained manually. In parallel, evaluate whether the manual dev-widget child reconciler should become a Relm4 factory pattern or stay as ordinary consumer code.
+Next, update Locus Rust codegen to emit consumer-local schema modules with relation descriptors and typed extension traits so hand-written helpers such as `Path<Workspace>::windows()`, `NodeRef<Window>::title()`, and `NodeRef<Window>::is_selected()` can be generated inside the consuming crate instead of maintained manually. In parallel, evaluate whether the manual dev-widget child reconciler should become a Relm4 factory pattern or stay as ordinary consumer code.

@@ -337,7 +337,7 @@ package "provider/locus\ncrate: locus_provider" {
     F64
   }
 
-  package "generated binding" {
+  package "generic binding" {
     class "Property<Model,Value>" as LocusProperty {
       + key: &'static str
       + new(key)
@@ -353,18 +353,11 @@ package "provider/locus\ncrate: locus_provider" {
       + all(): NodeListBinding<Target>
     }
 
-    class "WorkspaceWindowsProvider<P>" as WorkspaceWindowsProvider {
-      - workspace: P
-      + new(workspace)
-    }
-
     class "NodeRef<Model>" as NodeRef {
       - id: NodeId
       + new(id)
       + id(): &str
       + property(property): NodePropertyBinding<Model,Value>
-      + Window::title(): NodePropertyBinding<Window,String>
-      + Window::is_selected(): Provider<bool>
     }
 
     class "NodePropertyBinding<Model,Value>" as NodePropertyBinding {
@@ -391,6 +384,12 @@ package "provider/locus\ncrate: locus_provider" {
 
     class "NodeListBinding<Target>" as NodeListBinding {
       + query: NodeListQuery
+      + filter_kind(kind): KindFilteredNodeListBinding<Target>
+    }
+
+    class "KindFilteredNodeListBinding<Target>" as KindFilteredNodeListBinding {
+      + binding: NodeListBinding<Target>
+      + kind: &'static str
     }
 
     enum NodeListQuery {
@@ -406,31 +405,6 @@ package "provider/locus\ncrate: locus_provider" {
     }
   }
 
-  package "generated model markers" {
-    class Unknown
-    class Context
-    class AgentSession
-    class AppInstance
-    class Output
-    class Project
-    class Window
-    class Workspace
-  }
-
-  package "generated paths" {
-    class Paths <<module>> {
-      + SELECTED_WINDOW: Path<Window>
-      + SELECTED_WORKSPACE: Path<Workspace>
-      + SELECTED_PROJECT: Path<Project>
-      + SELECTED_OUTPUT: Path<Output>
-      + SELECTED_AGENT_SESSION: Path<AgentSession>
-      + WINDOW_AGENT_SESSION: Path<AgentSession>
-      + AGENT_SESSION_PROJECT: Path<Project>
-      + AGENT_SESSION_WORKSPACE: Path<Workspace>
-      + AGENT_SESSION_WORKSPACE_PROJECT: Path<Project>
-    }
-  }
-
   DecodeLocusValue <|.. String
   DecodeLocusValue <|.. bool
   DecodeLocusValue <|.. u32
@@ -441,33 +415,23 @@ package "provider/locus\ncrate: locus_provider" {
   LocusPath --> FieldBinding
   LocusPath --> TargetBinding
   LocusPath --> NodeListBinding
-  LocusPath --> WorkspaceWindowsProvider
   FieldBinding ..|> Provider
   TargetBinding ..|> Provider
   NodeListBinding ..|> Provider
+  KindFilteredNodeListBinding ..|> Provider
   NodePropertyBinding ..|> Provider
-  WorkspaceWindowsProvider ..|> Provider
   NodeRef --> LocusProperty
   NodeRef --> NodePropertyBinding
-  WorkspaceWindowsProvider --> TargetBinding
-  WorkspaceWindowsProvider --> NodeListBinding
   FieldBinding --> DecodeLocusValue
   NodePropertyBinding --> DecodeLocusValue
   FieldBinding --> LocusWatchError
   NodePropertyBinding --> LocusWatchError
   NodeListBinding --> NodeListQuery
+  KindFilteredNodeListBinding --> NodeListBinding
   NodeListBinding --> NodeListDiffCommand
   NodeListDiffCommand --> ListError
   LocusWatchError --> DecodeError
   LocusWatchError --> ListError
-
-  AgentSession --> LocusProperty
-  AppInstance --> LocusProperty
-  Output --> LocusProperty
-  Project --> LocusProperty
-  Window --> LocusProperty
-  Workspace --> LocusProperty
-  Paths --> LocusPath
 }
 
 package "provider/common\ncrate: common_providers" {
@@ -564,6 +528,52 @@ package "shell/macros\ncrate: shell_macros" {
 }
 
 package "dev-widgets\ninternal consumer" {
+  package "local generated Locus schema" {
+    class Unknown
+    class Context
+    class AgentSession
+    class AppInstance
+    class Output
+    class Project
+    class Window
+    class Workspace
+
+    class Paths <<module>> {
+      + SELECTED_WINDOW: Path<Window>
+      + SELECTED_WORKSPACE: Path<Workspace>
+      + SELECTED_PROJECT: Path<Project>
+      + SELECTED_OUTPUT: Path<Output>
+      + SELECTED_AGENT_SESSION: Path<AgentSession>
+      + WINDOW_AGENT_SESSION: Path<AgentSession>
+      + AGENT_SESSION_PROJECT: Path<Project>
+      + AGENT_SESSION_WORKSPACE: Path<Workspace>
+      + AGENT_SESSION_WORKSPACE_PROJECT: Path<Project>
+    }
+
+    class Relations <<module>> {
+      + WINDOW: Relation<Context,Window>
+      + WORKSPACE: Relation<Unknown,Workspace>
+      + OUTPUT: Relation<Workspace,Output>
+      + SESSION_PROJECT: Relation<AgentSession,Project>
+      + AGENT_SESSION: Relation<AppInstance,AgentSession>
+      + APP_INSTANCE: Relation<Window,AppInstance>
+    }
+
+    interface WindowNodeExt {
+      + title(): NodePropertyBinding<Window,String>
+      + is_selected(): Provider<bool>
+    }
+
+    interface WorkspacePathExt {
+      + windows(): WorkspaceWindowsProvider<TargetBinding<Workspace>>
+    }
+
+    class "WorkspaceWindowsProvider<P>" as WorkspaceWindowsProvider {
+      - workspace: P
+      + new(workspace)
+    }
+  }
+
   class BarInit {
     + title: &'static str
   }
@@ -622,6 +632,22 @@ package "dev-widgets\ninternal consumer" {
   Bar --> WindowConfig
   Bar --> ShellApp
   BarSummary ..> CombineLatestProvider
+
+  AgentSession --> LocusProperty
+  AppInstance --> LocusProperty
+  Output --> LocusProperty
+  Project --> LocusProperty
+  Window --> LocusProperty
+  Workspace --> LocusProperty
+  Paths --> LocusPath
+  Relations --> Relation
+  WindowNodeExt --> NodeRef
+  WindowNodeExt --> NodePropertyBinding
+  WorkspacePathExt --> LocusPath
+  WorkspacePathExt --> WorkspaceWindowsProvider
+  WorkspaceWindowsProvider ..|> Provider
+  WorkspaceWindowsProvider --> TargetBinding
+  WorkspaceWindowsProvider --> KindFilteredNodeListBinding
 }
 
 ShellApp ..> Stylesheet

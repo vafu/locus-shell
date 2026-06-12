@@ -1,10 +1,9 @@
 use std::{future::Future, marker::PhantomData};
 
-use providers::{Provider, ProviderContext, ProviderExt, ProviderSender};
+use providers::{Provider, ProviderContext, ProviderSender};
 
 use crate::{
-    DecodeLocusValue, NodeId, WatchError, binding::Property, model, paths,
-    watch::watch_node_property_with_context,
+    DecodeLocusValue, NodeId, Property, WatchError, watch::watch_node_property_with_context,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -35,20 +34,6 @@ impl<Model> NodeRef<Model> {
             _model: PhantomData,
             _value: PhantomData,
         }
-    }
-}
-
-impl NodeRef<model::Window> {
-    pub fn title(&self) -> NodePropertyBinding<model::Window, String> {
-        self.property(model::Window::TITLE)
-    }
-
-    pub fn is_selected(&self) -> impl Provider<bool> {
-        let node = self.id.clone();
-
-        paths::SELECTED_WINDOW
-            .target()
-            .map(move |selected| selected == node)
     }
 }
 
