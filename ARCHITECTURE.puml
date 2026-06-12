@@ -358,6 +358,17 @@ package "provider/locus\ncrate: locus_provider" {
       + new(workspace)
     }
 
+    class "NodeRef<Model>" as NodeRef {
+      - id: NodeId
+      + new(id)
+      + property(property): NodePropertyBinding<Model,Value>
+    }
+
+    class "NodePropertyBinding<Model,Value>" as NodePropertyBinding {
+      + node: NodeId
+      + property: &'static str
+    }
+
     class "FieldBinding<Value>" as FieldBinding {
       + source: &'static str
       + relations: &'static [&'static str]
@@ -431,11 +442,16 @@ package "provider/locus\ncrate: locus_provider" {
   FieldBinding ..|> Provider
   TargetBinding ..|> Provider
   NodeListBinding ..|> Provider
+  NodePropertyBinding ..|> Provider
   WorkspaceWindowsProvider ..|> Provider
+  NodeRef --> LocusProperty
+  NodeRef --> NodePropertyBinding
   WorkspaceWindowsProvider --> TargetBinding
   WorkspaceWindowsProvider --> NodeListBinding
   FieldBinding --> DecodeLocusValue
+  NodePropertyBinding --> DecodeLocusValue
   FieldBinding --> LocusWatchError
+  NodePropertyBinding --> LocusWatchError
   NodeListBinding --> NodeListQuery
   NodeListBinding --> NodeListDiffCommand
   NodeListDiffCommand --> ListError
@@ -549,7 +565,8 @@ package "dev-widgets\ninternal consumer" {
   }
 
   class BarSources <<shell_macros::model>> {
-    + selected_window_title: String
+    + selected_window_id: String
+    + window_nodes: Vec<String>
     + battery_percent: f64
     + battery_label: String
     - __shell: sources::Runtime
@@ -557,6 +574,22 @@ package "dev-widgets\ninternal consumer" {
 
   class Bar <<Relm4 SimpleComponent>> {
     - sources: BarSources
+    - windows: WindowRows
+  }
+
+  class WindowRows {
+    - container: gtk::Box
+    - rows: BTreeMap<String, WindowRow>
+    - order: Vec<String>
+    + reconcile(nodes, selected_window, sender)
+  }
+
+  class WindowRow {
+    - node: String
+    - label: gtk::Label
+    - title: String
+    - selected: bool
+    - subscription: providers::Subscription
   }
 
   class BarSummary <<test proof>> {
@@ -565,7 +598,11 @@ package "dev-widgets\ninternal consumer" {
   }
 
   Bar --> BarSources
-  BarSources --> FieldBinding
+  Bar --> WindowRows
+  WindowRows --> WindowRow
+  WindowRow --> NodePropertyBinding
+  BarSources --> TargetBinding
+  BarSources --> WorkspaceWindowsProvider
   BarSources --> DbusPropertyBinding
   BarSources --> GeneratedTypedModelExtras
   Bar --> WindowConfig
@@ -584,6 +621,8 @@ DbusPropertyBinding ..> ProviderContext
 DbusPropertyBinding ..> ProviderSender
 FieldBinding ..> ProviderContext
 FieldBinding ..> ProviderSender
+NodePropertyBinding ..> ProviderContext
+NodePropertyBinding ..> ProviderSender
 
 UPower ..> DbusObject
 BarSources ..> Paths

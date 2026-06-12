@@ -11,6 +11,7 @@ mod collection;
 mod decode;
 mod error;
 mod generated;
+mod node;
 mod watch;
 
 #[cfg(test)]
@@ -24,6 +25,7 @@ pub use decode::DecodeLocusValue;
 pub(crate) use decode::decode_wire_field;
 pub use error::{DecodeError, ListError, WatchError};
 pub use generated::{binding, model, paths};
+pub use node::{NodePropertyBinding, NodeRef, node};
 pub use watch::watch_field;
 
 pub type FieldBinding<T> = binding::FieldBinding<T>;

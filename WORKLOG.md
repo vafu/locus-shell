@@ -83,3 +83,7 @@ Added `Path<Workspace>::windows()` as the first consumer-facing semantic collect
 ## Wrapped Component Inputs
 
 Relaxed typed model subscription startup so generated provider messages can feed any Relm4 component input that implements `From<sources::Msg> + Send`. This lets a component keep the convenient generated source model while still defining local messages for dynamic child widgets, factory updates, or imperative GTK reconciliation.
+
+## Selected Workspace Window Rows
+
+Added direct typed node property bindings through `locus_provider::node::<model::Window>(id).property(model::Window::TITLE)`, backed by the existing Locus `WatchNode` D-Bus path with an empty relation path. Updated the dev bar to subscribe to `paths::SELECTED_WORKSPACE.windows()`, reconcile one GTK label per window node, start an independent title subscription for each row, and style the selected row from `paths::SELECTED_WINDOW.target()`.

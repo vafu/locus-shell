@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::{
-    DecodeLocusValue, FieldBinding, decode_wire_field, model, paths,
+    DecodeLocusValue, FieldBinding, decode_wire_field, model, node, paths,
     watch::{emit_field_value, emit_value_if_active},
 };
 use providers::{CancellationToken, Provider, ProviderContext, ProviderSender};
@@ -70,8 +70,44 @@ fn generated_numeric_properties_keep_value_type() {
 }
 
 #[test]
+fn direct_node_property_creates_typed_binding() {
+    let binding = node::<model::Window>("window:1").property(model::Window::TITLE);
+
+    assert_eq!(binding.node, "window:1");
+    assert_eq!(binding.property, "title");
+}
+
+#[test]
+fn direct_node_property_is_provider() {
+    fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
+
+    let binding = node::<model::Window>("window:1").property(model::Window::TITLE);
+
+    assert_provider::<String, _>(binding);
+}
+
+#[test]
 fn cancelled_field_provider_exits_before_dbus_setup() {
     let binding: FieldBinding<String> = paths::SELECTED_WINDOW.property(model::Window::TITLE);
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let captured = sent.clone();
+
+    let result = futures::executor::block_on(binding.run(
+        ProviderContext::new(cancellation),
+        ProviderSender::new(move |value| {
+            captured.lock().expect("sent lock").push(value);
+        }),
+    ));
+
+    assert!(result.is_ok());
+    assert!(sent.lock().expect("sent lock").is_empty());
+}
+
+#[test]
+fn cancelled_direct_node_property_provider_exits_before_dbus_setup() {
+    let binding = node::<model::Window>("window:1").property(model::Window::TITLE);
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     let sent = Arc::new(Mutex::new(Vec::new()));

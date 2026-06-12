@@ -11,10 +11,9 @@ Track concrete follow-up work that is not yet ready to become a committed roadma
   the current Locus schema exposes `workspace` as an overloaded relation. Replace
   this hand-written kind filter with generated typed relation/collection metadata
   when Locus codegen owns relation descriptors.
-- Dynamic row widgets need explicit composition support. The macro now supports
-  wrapping generated source messages in a component input enum, but the next
-  window-list UI slice should decide whether to use Relm4 factories directly or
-  add a small shell macro helper for per-row provider subscriptions.
+- Dynamic row widgets now work through a manual GTK box reconciler in
+  `dev-widgets`. Keep watching whether this should become a Relm4 factory
+  pattern, a small shell macro helper, or remain ordinary consumer code.
 
 # Optional
 

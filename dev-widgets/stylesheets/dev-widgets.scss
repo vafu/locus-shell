@@ -4,9 +4,16 @@
     min-height: 32px;
 }
 
-.dev-panel__window-title {
+.dev-panel__window-list {
+    min-width: 0;
+}
+
+.dev-panel__workspace-window {
     font-weight: 600;
-    padding: 0 8px;
+    padding: 0 10px;
+    margin: 0 2px;
+    min-width: 44px;
+    border-radius: 4px;
 }
 
 .dev-panel__battery {
@@ -15,6 +22,11 @@
     margin: 0 10px;
 }
 
-.dev-panel__window-title--empty {
+.dev-panel__workspace-window--empty {
     opacity: 0.65;
+}
+
+.dev-panel__workspace-window--selected {
+    background: #f4f7fb;
+    color: #171a21;
 }

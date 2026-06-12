@@ -157,4 +157,4 @@ Framework crates own:
 
 ## Next Concrete Step
 
-Next, implement the selected-workspace window-list UI in `dev-widgets`: subscribe through `paths::SELECTED_WORKSPACE.windows()`, render one row/widget per window, and style the selected row differently. Use the wrapped input support when the bar needs local row messages. After that, update Locus Rust codegen to emit relation descriptors and typed collection helpers so hand-written helpers such as `Path<Workspace>::windows()` can be generated instead of maintained manually.
+Next, update Locus Rust codegen to emit relation descriptors and typed collection helpers so hand-written helpers such as `Path<Workspace>::windows()` can be generated instead of maintained manually. In parallel, evaluate whether the manual dev-widget row reconciler should become a Relm4 factory pattern or stay as ordinary consumer code.

@@ -6,7 +6,7 @@ use providers::{Provider, ProviderContext, ProviderSender};
 use zbus::Proxy;
 use zbus::proxy::{Builder as ProxyBuilder, CacheProperties};
 
-use crate::{DecodeLocusValue, FieldBinding, WatchError, decode_wire_field};
+use crate::{DecodeLocusValue, FieldBinding, NodeId, WatchError, decode_wire_field};
 
 const PROPERTIES_UPDATED_SIGNAL: &str = "PropertiesUpdated";
 
@@ -30,6 +30,44 @@ where
     T: DecodeLocusValue + Default + Send + 'static,
     OnValue: FnMut(T) + Send + 'static,
 {
+    watch_node_path_property_with_context(
+        binding.source.to_owned(),
+        binding
+            .relations
+            .iter()
+            .map(|relation| (*relation).to_owned())
+            .collect(),
+        binding.property,
+        context,
+        &mut on_value,
+    )
+    .await
+}
+
+pub(crate) async fn watch_node_property_with_context<T, OnValue>(
+    node: NodeId,
+    property: &'static str,
+    context: ProviderContext,
+    mut on_value: OnValue,
+) -> Result<(), WatchError>
+where
+    T: DecodeLocusValue + Default + Send + 'static,
+    OnValue: FnMut(T) + Send + 'static,
+{
+    watch_node_path_property_with_context(node, Vec::new(), property, context, &mut on_value).await
+}
+
+async fn watch_node_path_property_with_context<T, OnValue>(
+    source: String,
+    relations: Vec<String>,
+    property: &'static str,
+    context: ProviderContext,
+    on_value: &mut OnValue,
+) -> Result<(), WatchError>
+where
+    T: DecodeLocusValue + Default + Send + 'static,
+    OnValue: FnMut(T) + Send,
+{
     if context.is_cancelled() {
         return Ok(());
     }
@@ -37,16 +75,7 @@ where
     let connection = zbus::Connection::session().await?;
     let read = GraphReadProxy::new(&connection).await?;
     let resolve = GraphResolveProxy::new(&connection).await?;
-    let object_path = resolve
-        .watch_node(
-            binding.source,
-            binding
-                .relations
-                .iter()
-                .map(|relation| (*relation).to_owned())
-                .collect(),
-        )
-        .await?;
+    let object_path = resolve.watch_node(&source, relations).await?;
     let watch = ProxyBuilder::<Proxy<'_>>::new(&connection)
         .destination(BUS_NAME)?
         .path(object_path.as_str())?
@@ -55,8 +84,7 @@ where
         .build()
         .await?;
 
-    let watch_result =
-        stream_field_updates(&read, &watch, binding.property, &context, &mut on_value).await;
+    let watch_result = stream_field_updates(&read, &watch, property, &context, on_value).await;
     let close_result = watch.call::<_, _, ()>("Close", &()).await;
 
     match (watch_result, close_result) {
