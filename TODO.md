@@ -11,9 +11,10 @@ Track concrete follow-up work that is not yet ready to become a committed roadma
   the current Locus schema exposes `workspace` as an overloaded relation. Replace
   this hand-written kind filter with generated typed relation/collection metadata
   when Locus codegen owns relation descriptors.
-- Dynamic row widgets now work through a manual GTK box reconciler in
-  `dev-widgets`. Keep watching whether this should become a Relm4 factory
-  pattern, a small shell macro helper, or remain ordinary consumer code.
+- Dynamic row widgets now use small child components with local provider
+  bindings. `dev-widgets` still reconciles the child set through a manual GTK
+  box; keep watching whether collection reconciliation should become a Relm4
+  factory pattern, a small shell macro helper, or remain ordinary consumer code.
 
 # Optional
 

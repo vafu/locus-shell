@@ -78,12 +78,29 @@ fn direct_node_property_creates_typed_binding() {
 }
 
 #[test]
+fn window_node_exposes_typed_property_helpers() {
+    let window = node::<model::Window>("window:1");
+    let title = window.title();
+
+    assert_eq!(window.id(), "window:1");
+    assert_eq!(title.node, "window:1");
+    assert_eq!(title.property, "title");
+}
+
+#[test]
 fn direct_node_property_is_provider() {
     fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
 
     let binding = node::<model::Window>("window:1").property(model::Window::TITLE);
 
     assert_provider::<String, _>(binding);
+}
+
+#[test]
+fn window_selected_helper_is_provider() {
+    fn assert_provider<T: Send + 'static, P: providers::Provider<T>>(_provider: P) {}
+
+    assert_provider::<bool, _>(node::<model::Window>("window:1").is_selected());
 }
 
 #[test]

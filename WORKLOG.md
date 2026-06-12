@@ -87,3 +87,7 @@ Relaxed typed model subscription startup so generated provider messages can feed
 ## Selected Workspace Window Rows
 
 Added direct typed node property bindings through `locus_provider::node::<model::Window>(id).property(model::Window::TITLE)`, backed by the existing Locus `WatchNode` D-Bus path with an empty relation path. Updated the dev bar to subscribe to `paths::SELECTED_WORKSPACE.windows()`, reconcile one GTK label per window node, start an independent title subscription for each row, and style the selected row from `paths::SELECTED_WINDOW.target()`.
+
+## Row-Local Window Bindings
+
+Moved window row title and selection subscriptions into a dedicated `WindowTitle` Relm4 component. Typed source models can now start subscriptions from instance data, so a child model can hold `window: NodeRef<Window>` and declare `#[source(window.title())]` plus `#[source(window.is_selected())]`. Models with context fields get a generated constructor, for example `WindowTitleSources::new(window)`, instead of requiring invalid placeholder defaults. The bar only reconciles the list of child components, which removes the parent-level title message boilerplate and better matches the intended widget composition model.

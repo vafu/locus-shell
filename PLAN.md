@@ -120,6 +120,9 @@ Framework crates own:
 - Use shared/replay providers when multiple model fields derive from the same upstream source.
 - Use `ProviderExt::switch_map` when one provider value selects another long-lived provider, such as selected workspace -> windows in that workspace.
 - Prefer semantic collection helpers such as `paths::SELECTED_WORKSPACE.windows()` over raw graph direction at widget call sites.
+- Prefer dynamic child components with local typed bindings for repeated graph
+  items, such as `WindowTitle` taking a `NodeRef<Window>` and binding
+  `window.title()` internally.
 - Let Relm4 components wrap generated source messages in a richer input enum when they need local events, dynamic child rows, or factory messages.
 - Support derived provider chains for summarized UI data, such as workspace status, window indicators, build status, agent state, and system indicators.
 
@@ -157,4 +160,4 @@ Framework crates own:
 
 ## Next Concrete Step
 
-Next, update Locus Rust codegen to emit relation descriptors and typed collection helpers so hand-written helpers such as `Path<Workspace>::windows()` can be generated instead of maintained manually. In parallel, evaluate whether the manual dev-widget row reconciler should become a Relm4 factory pattern or stay as ordinary consumer code.
+Next, update Locus Rust codegen to emit relation descriptors and typed collection helpers so hand-written helpers such as `Path<Workspace>::windows()`, `NodeRef<Window>::title()`, and `NodeRef<Window>::is_selected()` can be generated instead of maintained manually. In parallel, evaluate whether the manual dev-widget child reconciler should become a Relm4 factory pattern or stay as ordinary consumer code.

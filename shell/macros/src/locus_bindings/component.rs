@@ -135,7 +135,7 @@ fn inject_model_subscriptions(
     function: &mut ImplItemFn,
     _module_ident: &Ident,
     state_ident: &Ident,
-    model_ty: &syn::Type,
+    _model_ty: &syn::Type,
 ) -> Result<()> {
     let sender_ident = sender_ident(function)?;
 
@@ -154,10 +154,14 @@ fn inject_model_subscriptions(
             model_ident.mutability = Some(Default::default());
         }
 
-        let statement: Stmt = parse_quote! {
-            model.#state_ident.set_subscriptions(#model_ty::start(#sender_ident.clone()));
+        let start_statement: Stmt = parse_quote! {
+            let __shell_subscriptions = model.#state_ident.start(#sender_ident.clone());
         };
-        function.block.stmts.insert(index + 1, statement);
+        let set_statement: Stmt = parse_quote! {
+            model.#state_ident.set_subscriptions(__shell_subscriptions);
+        };
+        function.block.stmts.insert(index + 1, start_statement);
+        function.block.stmts.insert(index + 2, set_statement);
         return Ok(());
     }
 

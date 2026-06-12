@@ -218,14 +218,45 @@ pub(super) fn expand_locus_module(
 pub(super) fn expand_model_impl(
     module_ident: Ident,
     model: &Ident,
-    field_idents: &[Ident],
+    fields: &[(Ident, Type)],
     bindings: &[BindingConfig],
 ) -> TokenStream {
-    let defaults = field_idents.iter().map(|field| {
+    let source_local_fields = fields
+        .iter()
+        .filter(|(field, _ty)| !bindings.iter().any(|binding| binding.field == *field))
+        .map(|(field, _ty)| field)
+        .collect::<Vec<_>>();
+    let context_fields = fields
+        .iter()
+        .filter(|(field, _ty)| !bindings.iter().any(|binding| binding.field == *field))
+        .collect::<Vec<_>>();
+    let constructor_args = context_fields.iter().map(|(field, ty)| {
         quote! {
-            #field: ::std::default::Default::default(),
+            #field: #ty
         }
     });
+    let constructor_values = fields.iter().map(|(field, _ty)| {
+        if bindings.iter().any(|binding| binding.field == *field) {
+            quote! {
+                #field: ::std::default::Default::default(),
+            }
+        } else {
+            quote! {
+                #field,
+            }
+        }
+    });
+    let default_impl = if context_fields.is_empty() {
+        quote! {
+            impl ::std::default::Default for #model {
+                fn default() -> Self {
+                    Self::new()
+                }
+            }
+        }
+    } else {
+        TokenStream::new()
+    };
     let message_variants = bindings.iter().map(|binding| {
         let variant = &binding.variant;
         let ty = &binding.ty;
@@ -257,6 +288,11 @@ pub(super) fn expand_model_impl(
         let variant = &binding.variant;
         let source = &binding.source;
         let ty = &binding.ty;
+        let source_locals = source_local_fields.iter().map(|field| {
+            quote! {
+                let #field = &self.#field;
+            }
+        });
 
         quote! {
             {
@@ -264,8 +300,9 @@ pub(super) fn expand_model_impl(
                 let context = subscription.context();
                 let update_sender = sender.clone();
                 let error_sender = sender.clone();
+                #(#source_locals)*
+                let source = ::providers::provider_for::<#ty, _>(#source);
                 let task = ::providers::spawn(async move {
-                    let source = ::providers::provider_for::<#ty, _>(#source);
                     let result = ::providers::run_provider(source, context, move |value| {
                         let input: <Component as ::relm4::Component>::Input =
                             #module_ident::Msg::#variant(value).into();
@@ -381,16 +418,14 @@ pub(super) fn expand_model_impl(
             }
         }
 
-        impl ::std::default::Default for #model {
-            fn default() -> Self {
+        impl #model {
+            pub fn new(#(#constructor_args),*) -> Self {
                 Self {
-                    #(#defaults)*
+                    #(#constructor_values)*
                     __shell: #module_ident::Runtime::default(),
                 }
             }
-        }
 
-        impl #model {
             pub fn changed(&self, field: #module_ident::Field) -> bool {
                 self.__shell.changed(field)
             }
@@ -423,6 +458,7 @@ pub(super) fn expand_model_impl(
             }
 
             pub fn start<Component>(
+                &self,
                 sender: ::relm4::ComponentSender<Component>,
             ) -> ::providers::SubscriptionGroup
             where
@@ -437,5 +473,7 @@ pub(super) fn expand_model_impl(
                 subscriptions
             }
         }
+
+        #default_impl
     }
 }

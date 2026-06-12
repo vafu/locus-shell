@@ -44,13 +44,13 @@ pub fn expand_model(attr: TokenStream, item: TokenStream) -> Result<TokenStream>
     let mut item = parse2::<ItemStruct>(item)?;
     let bindings = config::model_bindings(&item)?;
     let model = item.ident.clone();
-    let field_idents = model_field_idents(&item)?;
+    let fields = model_fields(&item)?;
     let module = config.module;
 
     strip_locus_field_attrs(&mut item);
     push_generated_model_fields(&mut item, &module)?;
 
-    let generated = expand_model_impl(module, &model, &field_idents, &bindings);
+    let generated = expand_model_impl(module, &model, &fields, &bindings);
 
     Ok(quote! {
         #item
@@ -58,7 +58,7 @@ pub fn expand_model(attr: TokenStream, item: TokenStream) -> Result<TokenStream>
     })
 }
 
-fn model_field_idents(item: &ItemStruct) -> Result<Vec<Ident>> {
+fn model_fields(item: &ItemStruct) -> Result<Vec<(Ident, Type)>> {
     let Fields::Named(fields) = &item.fields else {
         return Err(syn::Error::new_spanned(
             item,
@@ -70,9 +70,10 @@ fn model_field_idents(item: &ItemStruct) -> Result<Vec<Ident>> {
         .named
         .iter()
         .map(|field| {
-            field.ident.clone().ok_or_else(|| {
+            let ident = field.ident.clone().ok_or_else(|| {
                 syn::Error::new_spanned(field, "provider models must use named fields")
-            })
+            })?;
+            Ok((ident, field.ty.clone()))
         })
         .collect()
 }

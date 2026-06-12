@@ -361,7 +361,10 @@ package "provider/locus\ncrate: locus_provider" {
     class "NodeRef<Model>" as NodeRef {
       - id: NodeId
       + new(id)
+      + id(): &str
       + property(property): NodePropertyBinding<Model,Value>
+      + Window::title(): NodePropertyBinding<Window,String>
+      + Window::is_selected(): Provider<bool>
     }
 
     class "NodePropertyBinding<Model,Value>" as NodePropertyBinding {
@@ -509,12 +512,13 @@ package "shell/macros\ncrate: shell_macros" {
 
   class GeneratedTypedModelExtras <<generated>> {
     - __shell: Runtime
+    + new(context fields...)
     + changed(field)
     + clear_changed()
     + last_error()
     + set_subscriptions(group)
     + update(msg)
-    + start(sender): SubscriptionGroup
+    + start(&self, sender): SubscriptionGroup
     + requires Component::Input: From<Msg> + Send
   }
 
@@ -565,7 +569,6 @@ package "dev-widgets\ninternal consumer" {
   }
 
   class BarSources <<shell_macros::model>> {
-    + selected_window_id: String
     + window_nodes: Vec<String>
     + battery_percent: f64
     + battery_label: String
@@ -579,17 +582,24 @@ package "dev-widgets\ninternal consumer" {
 
   class WindowRows {
     - container: gtk::Box
-    - rows: BTreeMap<String, WindowRow>
+    - rows: BTreeMap<String, Controller<WindowTitle>>
     - order: Vec<String>
-    + reconcile(nodes, selected_window, sender)
+    + reconcile(nodes)
   }
 
-  class WindowRow {
-    - node: String
-    - label: gtk::Label
-    - title: String
-    - selected: bool
-    - subscription: providers::Subscription
+  class WindowTitle <<Relm4 SimpleComponent>> {
+    - sources: WindowTitleSources
+  }
+
+  class WindowTitleInit {
+    - window: NodeRef<Window>
+  }
+
+  class WindowTitleSources <<shell_macros::model>> {
+    + window: NodeRef<Window>
+    + title: String
+    + selected: bool
+    - __shell: window_title_sources::Runtime
   }
 
   class BarSummary <<test proof>> {
@@ -599,12 +609,16 @@ package "dev-widgets\ninternal consumer" {
 
   Bar --> BarSources
   Bar --> WindowRows
-  WindowRows --> WindowRow
-  WindowRow --> NodePropertyBinding
-  BarSources --> TargetBinding
+  WindowRows --> WindowTitle
+  WindowTitle --> WindowTitleSources
+  WindowTitleInit --> NodeRef
+  WindowTitleSources --> NodeRef
+  WindowTitleSources --> NodePropertyBinding
+  WindowTitleSources --> TargetBinding
   BarSources --> WorkspaceWindowsProvider
   BarSources --> DbusPropertyBinding
   BarSources --> GeneratedTypedModelExtras
+  WindowTitleSources --> GeneratedTypedModelExtras
   Bar --> WindowConfig
   Bar --> ShellApp
   BarSummary ..> CombineLatestProvider
@@ -627,5 +641,6 @@ NodePropertyBinding ..> ProviderSender
 UPower ..> DbusObject
 BarSources ..> Paths
 BarSources ..> UPower
+WindowTitleSources ..> Paths
 
 @enduml

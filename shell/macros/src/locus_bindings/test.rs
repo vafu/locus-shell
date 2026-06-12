@@ -226,9 +226,34 @@ fn expands_typed_model() {
     assert!(source.contains("last_error : :: std :: option :: Option < WatchError >"));
     assert!(source.contains("subscriptions : :: providers :: SubscriptionGroup"));
     assert!(source.contains("subscriptions . push (subscription)"));
+    assert!(source.contains("pub fn new () -> Self"));
+    assert!(source.contains("impl :: std :: default :: Default for BarLocus"));
     assert!(source.contains("providers :: provider_for :: < String"));
     assert!(source.contains("providers :: provider_for :: < f64"));
     assert!(source.contains("providers :: run_provider"));
+}
+
+#[test]
+fn expands_typed_model_sources_that_reference_model_fields() {
+    let item = quote! {
+        pub struct WindowTitleSources {
+            pub window: locus_provider::NodeRef<locus_provider::model::Window>,
+            #[source(window.title())]
+            pub title: String,
+        }
+    };
+
+    let expanded = expand_model(quote!(module = window_title_sources), item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("pub mod window_title_sources"));
+    assert!(source.contains(
+        "pub fn new (window : locus_provider :: NodeRef < locus_provider :: model :: Window >) -> Self"
+    ));
+    assert!(!source.contains("impl :: std :: default :: Default for WindowTitleSources"));
+    assert!(source.contains("pub fn start < Component > (& self"));
+    assert!(source.contains("let window = & self . window"));
+    assert!(source.contains("providers :: provider_for :: < String , _ > (window . title ())"));
 }
 
 #[test]
@@ -287,8 +312,8 @@ fn expands_model_component_impl() {
     let source = expanded.to_string();
 
     assert!(!source.contains("mod sources"));
-    assert!(source.contains("BarLocus :: start"));
-    assert!(source.contains("model . sources . set_subscriptions (BarLocus :: start"));
+    assert!(source.contains("model . sources . start"));
+    assert!(source.contains("model . sources . set_subscriptions"));
     assert!(source.contains("sources :: Field :: SelectedWindowTitle"));
     assert!(source.contains("self . sources . update (msg)"));
     assert!(source.contains("fn update"));
@@ -340,7 +365,7 @@ fn expands_model_component_with_wrapped_input() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
 
-    assert!(source.contains("BarLocus :: start"));
+    assert!(source.contains("model . sources . start"));
     assert!(source.contains("BarMsg :: Sources"));
     assert!(!source.contains("self . sources . update (msg) ;"));
 }
