@@ -105,14 +105,14 @@ Responsibilities:
 
 ```rust
 #[shell_macros::model]
-pub struct BarSources {
+pub struct Bar {
     #[source(schema::paths::SELECTED_WINDOW
         .property(schema::model::Window::TITLE))]
     pub selected_window_title: String,
 }
 ```
 
-- Keep `#[shell_macros::component(model = BarSources, state = sources)]` focused on Relm4 lifecycle wiring and view tracking.
+- Keep `#[shell_macros::component(model = Bar)]` focused on Relm4 lifecycle wiring and view tracking.
 - Preserve legacy component-level bindings during the transition:
 
 ```rust
@@ -135,18 +135,14 @@ Target authoring shape:
 
 ```rust
 #[shell_macros::model]
-pub struct BarSources {
+pub struct Bar {
     #[source(paths::SELECTED_WINDOW.property(model::Window::TITLE))]
     pub selected_window_title: String,
     #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
     pub battery_percent: f64,
 }
 
-pub struct Bar {
-    sources: BarSources,
-}
-
-#[shell_macros::component(model = BarSources, state = sources)]
+#[shell_macros::component(model = Bar)]
 #[relm4::component(pub)]
 impl SimpleComponent for Bar {
     type Input = sources::Msg;

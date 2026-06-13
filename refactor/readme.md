@@ -38,7 +38,7 @@ All workspace units have first-pass notes.
 - `dbus-provider`: initial property reads happen before property-change subscription, so strict no-gap watching needs a closer look.
 - `common-providers`: boundary is clean; future ergonomics question is whether raw integer-coded properties should gain typed enums.
 - `shell-macros`: generated-code confidence needs compile-expanded tests, especially around typed model view binding validation and wrapped component inputs.
-- `dev-widgets`: boundary is clean; generated schema helpers and Relm4 factory-backed rows now match the current roadmap direction.
+- `dev-widgets`: boundary is clean; generated schema helpers and component-backed rows now match the current roadmap direction.
 
 ## User-Wide Guidance
 

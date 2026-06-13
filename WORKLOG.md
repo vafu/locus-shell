@@ -19,8 +19,8 @@ shape.
   contract and the shared property-binding contract where applicable.
 - Locus schema-specific models, properties, paths, relations, typed decoding,
   and semantic helpers live in generated consumer schema code.
-- `dev-widgets` carries generated development schema code and uses Relm4
-  factory-backed window rows.
+- `dev-widgets` carries generated development schema code and uses
+  component-backed window rows.
 - `shell-macros` treats DBus, Locus, and custom sources as generic
   `providers::Provider<T>` expressions.
 

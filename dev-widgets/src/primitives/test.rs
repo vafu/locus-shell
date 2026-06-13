@@ -9,11 +9,11 @@ fn selected_workspace_windows_are_semantic_provider() {
 
     let provider = paths::SELECTED_WORKSPACE.windows();
 
-    assert_provider::<Vec<String>, _>(provider);
+    assert_provider::<Vec<locus_provider::NodeRef<model::Window>>, _>(provider);
 }
 
 #[test]
-fn window_title_sources_are_local_to_window_node() {
+fn window_title_is_local_to_window_node() {
     fn assert_provider<T: Send + 'static, P: Provider<T>>(_provider: P) {}
 
     let window = locus_provider::node::<model::Window>("window:1");

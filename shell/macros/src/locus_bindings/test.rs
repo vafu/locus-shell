@@ -260,6 +260,115 @@ fn expands_typed_model_sources_that_reference_model_fields() {
 }
 
 #[test]
+fn expands_typed_model_with_unused_local_state() {
+    let item = quote! {
+        pub struct Bar {
+            #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
+            pub battery_percent: f64,
+            local_title: String,
+        }
+    };
+
+    let expanded = expand_model(TokenStream::new(), item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("pub fn new (local_title : String) -> Self"));
+    assert!(source.contains("# [allow (unused_variables)] let local_title = & self . local_title"));
+}
+
+#[test]
+fn expands_component_bind_list() {
+    let attr = quote! {
+        model = Bar
+    };
+    let item = quote! {
+        impl SimpleComponent for Bar {
+            type Init = BarInit;
+            type Input = sources::Msg;
+            type Output = ();
+
+            view! {
+                gtk::Window {
+                    #[bind_list(window_nodes, row = WindowTitle)]
+                    window_list -> gtk::Box {}
+
+                    gtk::Label {
+                        #[bind(battery_percent)]
+                        set_label: |percent| percent.to_string(),
+                    }
+                }
+            }
+
+            fn init(
+                init: Self::Init,
+                root: Self::Root,
+                sender: ComponentSender<Self>,
+            ) -> ComponentParts<Self> {
+                let model = Bar::new();
+                let widgets = view_output!();
+                ComponentParts { model, widgets }
+            }
+
+            fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+                Bar::update(self, msg);
+            }
+        }
+    };
+
+    let expanded = expand_component(attr, item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("# [name = \"window_list\"]"));
+    assert!(source.contains("# [track"));
+    assert!(source.contains("model . changed (sources :: Field :: WindowNodes)"));
+    assert!(source.contains("set_component_list"));
+    assert!(source.contains("\"window_list\""));
+    assert!(source.contains(":: shell_core :: list :: ComponentListUpdate"));
+    assert!(source.contains("WindowTitle"));
+    assert!(source.contains("& model . window_nodes"));
+    assert!(source.contains("sources :: Field :: BatteryPercent"));
+}
+
+#[test]
+fn rejects_explicit_bind_list_backend() {
+    let attr = quote! {
+        model = Bar
+    };
+    let item = quote! {
+        impl SimpleComponent for Bar {
+            type Init = BarInit;
+            type Input = sources::Msg;
+            type Output = ();
+
+            view! {
+                gtk::Window {
+                    #[bind_list(window_nodes, backend = factory, row = WindowTitle)]
+                    window_list -> gtk::Box {}
+                }
+            }
+
+            fn init(
+                init: Self::Init,
+                root: Self::Root,
+                sender: ComponentSender<Self>,
+            ) -> ComponentParts<Self> {
+                let model = Bar::new();
+                let widgets = view_output!();
+                ComponentParts { model, widgets }
+            }
+        }
+    };
+
+    let error = expand_component(attr, item).unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("bind_list infers the backend from the widget type")
+    );
+}
+
+#[test]
 fn expands_legacy_locus_model_sources() {
     let item = quote! {
         pub struct BarLocus {
@@ -320,6 +429,48 @@ fn expands_model_component_impl() {
     assert!(source.contains("sources :: Field :: SelectedWindowTitle"));
     assert!(source.contains("self . sources . update (msg)"));
     assert!(source.contains("fn update"));
+}
+
+#[test]
+fn expands_self_model_component_impl() {
+    let attr = quote! {
+        model = WindowTitle,
+        module = window_title_sources
+    };
+    let item = quote! {
+        impl SimpleComponent for WindowTitle {
+            type Init = WindowNode;
+            type Input = window_title_sources::Msg;
+            type Output = ();
+
+            view! {
+                gtk::Label {
+                    #[bind(title)]
+                    set_label: |title| title.as_str(),
+                }
+            }
+
+            fn init(
+                init: Self::Init,
+                root: Self::Root,
+                sender: ComponentSender<Self>,
+            ) -> ComponentParts<Self> {
+                let model = WindowTitle::new(init);
+                let widgets = view_output!();
+                ComponentParts { model, widgets }
+            }
+        }
+    };
+
+    let expanded = expand_component(attr, item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("let __shell_subscriptions = model . start"));
+    assert!(source.contains("model . set_subscriptions"));
+    assert!(source.contains("model . changed (window_title_sources :: Field :: Title)"));
+    assert!(source.contains("let title = & model . title"));
+    assert!(source.contains("WindowTitle :: update (self , msg)"));
+    assert!(!source.contains("model . sources"));
 }
 
 #[test]

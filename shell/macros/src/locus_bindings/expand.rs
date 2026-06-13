@@ -279,6 +279,7 @@ pub(super) fn expand_model_impl(
         let ty = &binding.ty;
         let source_locals = source_local_fields.iter().map(|field| {
             quote! {
+                #[allow(unused_variables)]
                 let #field = &self.#field;
             }
         });

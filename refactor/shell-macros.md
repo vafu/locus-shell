@@ -35,7 +35,9 @@ Legacy component bindings generate a local `sources`-style module with a `Model`
 
 Typed models keep the user struct as the source state object, remove `#[source]`/legacy `#[locus(source = ...)]` field attributes, append `__shell: sources::Runtime`, generate `new`, optional `Default`, `update`, `start`, `changed`, `clear_changed`, and `last_error` helpers, and let `#[shell_macros::component(model = ..., state = ...)]` wire startup into the Relm4 component.
 
-View attributes rewrite a setter into `#[track(model.state.changed(sources::Field::FieldVariant))]` plus an adapter that receives `&model.state.field`.
+When `model = Type` matches the component's own `impl SimpleComponent for Type`, the macro treats the component model itself as the source model. View bindings read `model.field`, subscription startup calls `model.start(...)`, and the generated fallback update calls the typed model's inherent `update`.
+
+View attributes rewrite a setter into `#[track(model.state.changed(sources::Field::FieldVariant))]` plus an adapter that receives `&model.state.field`. For self-model components, the same rewrite targets `model.changed(...)` and `&model.field`.
 
 ## User Notes
 
@@ -47,6 +49,10 @@ None yet.
 - Risk: component injection is tightly coupled to `init` containing a simple local binding named `model`. Other valid-looking component shapes fail with a macro error or require restructuring.
 - Risk: if `#[shell_macros::component(model = ...)]` is used with a wrapped input enum and no handwritten `update`, the generated fallback update calls `self.state.update(msg)` with `Self::Input`, which only works when `Self::Input` is exactly the generated message type.
 - Risk: generated watcher errors are currently converted into `providers::ProviderError` by display string because arbitrary provider error types are not nameable in generated message enums.
+- Gap: `#[bind]` cannot yet handle derived owned setter values for borrowed GTK setters such as `gtk::Label::set_label(&str)` without a cached model field.
+- Completed: repeated UI regions have a first `#[bind_list(..., row = Component)]` path that rewrites `name -> Widget` into a named widget and injects a tracked `set_component_list` setter. The annotated widget type selects the concrete list path at compile time; the GTK box path owns row controllers through `shell_core::list::ComponentListBoxExt`.
+- Gap: `bind_list` V1 supports `gtk::Box`; GTK-native, Adwaita, explicit key/sort hooks, and custom add/remove adapters still need concrete public API polish.
+- Completed: model-mode components can now use the provider model itself as the Relm4 component model, including local non-source state fields.
 - Gap: tests assert generated token substrings but do not compile expanded code through realistic Relm4 components or check negative cases for view binding typos, unsupported init shapes, wrapped-input fallback updates, or generated `post_view` signatures.
 - Refactor smell: legacy module generation and typed-model generation duplicate dirty tracking, field enums, watch errors, messages, subscription startup patterns, and update handling.
 
@@ -57,10 +63,12 @@ None yet.
 3. Consider requiring explicit `update` when `Self::Input` is not the generated message type, or add a config knob for the wrapper variant so the macro can generate correct fallback code.
 4. Factor shared generated runtime pieces between `expand_locus_module` and `expand_model_impl` to reduce drift before adding more provider combinator support.
 5. Preserve richer provider errors if `providers::ProviderError` is hardened to keep error sources.
+6. Completed: add component-backed `bind_list` for collection-backed child regions.
+7. Add a derived-owned setter path for bindings whose adapter returns an owned value but the GTK setter takes a borrowed value.
 
 ## Tests And Verification
 
-- `cargo test -p shell-macros` passes: 18 unit tests, 0 doctests.
+- `cargo test -p shell-macros` passes: 21 unit tests, 0 doctests.
 
 ## Open Questions
 

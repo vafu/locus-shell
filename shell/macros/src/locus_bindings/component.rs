@@ -7,7 +7,7 @@ use syn::{
 use super::{
     config::ComponentConfig,
     expand::{ModuleMode, expand_locus_module},
-    view::{ViewBindings, transform_locus_view_attributes},
+    view::{StateAccess, ViewBindings, transform_locus_view_attributes},
 };
 
 pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
@@ -18,12 +18,20 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
     let state_ident = config.state.clone();
     let model_ty = config.model;
     let bindings = config.bindings;
+    let state_access = if model_ty
+        .as_ref()
+        .is_some_and(|model_ty| same_type(model_ty, component.as_ref()))
+    {
+        StateAccess::Model
+    } else {
+        StateAccess::Field(state_ident.clone())
+    };
     let view_bindings = match model_ty.as_ref() {
         Some(_) => ViewBindings::Model,
         None => ViewBindings::Known(&bindings),
     };
-    transform_locus_view_attributes(&mut item_impl, &module_ident, &state_ident, view_bindings)?;
-    inject_post_view_clear(&mut item_impl, &state_ident);
+    transform_locus_view_attributes(&mut item_impl, &module_ident, &state_access, view_bindings)?;
+    inject_post_view_clear(&mut item_impl, &state_access);
     let mut init_found = false;
     let mut update_found = false;
 
@@ -35,9 +43,7 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
         if function.sig.ident == "init" {
             init_found = true;
             match model_ty.as_ref() {
-                Some(model_ty) => {
-                    inject_model_subscriptions(function, &module_ident, &state_ident, model_ty)?
-                }
+                Some(model_ty) => inject_model_subscriptions(function, &state_access, model_ty)?,
                 None => inject_start_call(function, &module_ident, &state_ident)?,
             }
         } else if function.sig.ident == "update" {
@@ -53,7 +59,7 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
     }
 
     if !update_found {
-        let update = update_method(&state_ident);
+        let update = update_method(&state_access, model_ty.as_ref());
         item_impl.items.push(update);
     }
 
@@ -74,9 +80,18 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
     })
 }
 
-fn inject_post_view_clear(item_impl: &mut ItemImpl, state_ident: &Ident) {
-    let clear_statement: Stmt = parse_quote! {
-        model.#state_ident.clear_changed();
+fn same_type(left: &syn::Type, right: &syn::Type) -> bool {
+    quote!(#left).to_string() == quote!(#right).to_string()
+}
+
+fn inject_post_view_clear(item_impl: &mut ItemImpl, state: &StateAccess) {
+    let clear_statement: Stmt = match state {
+        StateAccess::Field(state_ident) => parse_quote! {
+            model.#state_ident.clear_changed();
+        },
+        StateAccess::Model => parse_quote! {
+            model.clear_changed();
+        },
     };
 
     for item in &mut item_impl.items {
@@ -133,8 +148,7 @@ fn inject_start_call(
 
 fn inject_model_subscriptions(
     function: &mut ImplItemFn,
-    _module_ident: &Ident,
-    state_ident: &Ident,
+    state: &StateAccess,
     _model_ty: &syn::Type,
 ) -> Result<()> {
     let sender_ident = sender_ident(function)?;
@@ -154,11 +168,21 @@ fn inject_model_subscriptions(
             model_ident.mutability = Some(Default::default());
         }
 
-        let start_statement: Stmt = parse_quote! {
-            let __shell_subscriptions = model.#state_ident.start(#sender_ident.clone());
+        let start_statement: Stmt = match state {
+            StateAccess::Field(state_ident) => parse_quote! {
+                let __shell_subscriptions = model.#state_ident.start(#sender_ident.clone());
+            },
+            StateAccess::Model => parse_quote! {
+                let __shell_subscriptions = model.start(#sender_ident.clone());
+            },
         };
-        let set_statement: Stmt = parse_quote! {
-            model.#state_ident.set_subscriptions(__shell_subscriptions);
+        let set_statement: Stmt = match state {
+            StateAccess::Field(state_ident) => parse_quote! {
+                model.#state_ident.set_subscriptions(__shell_subscriptions);
+            },
+            StateAccess::Model => parse_quote! {
+                model.set_subscriptions(__shell_subscriptions);
+            },
         };
         function.block.stmts.insert(index + 1, start_statement);
         function.block.stmts.insert(index + 2, set_statement);
@@ -190,10 +214,20 @@ fn sender_ident(function: &ImplItemFn) -> Result<Ident> {
     ))
 }
 
-fn update_method(state_ident: &Ident) -> ImplItem {
-    parse_quote! {
-        fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
-            self.#state_ident.update(msg);
+fn update_method(state: &StateAccess, model_ty: Option<&syn::Type>) -> ImplItem {
+    match state {
+        StateAccess::Field(state_ident) => parse_quote! {
+            fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
+                self.#state_ident.update(msg);
+            }
+        },
+        StateAccess::Model => {
+            let model_ty = model_ty.expect("model type exists for self model component");
+            parse_quote! {
+                fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
+                    #model_ty::update(self, msg);
+                }
+            }
         }
     }
 }

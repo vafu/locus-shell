@@ -2,14 +2,15 @@ use common_providers::upower::{DISPLAY_DEVICE, DisplayDevice};
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
+    list::ComponentListBoxExt,
     window::{self, Anchors, Edge, Layer, WindowConfig},
 };
 
 use crate::locus_schema::{self, WorkspacePathExt};
 
 use super::{
-    battery::{battery_fraction, battery_label},
-    window_rows::WindowRows,
+    battery::battery_fraction,
+    window_title::{WindowNode, WindowTitle},
 };
 
 pub struct BarInit {
@@ -17,21 +18,15 @@ pub struct BarInit {
 }
 
 #[shell_macros::model]
-pub struct BarSources {
+pub struct Bar {
     #[source(locus_schema::paths::SELECTED_WORKSPACE.windows())]
-    pub window_nodes: Vec<String>,
+    pub window_nodes: Vec<WindowNode>,
 
     #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
     pub battery_percent: f64,
 }
 
-pub struct Bar {
-    sources: BarSources,
-    windows: WindowRows,
-    battery_label: String,
-}
-
-#[shell_macros::component(model = BarSources, state = sources)]
+#[shell_macros::component(model = Bar)]
 #[relm4::component(pub)]
 impl SimpleComponent for Bar {
     type Init = BarInit;
@@ -45,7 +40,7 @@ impl SimpleComponent for Bar {
                 add_css_class: "dev-panel",
                 set_orientation: gtk::Orientation::Horizontal,
 
-                #[local_ref]
+                #[bind_list(window_nodes, row = WindowTitle)]
                 window_list -> gtk::Box {
                     set_widget_name: "workspace-window-list",
                     add_css_class: "dev-panel__window-list",
@@ -60,14 +55,6 @@ impl SimpleComponent for Bar {
 
                     #[bind(battery_percent)]
                     set_fraction: |percent| battery_fraction(percent),
-                },
-
-                gtk::Label {
-                    set_widget_name: "battery-label",
-                    add_css_class: "dev-panel__battery-label",
-
-                    #[watch]
-                    set_label: model.battery_label.as_str(),
                 }
             }
         }
@@ -80,29 +67,11 @@ impl SimpleComponent for Bar {
     ) -> ComponentParts<Self> {
         window::apply_layer_shell_config(&root, bar_window_config());
         root.set_title(Some(init.title));
-        let windows = WindowRows::new();
-        let sources = BarSources::default();
-        let battery_label = battery_label(sources.battery_percent);
 
-        let model = Bar {
-            sources,
-            windows,
-            battery_label,
-        };
-        let window_list = model.windows.widget();
+        let model = Bar::default();
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
-    }
-
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
-        self.sources.update(msg);
-        if self.sources.changed(sources::Field::WindowNodes) {
-            self.windows.reconcile(&self.sources.window_nodes);
-        }
-        if self.sources.changed(sources::Field::BatteryPercent) {
-            self.battery_label = battery_label(self.sources.battery_percent);
-        }
     }
 }
 

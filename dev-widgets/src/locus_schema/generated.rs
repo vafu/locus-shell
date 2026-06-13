@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #![allow(dead_code, unused_imports)]
 pub mod model {
     use locus_provider::Property;
@@ -117,8 +118,8 @@ pub mod decode {
 pub mod source {
     use super::{model, paths};
     use locus_provider::{
-        DecodeError, LocusPropertyKey, NodeId, NodeListBinding, NodePropertyKey, Path, Property,
-        TargetBinding, WatchError,
+        DecodeError, LocusPropertyKey, NodeId, NodeListBinding, NodePropertyKey, NodeRef, Path,
+        Property, TargetBinding, WatchError,
     };
     use providers::{CancellationToken, Provider, ProviderError};
     use std::{future::pending, marker::PhantomData, pin::Pin};
@@ -349,14 +350,15 @@ pub mod source {
             }
         }
     }
-    impl<Owner, Target, P> Provider<Vec<NodeId>> for RelatedNodesProvider<Owner, Target, P>
+    impl<Owner, Target, P> Provider<Vec<NodeRef<Target>>> for RelatedNodesProvider<Owner, Target, P>
     where
         Owner: Send + 'static,
         Target: Send + 'static,
         P: Provider<NodeId>,
     {
         type Error = ProviderError;
-        type Stream = Pin<Box<dyn Stream<Item = Result<Vec<NodeId>, ProviderError>> + Send>>;
+        type Stream =
+            Pin<Box<dyn Stream<Item = Result<Vec<NodeRef<Target>>, ProviderError>> + Send>>;
         fn stream(self, cancellation: CancellationToken) -> Self::Stream {
             Box::pin(async_stream::stream! {
                 let owners = self.owner.stream(cancellation.clone());
@@ -379,7 +381,8 @@ pub mod source {
                 = Some(stream); node_cancellation = Some(token); } Some(Err(error))
                 => { yield Err(ProviderError::new(error.to_string())); } None =>
                 break, } } node_ids = node_update => { match node_ids {
-                Some(Ok(nodes)) => yield Ok(nodes), Some(Err(error)) => yield
+                Some(Ok(nodes)) => { yield Ok(nodes.into_iter().map(NodeRef:: <
+                Target > ::new).collect()) } Some(Err(error)) => yield
                 Err(ProviderError::new(error.to_string())), None => {
                 node_cancellation = None; nodes = None; } } } } } if let Some(token)
                 = node_cancellation { token.cancel(); }

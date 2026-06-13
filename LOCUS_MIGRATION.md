@@ -28,7 +28,7 @@ Generated consumer schema should expose semantic typed providers, for example:
 
 ```rust
 #[source(paths::SELECTED_WORKSPACE.windows())]
-pub window_nodes: Vec<String>,
+pub windows: Vec<locus_provider::NodeRef<model::Window>>,
 
 #[source(window.title())]
 pub title: String,

@@ -103,7 +103,7 @@ Framework crates own:
 - Let consumers declare a typed state model with field-level source attributes:
   - `#[shell_macros::model]`
   - `#[source(...)]`
-  - `#[shell_macros::component(model = BarSources, state = sources)]`
+  - `#[shell_macros::component(model = Bar)]`
 - Default generated binding modules to `sources`, with `state = ...` available when the component field name needs to be explicit.
 - Keep generated runtime internals in one private `__shell` sidecar field on typed models.
 - Generate minimal Relm4 glue for graph-bound fields:
@@ -116,6 +116,10 @@ Framework crates own:
   - closure adapters such as `set_label: |title| title.as_str()`
   - function adapters such as `set_css_classes: window_title_classes`
   - generated Relm4 `#[track(...)]` guards so unrelated field changes do not redraw the setter
+- Let repeated child regions bind collection fields with `#[bind_list(...)]`.
+  The concrete list path is inferred from the annotated widget type. The first
+  supported path hosts Relm4 row component controllers on a GTK container;
+  GTK-native and Adwaita list adapters should remain optional integrations.
 - Keep generated code understandable and debuggable with `cargo expand`.
 
 ### 6. Framework Integration Layer

@@ -269,15 +269,11 @@ package "provider/common\ncrate: common_providers" {
 
 package "dev-widgets\ncrate: dev_widgets" {
   class Bar
-  class BarSources
-  class WindowRows
   class WindowTitle
   class "generated locus_schema" as DevSchema
 
-  Bar --> BarSources
-  Bar --> WindowRows
-  WindowRows --> WindowTitle
-  BarSources ..> Provider
+  Bar --> WindowTitle
+  Bar ..> Provider
   DevSchema --> LocusPath
   DevSchema --> SharedProperty
   DevSchema --> NodeRef

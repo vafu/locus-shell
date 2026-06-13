@@ -11,8 +11,13 @@ Track concrete follow-up work that is not yet ready to become a committed roadma
   Keep watching whether overloaded Locus relations need richer schema syntax as
   more collection helpers appear.
 - Dynamic row widgets now use small child components with local provider
-  bindings hosted by a Relm4 factory. Keep watching whether this wrapper pattern
-  is enough or whether shell macros should grow first-class factory support.
+  bindings declared by macro-level `#[bind_list(..., row = Component)]` and
+  hosted by the GTK list container. Keep watching whether the component-list
+  path needs explicit key/sort hooks beyond value equality.
+- Generated schema collection providers now expose typed node references instead
+  of raw node-id strings. Future list cleanup should add GTK-native, Adwaita,
+  and custom add/remove adapters without making those backends mandatory
+  `shell-core` dependencies.
 
 # Optional
 

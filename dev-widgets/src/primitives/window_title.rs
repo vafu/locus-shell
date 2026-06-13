@@ -6,18 +6,8 @@ use crate::locus_schema::{WindowNodeExt, model};
 pub(super) type WindowNode = locus_provider::NodeRef<model::Window>;
 
 #[derive(Debug)]
-pub(super) struct WindowTitle {
-    sources: WindowTitleSources,
-}
-
-#[derive(Debug)]
-pub(super) struct WindowTitleInit {
-    pub(super) window: WindowNode,
-}
-
-#[derive(Debug)]
 #[shell_macros::model(module = window_title_sources)]
-pub struct WindowTitleSources {
+pub(super) struct WindowTitle {
     pub window: WindowNode,
 
     #[source(window.title())]
@@ -29,12 +19,11 @@ pub struct WindowTitleSources {
 
 #[shell_macros::component(
     module = window_title_sources,
-    model = WindowTitleSources,
-    state = sources
+    model = WindowTitle
 )]
 #[relm4::component(pub(crate))]
 impl SimpleComponent for WindowTitle {
-    type Init = WindowTitleInit;
+    type Init = WindowNode;
     type Input = window_title_sources::Msg;
     type Output = ();
 
@@ -54,10 +43,9 @@ impl SimpleComponent for WindowTitle {
     fn init(
         init: Self::Init,
         _root: Self::Root,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let sources = WindowTitleSources::new(init.window);
-        let model = WindowTitle { sources };
+        let model = WindowTitle::new(init);
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
