@@ -14,8 +14,9 @@ use tokio::task::JoinHandle;
 use tokio_stream::Stream;
 
 use super::{
-    CancellationToken, Provider, ProviderError, ProviderExt, Subscription, SubscriptionGroup,
-    TaskSpawner, install_task_spawner, provider_for, run_provider, spawn,
+    CancellationToken, CombineLatestError, Provider, ProviderError, ProviderExt, Subscription,
+    SubscriptionGroup, TaskSpawner, combine_latest2, combine_latest2_stream, install_task_spawner,
+    provider_for, run_provider, spawn,
 };
 
 #[derive(Debug)]
@@ -237,6 +238,86 @@ fn stream_providers_can_use_tokio_stream_ext_directly() {
     assert_eq!(
         *values.lock().expect("values lock"),
         [Ok::<_, Infallible>(5), Ok(6)]
+    );
+}
+
+#[test]
+fn combine_latest2_stream_emits_after_both_sources_have_values() {
+    let left = tokio_stream::iter([Ok::<_, ProviderError>(1), Ok(2)]);
+    let right = tokio_stream::iter([
+        Ok::<_, ProviderError>("alpha".to_owned()),
+        Ok("beta".to_owned()),
+    ]);
+    let combined = combine_latest2_stream(left, right);
+
+    let values: Vec<_> = futures::executor::block_on(combined.collect());
+
+    assert_eq!(
+        values,
+        [
+            Ok((1, "alpha".to_owned())),
+            Ok((2, "alpha".to_owned())),
+            Ok((2, "beta".to_owned()))
+        ]
+    );
+}
+
+#[test]
+fn combine_latest2_stream_forwards_errors_without_clearing_latest_values() {
+    let left = tokio_stream::iter([
+        Ok::<_, ProviderError>(1),
+        Err(ProviderError::new("left failed")),
+        Ok(2),
+    ]);
+    let right = tokio_stream::iter([Ok::<_, ProviderError>(10)]);
+    let combined = combine_latest2_stream(left, right);
+
+    let values: Vec<_> = futures::executor::block_on(combined.collect());
+
+    assert_eq!(
+        values,
+        [
+            Ok((1, 10)),
+            Err(CombineLatestError::Left(ProviderError::new("left failed"))),
+            Ok((2, 10)),
+        ]
+    );
+}
+
+#[test]
+fn combine_latest2_stream_ends_if_a_source_finishes_before_first_value() {
+    let left = tokio_stream::iter([]);
+    let right = tokio_stream::iter([Ok::<_, ProviderError>(10)]);
+    let combined = combine_latest2_stream(left, right);
+
+    let values: Vec<Result<(u32, u32), CombineLatestError<ProviderError, ProviderError>>> =
+        futures::executor::block_on(combined.collect());
+
+    assert!(values.is_empty());
+}
+
+#[test]
+fn combine_latest2_provider_combines_provider_streams() {
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let captured = values.clone();
+    let left = tokio_stream::iter([Ok::<_, Infallible>(1), Ok(2)]);
+    let right = tokio_stream::iter([Ok::<_, Infallible>(3)]);
+    let provider = combine_latest2(left, right);
+
+    futures::executor::block_on(run_provider(
+        provider,
+        CancellationToken::new(),
+        move |value| {
+            captured.lock().expect("values lock").push(value);
+        },
+    ));
+
+    assert_eq!(
+        *values.lock().expect("values lock"),
+        [
+            Ok::<_, CombineLatestError<Infallible, Infallible>>((1, 3)),
+            Ok((2, 3))
+        ]
     );
 }
 

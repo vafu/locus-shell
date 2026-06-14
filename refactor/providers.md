@@ -40,7 +40,13 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 
 ## User Notes
 
-- Provider direction from review: avoid adopting Rx/RxRust for now; use standard Rust async pieces where possible.
+- Provider direction update: consumer providers are acceptable when they read
+  like typed data composition functions. They should not expose watcher loops,
+  channel wiring, switch/restart plumbing, or subscription boilerplate in
+  product widgets.
+- Re-evaluate `rxrust` for consumer-side data composition. Current crates.io
+  version is `1.0.0-rc.5`; treat it as a candidate for hiding stream boilerplate,
+  not as a replacement for generated Locus/DBus providers.
 - Sharing upstream values is mandatory for app performance. Duplicate D-Bus/Locus subscriptions should be treated as a design bug unless explicitly requested.
 - Explore simplifying value flow around `Stream`/`StreamExt`, with `tokio::sync::watch` as the default shared latest-state primitive.
 - Keep explicit lifecycle ownership (`Subscription` / `SubscriptionGroup` or equivalent), because streams alone do not own spawned task lifetime or async remote cleanup.
@@ -52,7 +58,9 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 - Avoid Rx vocabulary such as `Disposable`; keep Rust/domain naming.
 - Combinators may cancel sibling/upstream/downstream work on terminal errors, but cancellation should remain cooperative and documented.
 - Automatic shared sources should use refcounting semantics: start on first subscriber, stop when the last subscriber drops.
-- Provider direction from review: commit to Tokio-native primitives rather than maintaining local equivalents or adopting Rx.
+- Provider direction from review: commit to Tokio-native primitives for the
+  backend provider contract. This does not rule out an Rx-style composition
+  layer if it materially simplifies consumer-owned derived models.
 - Replace the local cancellation token with `tokio_util::sync::CancellationToken`.
 - Keep `Provider<T>` as the macro-facing domain trait, but move its internals toward a stream-producing shape using `tokio_stream::Stream<Item = Result<T, E>>`.
 - Use `tokio::sync::watch` for shared latest-value fanout; use `broadcast` only for true event streams if needed.
@@ -72,7 +80,8 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 - Shrink `ProviderExt` to only direct consumer-facing helpers that remain justified.
 - In a stream-native provider design, rely on `tokio_stream::Stream`/`StreamExt` mapping instead of custom `ProviderExt::map`.
 - Move sharing out of a manual generic combinator mindset and into source/runtime policy for reusable descriptors.
-- Remove `combine_latest` for now; reintroduce it only if real widget code needs it, preferably as a thin stream helper.
+- Reintroduce only concrete combinators needed by widget code. `combine_latest2`
+  is now available as a thin stream helper plus provider adapter.
 - Keep switch-map behavior as an internal capability if needed, but remove it from generic consumer-facing `ProviderExt`.
 - Push selected graph node -> dependent collection flows into Locus/schema provider helpers instead of exposing generic client-side reactive composition.
 - Reducing public switch/path composition may allow `locus_provider::Path` to become internal/generated descriptor data rather than a user-facing abstraction.
@@ -85,7 +94,9 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 
 - Completed: `Provider<T>` is stream-native, `ProviderContext`/`ProviderSender`/custom cancellation/combine/switch/map/stream adapter modules are removed, and `Subscription` owns tasks at construction.
 - Completed: `SharedProvider` has explicit active-subscriber refcounting with stop-on-last-drop and restart-on-later-subscriber behavior.
-- Direction: `rxrust` should not be adopted now. Locus should own graph reactivity server-side, and Rust/Tokio primitives cover current provider-core needs.
+- Direction: evaluate `rxrust` for consumer-side derived model composition.
+  Locus should still own graph reactivity server-side, and generated Locus/DBus
+  providers should remain the source of graph/property subscriptions.
 - Direction: automatic descriptor-keyed sharing still belongs in D-Bus/Locus descriptor/runtime policy rather than as a manual generic combinator requirement.
 - Completed: downstream crates (`provider/dbus`, `provider/locus`, `shell/macros`, `dev-widgets`) have been migrated from the removed callback provider API.
 - Completed: provider runtime ownership moved to ShellApp/framework initialization. `providers::spawn` now dispatches to the installed task spawner instead of creating a hidden runtime.
@@ -102,7 +113,7 @@ The crate now owns the stream-native provider contract, direct Tokio cancellatio
 6. Completed: replace dev-widget examples that rely on removed generic `combine_latest`/`switch_map` with direct stream composition or semantic schema helpers.
 7. Design automatic descriptor-keyed sharing for reusable D-Bus/Locus sources so repeated source use does not create duplicate upstream subscriptions.
 8. Completed: move provider runtime/spawn ownership from `providers` into `shell-core::ShellApp` via an installed task-spawner hook.
-9. Reintroduce richer stream helpers only when concrete widget code proves they are needed.
+9. Completed: reintroduce `combine_latest2` as the first derived-provider stream helper.
 
 ## Tests And Verification
 

@@ -2,6 +2,7 @@
 members = [
     "shell/core",
     "dev-widgets",
+    "rsynapse-shell",
     "provider/core",
     "provider/locus",
     "provider/dbus",

@@ -33,9 +33,13 @@ locus/
 │   ├── dbus/        # package: dbus-provider
 │   ├── property/    # package: property-provider
 │   └── common/      # package: common-providers
+├── rsynapse-shell/  # package: rsynapse-shell, AGS migration playground
 ```
 
 This repository is the framework workspace. User-facing shell implementations should live in separate crates or repositories that consume these framework crates.
+`rsynapse-shell` is an in-repository migration playground used to exercise the
+framework while porting the local AGS configuration; framework crates must not
+take product-specific policy from it.
 
 ## Runtime Architecture
 

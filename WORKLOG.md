@@ -13,6 +13,10 @@ shape.
   longer creates a hidden runtime.
 - `SharedProvider` provides refcounted latest-value fanout and restarts upstream
   on later subscribers.
+- `combine_latest2_stream` and `combine_latest2` provide the first narrow
+  derived-provider primitive for composing two typed sources.
+- `rsynapse-shell` exists as an in-repository playground for migrating the local
+  AGS shell while preserving the framework/consumer boundary.
 - `provider/property` owns shared typed property descriptors and
   property-binding traits.
 - `dbus-provider` and `locus-provider` implement the stream-native provider

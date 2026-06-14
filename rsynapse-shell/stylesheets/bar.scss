@@ -1,0 +1,246 @@
+$label-margin: 4px;
+$outline-width: $label-margin * 0.4;
+$outline-offset: $label-margin * 0.5;
+
+.bar {
+  background-color: transparent;
+  padding: 0px 0px 8px 0px;
+
+  transition: 100ms;
+  min-height: 32px;
+
+  .barblock {
+    background-color: #{$bg};
+    transition: background-color 100ms;
+    border-radius: 12px;
+    padding: 0 8px;
+    margin-top: 4px;
+    margin-left: 8px;
+    margin-right: 8px;
+
+    @include elevation-1;
+  }
+}
+
+.barblock-badge {
+  min-width: 12px;
+  min-height: 12px;
+  margin-top: 2px;
+  margin-right: -4px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, #{$accent_color} 74%, #{$bg});
+  color: #{$bg};
+  font-size: 7pt;
+  font-weight: 700;
+}
+
+.barblock-badge.workspace-number-badge {
+  background-color: color-mix(in srgb, #{$fg} 16%, #{$bg});
+  color: color-mix(in srgb, #{$fg} 72%, transparent);
+}
+
+.workspace-window-frame {
+  margin-top: 4px;
+
+  &.workspace-window-agent {
+    .agent-subagent-badge {
+      min-width: 12px;
+      min-height: 12px;
+      padding: 0 3px;
+      margin-top: -7px;
+      margin-right: -7px;
+      border-radius: 999px;
+      background-color: #{$sys_warn};
+      color: #{$bg};
+      font-size: 7pt;
+      font-weight: 700;
+    }
+  }
+}
+
+.workspace-window-tile {
+  border-radius: 12px;
+  padding: 0 8px;
+  background-color: #{$bg};
+  opacity: 1;
+  transition:
+    background-color 160ms,
+    opacity 160ms,
+    outline-color 160ms;
+
+  @include elevation-1;
+
+  &:not(.active):not(.urgent) {
+    opacity: 0.74;
+  }
+
+  &.active {
+    background-color: #{$bg};
+    outline: 1px solid color-mix(in srgb, #{$ws_active} 72%, #{$fg});
+    outline-offset: 0;
+    opacity: 1;
+  }
+
+  &.urgent {
+    background-color: color-mix(in srgb, #{$sys_danger} 20%, #{$bg});
+    outline: 1px solid color-mix(in srgb, #{$sys_danger} 55%, transparent);
+    opacity: 1;
+  }
+
+  &.workspace-window-agent {
+    .workspace-window-content {
+      min-height: 28px;
+    }
+
+    .agent-inner {
+      padding: 0;
+    }
+
+    &.thinking materialicon:first-child,
+    &.thinking .materialicon:first-child {
+      animation: agent-thinking-pulse 0.5s ease-in-out infinite;
+    }
+
+    &.tool-use materialicon:first-child,
+    &.tool-use .materialicon:first-child {
+      animation: agent-tool-scale 0.6s ease-in-out infinite;
+    }
+
+    &.compacting materialicon:first-child,
+    &.compacting .materialicon:first-child {
+      animation: agent-compact-shrink 1.2s ease-in-out infinite;
+    }
+
+    &.attention materialicon:first-child,
+    &.attention .materialicon:first-child {
+      animation: agent-attention-shake 0.4s ease-in-out infinite;
+    }
+  }
+}
+
+.panel-widget {
+  margin: 0 4px;
+}
+
+.projects-list {
+  margin-left: 8px;
+  margin-right: 8px;
+}
+
+.projects-project {
+  $project-layer: color-mix(in srgb, #{$fg} 10%, #{$bg});
+  $agent-layer: color-mix(in srgb, #{$fg} 5%, #{$bg});
+
+  background-color: #{$bg};
+  transition: background-color 180ms, outline-color 180ms;
+  border-radius: 12px;
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  margin-top: 4px;
+
+  @include elevation-1;
+
+  &.current-workspace {
+    outline-color: color-mix(in srgb, #{$fg} 55%, transparent);
+
+    .button-subgroup-main.opened,
+    .button-subgroup,
+    .projects-title {
+      background-color: transparent;
+    }
+  }
+
+  .projects-collapsed-icon {
+    min-height: 28px;
+    padding: 0 6px;
+    border-radius: 12px 0 0 12px;
+  }
+
+  .button-subgroup-main,
+  .projects-root-button {
+    min-width: 0;
+    min-height: 28px;
+  }
+
+  .button-subgroup-main {
+    margin: 0;
+    padding: 0;
+  }
+
+  .projects-root-button {
+    margin: 0;
+    padding: 0;
+  }
+
+  .button-subgroup-main,
+  .button-subgroup {
+    transition: background-color 180ms, outline-color 180ms;
+  }
+
+  .button-subgroup-main.opened {
+    background-color: $project-layer;
+    border-radius: 12px 0 0 12px;
+  }
+
+  .button-subgroup {
+    background-color: $agent-layer;
+  }
+
+  &.button-subgroup-expand-right .button-subgroup {
+    margin-left: -1px;
+  }
+
+  .projects-title {
+    background-color: $project-layer;
+    border-radius: 0 12px 12px 0;
+    min-height: 28px;
+    padding: 0 8px 0 3px;
+  }
+
+  .projects-primary {
+    font-weight: 700;
+  }
+
+  .projects-delimiter,
+  .projects-secondary {
+    font-weight: 600;
+    opacity: 0.58;
+  }
+
+  &.has-working:not(.has-attention) .button-subgroup-main:not(.opened) .projects-collapsed-icon materialicon,
+  &.has-working:not(.has-attention) .button-subgroup-main:not(.opened) .projects-collapsed-icon .materialicon {
+    animation: agent-thinking-pulse 0.5s ease-in-out infinite;
+  }
+
+  &.has-attention .button-subgroup-main:not(.opened) .projects-collapsed-icon materialicon,
+  &.has-attention .button-subgroup-main:not(.opened) .projects-collapsed-icon .materialicon {
+    animation: agent-attention-shake 0.4s ease-in-out infinite;
+  }
+}
+
+.button-subgroup-main {
+  &.opened {
+    background-color: #{$secondary_sidebar_fg_color};
+    border-radius: 0 12px 12px 0;
+  }
+
+  transition: 100ms;
+}
+
+.button-subgroup {
+  background-color: #{$secondary_sidebar_fg_color};
+  border-radius: 12px 0 0 12px;
+}
+
+.button-subgroup-expand-right {
+  .button-subgroup-main {
+    &.opened {
+      border-radius: 12px 0 0 12px;
+    }
+  }
+
+  .button-subgroup {
+    border-radius: 0 12px 12px 0;
+  }
+}

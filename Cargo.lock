@@ -1097,6 +1097,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsynapse-shell"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "locus-dbus",
+ "locus-provider",
+ "providers",
+ "relm4",
+ "shell-core",
+ "shell-macros",
+ "tokio",
+ "tokio-stream",
+ "zbus",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -140,6 +140,8 @@ Framework crates own:
 ### 7. External User-Facing Widgets
 
 - Create actual shell widgets outside this framework boundary.
+- Use `rsynapse-shell` as the in-repository AGS migration playground and
+  framework stress test, while keeping product policy out of framework crates.
 - First likely consumer: bar.
 - Then OSD.
 - Then notifications.
@@ -158,12 +160,15 @@ Framework crates own:
   installs a Tokio-backed task spawner, while provider core only stores and uses
   the installed spawner for subscription tasks.
 - Add richer provider combinators only when concrete widget requirements justify them:
+  - `combine_latest2` is available as a thin stream helper plus provider
+    adapter for typed derived providers.
   - `distinct`
   - `filter_map`
   - `fallible_map`
   - `combine_latest3`
 - Treat any `tokio_stream::Stream<Item = Result<T, E>>` as a provider directly through the blanket `Provider<T>` implementation.
-- Reintroduce `switch_map`/`combine_latest` only as thin stream helpers if real widget requirements prove they are needed.
+- Reintroduce additional `switch_map`/`combine_latest` helpers only as thin
+  stream-level primitives if real widget requirements prove they are needed.
 - Keep shared latest providers available as the provider-core primitive for
   connection and subscription reuse. Backend or generated providers should
   apply sharing from stable provider keys so widget authors do not need local

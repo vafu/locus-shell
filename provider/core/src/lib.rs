@@ -5,6 +5,7 @@
 //! spawner, while consumers keep returned [`Subscription`] handles alive for as
 //! long as updates are wanted.
 
+mod combine;
 mod error;
 mod runtime;
 mod shared;
@@ -19,6 +20,10 @@ pub use tokio_stream::Stream;
 use tokio_stream::StreamExt;
 pub use tokio_util::sync::CancellationToken;
 
+pub use combine::{
+    CombineLatest2, CombineLatest2Stream, CombineLatestError, combine_latest2,
+    combine_latest2_stream,
+};
 pub use error::ProviderError;
 pub use runtime::{
     TaskSpawner, TaskSpawnerAlreadyInstalled, has_task_spawner, install_task_spawner, spawn,
