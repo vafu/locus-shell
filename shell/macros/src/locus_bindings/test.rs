@@ -260,6 +260,58 @@ fn expands_typed_model_sources_that_reference_model_fields() {
 }
 
 #[test]
+fn expands_typed_model_nested_source_fields() {
+    let item = quote! {
+        pub struct ProjectLabel {
+            pub workspace: locus_provider::NodeRef<schema::model::Workspace>,
+            #[source(workspace.name())]
+            pub workspace_name: String,
+            #[model(source = workspace.project())]
+            pub project: ProjectLabelProject,
+        }
+    };
+
+    let expanded = expand_model(quote!(module = project_label_sources), item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("pub enum Msg"));
+    assert!(source.contains("WorkspaceName"));
+    assert!(source.contains(
+        "Project (< ProjectLabelProject as :: shell_core :: model :: SourceModel > :: Msg)"
+    ));
+    assert!(source.contains(
+        "< ProjectLabelProject as :: shell_core :: model :: SourceModel > :: from_default_context"
+    ));
+    assert!(source.contains("ProjectLabelProject as :: shell_core :: model :: SourceModel"));
+    assert!(source.contains("start_source_model"));
+    assert!(source.contains("workspace . project ()"));
+    assert!(source.contains("update_source_model"));
+    assert!(source.contains("& mut self . project"));
+}
+
+#[test]
+fn expands_source_model_trait_for_single_context_models() {
+    let item = quote! {
+        pub struct ProjectLabelProject {
+            pub project: Option<locus_provider::NodeRef<schema::model::Project>>,
+            #[source(project.display_icon())]
+            pub icon: Option<String>,
+        }
+    };
+
+    let expanded = expand_model(quote!(module = project_label_project_sources), item).unwrap();
+    let source = expanded.to_string();
+
+    assert!(source.contains("impl :: shell_core :: model :: SourceModel for ProjectLabelProject"));
+    assert!(source.contains(
+        "type Context = Option < locus_provider :: NodeRef < schema :: model :: Project > >"
+    ));
+    assert!(source.contains("__ShellContext"));
+    assert!(source.contains("start_for_source_context"));
+    assert!(source.contains("project . display_icon ()"));
+}
+
+#[test]
 fn expands_typed_model_with_unused_local_state() {
     let item = quote! {
         pub struct Bar {

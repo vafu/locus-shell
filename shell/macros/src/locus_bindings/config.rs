@@ -29,6 +29,18 @@ pub(super) struct BindingConfig {
     pub(super) source: Expr,
 }
 
+pub(super) struct NestedModelConfig {
+    pub(super) field: Ident,
+    pub(super) variant: Ident,
+    pub(super) ty: Type,
+    pub(super) source: Expr,
+}
+
+pub(super) struct ModelBindings {
+    pub(super) sources: Vec<BindingConfig>,
+    pub(super) nested_models: Vec<NestedModelConfig>,
+}
+
 impl Parse for BindingsConfig {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let mut component = None;
@@ -232,7 +244,7 @@ impl Parse for ConfigEntry {
     }
 }
 
-pub(super) fn model_bindings(item: &ItemStruct) -> Result<Vec<BindingConfig>> {
+pub(super) fn model_bindings(item: &ItemStruct) -> Result<ModelBindings> {
     let Fields::Named(fields) = &item.fields else {
         return Err(syn::Error::new_spanned(
             item,
@@ -241,8 +253,20 @@ pub(super) fn model_bindings(item: &ItemStruct) -> Result<Vec<BindingConfig>> {
     };
 
     let mut bindings = Vec::new();
+    let mut nested_models = Vec::new();
     for field in &fields.named {
         let field_ident = field.ident.clone().expect("named field");
+        if let Some(source) = nested_model_source(field)? {
+            let variant = format_ident!("{}", upper_camel(&field_ident.to_string()));
+            nested_models.push(NestedModelConfig {
+                field: field_ident,
+                variant,
+                ty: field.ty.clone(),
+                source,
+            });
+            continue;
+        }
+
         let Some(source) = provider_source(field)? else {
             continue;
         };
@@ -255,15 +279,40 @@ pub(super) fn model_bindings(item: &ItemStruct) -> Result<Vec<BindingConfig>> {
         });
     }
 
-    if bindings.is_empty() {
+    if bindings.is_empty() && nested_models.is_empty() {
         return Err(syn::Error::new_spanned(
             item,
-            "provider models require at least one #[source(...)] or #[locus(source = ...)] field",
+            "provider models require at least one #[source(...)], #[locus(source = ...)], or #[model(source = ...)] field",
         ));
     }
 
     validate_bindings(&bindings)?;
-    Ok(bindings)
+    validate_nested_models(&nested_models)?;
+    Ok(ModelBindings {
+        sources: bindings,
+        nested_models,
+    })
+}
+
+fn nested_model_source(field: &syn::Field) -> Result<Option<Expr>> {
+    for attr in &field.attrs {
+        if !attr.path().is_ident("model") {
+            continue;
+        }
+
+        let mut source = None;
+        attr.parse_nested_meta(|meta| {
+            if !meta.path.is_ident("source") {
+                return Err(meta.error("expected source = ..."));
+            }
+            meta.input.parse::<Token![=]>()?;
+            source = Some(parse_binding_expr(meta.input)?);
+            Ok(())
+        })?;
+        return Ok(source);
+    }
+
+    Ok(None)
 }
 
 fn provider_source(field: &syn::Field) -> Result<Option<Expr>> {
@@ -287,6 +336,28 @@ fn provider_source(field: &syn::Field) -> Result<Option<Expr>> {
     }
 
     Ok(None)
+}
+
+fn validate_nested_models(nested_models: &[NestedModelConfig]) -> Result<()> {
+    let mut fields = std::collections::HashSet::new();
+    let mut variants = std::collections::HashSet::new();
+
+    for nested in nested_models {
+        if !fields.insert(nested.field.to_string()) {
+            return Err(syn::Error::new_spanned(
+                &nested.field,
+                "duplicate nested model field",
+            ));
+        }
+        if !variants.insert(nested.variant.to_string()) {
+            return Err(syn::Error::new_spanned(
+                &nested.field,
+                "nested model fields must generate unique message variants",
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn parse_binding_expr(input: ParseStream<'_>) -> Result<Expr> {

@@ -42,7 +42,7 @@ pub fn expand_component(attr: TokenStream, item: TokenStream) -> Result<TokenStr
 pub fn expand_model(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
     let config = parse2::<ModelConfig>(attr)?;
     let mut item = parse2::<ItemStruct>(item)?;
-    let bindings = config::model_bindings(&item)?;
+    let model_bindings = config::model_bindings(&item)?;
     let model = item.ident.clone();
     let fields = model_fields(&item)?;
     let module = config.module;
@@ -50,7 +50,7 @@ pub fn expand_model(attr: TokenStream, item: TokenStream) -> Result<TokenStream>
     strip_locus_field_attrs(&mut item);
     push_generated_model_fields(&mut item, &module)?;
 
-    let generated = expand_model_impl(module, &model, &fields, &bindings);
+    let generated = expand_model_impl(module, &model, &fields, &model_bindings);
 
     Ok(quote! {
         #item
@@ -84,9 +84,11 @@ fn strip_locus_field_attrs(item: &mut ItemStruct) {
     };
 
     for field in &mut fields.named {
-        field
-            .attrs
-            .retain(|attr| !attr.path().is_ident("locus") && !attr.path().is_ident("source"));
+        field.attrs.retain(|attr| {
+            !attr.path().is_ident("locus")
+                && !attr.path().is_ident("source")
+                && !attr.path().is_ident("model")
+        });
     }
 }
 

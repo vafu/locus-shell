@@ -1,8 +1,8 @@
 use proc_macro2::{Ident, TokenStream};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{Path, Type, Visibility};
 
-use super::config::BindingConfig;
+use super::config::{BindingConfig, ModelBindings};
 
 pub(super) enum ModuleMode {
     DirectInput,
@@ -199,16 +199,24 @@ pub(super) fn expand_model_impl(
     module_ident: Ident,
     model: &Ident,
     fields: &[(Ident, Type)],
-    bindings: &[BindingConfig],
+    model_bindings: &ModelBindings,
 ) -> TokenStream {
+    let bindings = &model_bindings.sources;
+    let nested_models = &model_bindings.nested_models;
     let source_local_fields = fields
         .iter()
-        .filter(|(field, _ty)| !bindings.iter().any(|binding| binding.field == *field))
+        .filter(|(field, _ty)| {
+            !bindings.iter().any(|binding| binding.field == *field)
+                && !nested_models.iter().any(|nested| nested.field == *field)
+        })
         .map(|(field, _ty)| field)
         .collect::<Vec<_>>();
     let context_fields = fields
         .iter()
-        .filter(|(field, _ty)| !bindings.iter().any(|binding| binding.field == *field))
+        .filter(|(field, _ty)| {
+            !bindings.iter().any(|binding| binding.field == *field)
+                && !nested_models.iter().any(|nested| nested.field == *field)
+        })
         .collect::<Vec<_>>();
     let constructor_args = context_fields.iter().map(|(field, ty)| {
         quote! {
@@ -219,6 +227,11 @@ pub(super) fn expand_model_impl(
         if bindings.iter().any(|binding| binding.field == *field) {
             quote! {
                 #field: ::std::default::Default::default(),
+            }
+        } else if let Some(nested) = nested_models.iter().find(|nested| nested.field == *field) {
+            let ty = &nested.ty;
+            quote! {
+                #field: <#ty as ::shell_core::model::SourceModel>::from_default_context(),
             }
         } else {
             quote! {
@@ -244,8 +257,28 @@ pub(super) fn expand_model_impl(
             #variant(::std::result::Result<#ty, ::providers::ProviderError>),
         }
     });
+    let context_update_variant = format_ident!("__ShellContext");
+    let context_message_variant =
+        source_model_context(fields, bindings, nested_models).map(|(_field, ty)| {
+            quote! {
+                #context_update_variant(::std::result::Result<#ty, ::providers::ProviderError>),
+            }
+        });
+    let nested_message_variants = nested_models.iter().map(|nested| {
+        let variant = &nested.variant;
+        let ty = &nested.ty;
+        quote! {
+            #variant(<#ty as ::shell_core::model::SourceModel>::Msg),
+        }
+    });
     let field_variants = bindings.iter().map(|binding| {
         let variant = &binding.variant;
+        quote! {
+            #variant,
+        }
+    });
+    let nested_field_variants = nested_models.iter().map(|nested| {
+        let variant = &nested.variant;
         quote! {
             #variant,
         }
@@ -304,6 +337,68 @@ pub(super) fn expand_model_impl(
             }
         }
     });
+    let nested_watchers = nested_models.iter().map(|nested| {
+        let variant = &nested.variant;
+        let source = &nested.source;
+        let ty = &nested.ty;
+        let source_locals = source_local_fields.iter().map(|field| {
+            quote! {
+                #[allow(unused_variables)]
+                let #field = &self.#field;
+            }
+        });
+
+        quote! {
+            {
+                let update_sender = sender.clone();
+                #(#source_locals)*
+                let source = #source;
+                let subscription_group =
+                    <#ty as ::shell_core::model::SourceModel>::start_source_model(
+                        source,
+                        update_sender,
+                        |msg| #module_ident::Msg::#variant(msg).into(),
+                    );
+                subscriptions.extend(subscription_group);
+            }
+        }
+    });
+    let nested_updates = nested_models.iter().map(|nested| {
+        let field = &nested.field;
+        let variant = &nested.variant;
+        let ty = &nested.ty;
+        let module_ident = &module_ident;
+        quote! {
+            #module_ident::Msg::#variant(msg) => {
+                <#ty as ::shell_core::model::SourceModel>::update_source_model(
+                    &mut self.#field,
+                    msg,
+                );
+                self.__shell.mark(#module_ident::Field::#variant);
+            }
+        }
+    });
+    let context_update =
+        source_model_context(fields, bindings, nested_models).map(|(field, _ty)| {
+            let module_ident = &module_ident;
+            quote! {
+                #module_ident::Msg::#context_update_variant(result) => {
+                    match result {
+                        ::std::result::Result::Ok(value) => {
+                            self.#field = value;
+                            self.__shell.clear_error();
+                        }
+                        ::std::result::Result::Err(error) => {
+                            self.__shell.set_error(#module_ident::WatchError {
+                                field: stringify!(#field),
+                                error: error.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        });
+    let source_model_impl = source_model_impl(model, fields, model_bindings, &module_ident);
 
     quote! {
         pub mod #module_ident {
@@ -314,6 +409,7 @@ pub(super) fn expand_model_impl(
             #[repr(u8)]
             pub enum Field {
                 #(#field_variants)*
+                #(#nested_field_variants)*
             }
 
             #[derive(Debug, Default)]
@@ -350,6 +446,8 @@ pub(super) fn expand_model_impl(
             #[derive(Debug)]
             pub enum Msg {
                 #(#message_variants)*
+                #context_message_variant
+                #(#nested_message_variants)*
             }
 
             #[derive(Debug, Default)]
@@ -423,6 +521,8 @@ pub(super) fn expand_model_impl(
             pub fn update(&mut self, msg: #module_ident::Msg) {
                 match msg {
                     #(#updates)*
+                    #context_update
+                    #(#nested_updates)*
                 }
             }
 
@@ -439,10 +539,212 @@ pub(super) fn expand_model_impl(
             {
                 let mut subscriptions = ::providers::SubscriptionGroup::new();
                 #(#watchers)*
+                #(#nested_watchers)*
                 subscriptions
             }
         }
 
         #default_impl
+        #source_model_impl
     }
+}
+
+fn source_model_impl(
+    model: &Ident,
+    fields: &[(Ident, Type)],
+    model_bindings: &ModelBindings,
+    module_ident: &Ident,
+) -> TokenStream {
+    let bindings = &model_bindings.sources;
+    let nested_models = &model_bindings.nested_models;
+    let context_fields = fields
+        .iter()
+        .filter(|(field, _ty)| {
+            !bindings.iter().any(|binding| binding.field == *field)
+                && !nested_models.iter().any(|nested| nested.field == *field)
+        })
+        .collect::<Vec<_>>();
+
+    let [(context_field, context_ty)] = context_fields.as_slice() else {
+        return TokenStream::new();
+    };
+    if !is_option_type(context_ty) {
+        return TokenStream::new();
+    }
+
+    let context_update_variant = format_ident!("__ShellContext");
+    let source_model_watchers = bindings.iter().map(|binding| {
+        let variant = &binding.variant;
+        let source = &binding.source;
+        let ty = &binding.ty;
+
+        quote! {
+            {
+                let update_sender = sender.clone();
+                let map = map.clone();
+                #[allow(unused_variables)]
+                let #context_field = &context;
+                let source = ::providers::provider_for::<#ty, _>(#source);
+                let subscription = ::providers::Subscription::spawn(move |cancellation| async move {
+                    ::providers::run_provider(source, cancellation, move |result| {
+                        let result = result.map_err(|error| {
+                            ::providers::ProviderError::new(error.to_string())
+                        });
+                        update_sender.input(map(#module_ident::Msg::#variant(result)));
+                    })
+                    .await;
+                });
+                subscriptions.push(subscription);
+            }
+        }
+    });
+    let nested_source_model_watchers = nested_models.iter().map(|nested| {
+        let variant = &nested.variant;
+        let source = &nested.source;
+        let ty = &nested.ty;
+
+        quote! {
+            {
+                let update_sender = sender.clone();
+                let map = map.clone();
+                #[allow(unused_variables)]
+                let #context_field = &context;
+                let source = #source;
+                let subscription_group =
+                    <#ty as ::shell_core::model::SourceModel>::start_source_model(
+                        source,
+                        update_sender,
+                        move |msg| map(#module_ident::Msg::#variant(msg)),
+                    );
+                subscriptions.extend(subscription_group);
+            }
+        }
+    });
+
+    quote! {
+        impl ::shell_core::model::SourceModel for #model {
+            type Context = #context_ty;
+            type Msg = #module_ident::Msg;
+
+            fn from_default_context() -> Self
+            where
+                Self::Context: ::std::default::Default,
+            {
+                Self::new(::std::default::Default::default())
+            }
+
+            fn update_source_model(&mut self, msg: Self::Msg) {
+                Self::update(self, msg);
+            }
+
+            fn start_source_model<Component, Source, Map>(
+                source: Source,
+                sender: ::relm4::ComponentSender<Component>,
+                map: Map,
+            ) -> ::providers::SubscriptionGroup
+            where
+                Component: ::relm4::Component + 'static,
+                <Component as ::relm4::Component>::Input: Send,
+                <Component as ::relm4::Component>::Output: Send,
+                <Component as ::relm4::Component>::CommandOutput: Send,
+                Source: ::providers::Provider<Self::Context>,
+                Map: Fn(Self::Msg) -> <Component as ::relm4::Component>::Input
+                    + Clone
+                    + Send
+                    + 'static,
+            {
+                let mut subscriptions = ::providers::SubscriptionGroup::new();
+                let subscription = ::providers::Subscription::spawn(move |cancellation| async move {
+                    let context_updates = source.stream(cancellation.clone());
+                    tokio::pin!(context_updates);
+                    let mut context_subscriptions = ::providers::SubscriptionGroup::new();
+
+                    loop {
+                        let update = tokio::select! {
+                            _ = cancellation.cancelled() => break,
+                            update = ::tokio_stream::StreamExt::next(&mut context_updates) => update,
+                        };
+
+                        match update {
+                            Some(Ok(context)) => {
+                                context_subscriptions.cancel();
+                                sender.input(map.clone()(#module_ident::Msg::#context_update_variant(
+                                    ::std::result::Result::Ok(context.clone()),
+                                )));
+                                context_subscriptions =
+                                    #model::start_for_source_context(context, sender.clone(), map.clone());
+                            }
+                            Some(Err(error)) => {
+                                sender.input(map.clone()(#module_ident::Msg::#context_update_variant(
+                                    ::std::result::Result::Err(::providers::ProviderError::new(error.to_string())),
+                                )));
+                            }
+                            None => break,
+                        }
+                    }
+                    context_subscriptions.cancel();
+                });
+                subscriptions.push(subscription);
+                subscriptions
+            }
+        }
+
+        impl #model {
+            fn start_for_source_context<Component, Map>(
+                context: <Self as ::shell_core::model::SourceModel>::Context,
+                sender: ::relm4::ComponentSender<Component>,
+                map: Map,
+            ) -> ::providers::SubscriptionGroup
+            where
+                Component: ::relm4::Component + 'static,
+                <Component as ::relm4::Component>::Input: Send,
+                <Component as ::relm4::Component>::Output: Send,
+                <Component as ::relm4::Component>::CommandOutput: Send,
+                Map: Fn(<Self as ::shell_core::model::SourceModel>::Msg) -> <Component as ::relm4::Component>::Input
+                    + Clone
+                    + Send
+                    + 'static,
+            {
+                let mut subscriptions = ::providers::SubscriptionGroup::new();
+                #(#source_model_watchers)*
+                #(#nested_source_model_watchers)*
+                subscriptions
+            }
+        }
+    }
+}
+
+fn source_model_context<'a>(
+    fields: &'a [(Ident, Type)],
+    bindings: &[BindingConfig],
+    nested_models: &[super::config::NestedModelConfig],
+) -> Option<(&'a Ident, &'a Type)> {
+    let context_fields = fields
+        .iter()
+        .filter(|(field, _ty)| {
+            !bindings.iter().any(|binding| binding.field == *field)
+                && !nested_models.iter().any(|nested| nested.field == *field)
+        })
+        .collect::<Vec<_>>();
+
+    let [(field, ty)] = context_fields.as_slice() else {
+        return None;
+    };
+
+    if !is_option_type(ty) {
+        return None;
+    }
+
+    Some((field, ty))
+}
+
+fn is_option_type(ty: &Type) -> bool {
+    let Type::Path(type_path) = ty else {
+        return false;
+    };
+    type_path
+        .path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "Option")
 }

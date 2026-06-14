@@ -395,12 +395,91 @@ pub mod source {
             })
         }
     }
+    #[derive(Clone, Debug)]
+    pub struct RelatedNodeProvider<Owner, Target> {
+        owner: NodeRef<Owner>,
+        relation: &'static str,
+        direction: CollectionDirection,
+        kind: Option<&'static str>,
+        _target: PhantomData<fn() -> Target>,
+    }
+    impl<Owner, Target> RelatedNodeProvider<Owner, Target> {
+        fn new(
+            owner: NodeRef<Owner>,
+            relation: &'static str,
+            direction: CollectionDirection,
+            kind: Option<&'static str>,
+        ) -> Self {
+            Self {
+                owner,
+                relation,
+                direction,
+                kind,
+                _target: PhantomData,
+            }
+        }
+    }
+    impl<Owner, Target> Provider<Option<NodeRef<Target>>> for RelatedNodeProvider<Owner, Target>
+    where
+        Owner: Send + 'static,
+        Target: Send + 'static,
+    {
+        type Error = WatchError;
+        type Stream =
+            Pin<Box<dyn Stream<Item = Result<Option<NodeRef<Target>>, WatchError>> + Send>>;
+        fn stream(self, cancellation: CancellationToken) -> Self::Stream {
+            Box::pin(async_stream::stream! {
+                let binding = match self.direction { CollectionDirection::Sources =>
+                { NodeListBinding:: < Target > ::sources(self.owner.id().to_owned(),
+                self.relation) } CollectionDirection::Targets => { NodeListBinding::
+                < Target > ::targets(self.owner.id().to_owned(), self.relation) } };
+                let updates : Pin < Box < dyn Stream < Item = Result < Vec < NodeId
+                >, WatchError >> + Send >> = match self.kind { Some(kind) =>
+                Box::pin(binding.filter_kind(kind).stream(cancellation.clone())),
+                None => Box::pin(binding.stream(cancellation.clone())), };
+                tokio::pin!(updates); loop { let update = tokio::select! { _ =
+                cancellation.cancelled() => break, update = updates.next() => update,
+                }; match update { Some(Ok(nodes)) => { yield Ok(nodes.into_iter()
+                .next().map(NodeRef:: < Target > ::new)); } Some(Err(error)) => yield
+                Err(error), None => break, } }
+            })
+        }
+    }
+    #[derive(Debug)]
+    pub struct OptionalNodePropertyBinding<Model, Value> {
+        node: Option<NodeRef<Model>>,
+        property: Property<Model, Value>,
+        decode: DecodeValue<Value>,
+        _value: PhantomData<fn() -> Value>,
+    }
+    impl<Model, Value> Provider<Option<Value>> for OptionalNodePropertyBinding<Model, Value>
+    where
+        Model: Send + 'static,
+        Value: Send + 'static,
+    {
+        type Error = WatchError;
+        type Stream = Pin<Box<dyn Stream<Item = Result<Option<Value>, WatchError>> + Send>>;
+        fn stream(self, cancellation: CancellationToken) -> Self::Stream {
+            Box::pin(async_stream::stream! {
+                let Some(node) = self.node else { yield Ok(None); return; }; let
+                updates = node.raw_property(self.property).stream(cancellation
+                .clone()); tokio::pin!(updates); loop { let update = tokio::select! {
+                _ = cancellation.cancelled() => break, update = updates.next() =>
+                update, }; match update { Some(Ok(value)) => { match (self.decode)
+                (value.as_str()) { Ok(value) => yield Ok(Some(value)),
+                Err(DecodeError::MissingValue) => yield Ok(None), Err(error) => yield
+                Err(error.into()), } } Some(Err(error)) => yield Err(error), None =>
+                break, } }
+            })
+        }
+    }
     pub trait AgentSessionNodeExt {
         fn cwd(&self) -> NodePropertyBinding<model::AgentSession, ::std::string::String>;
         fn model(&self) -> NodePropertyBinding<model::AgentSession, ::std::string::String>;
         fn is_selected(
             &self,
         ) -> SelectedNodeProvider<model::AgentSession, TargetBinding<model::AgentSession>>;
+        fn session_project(&self) -> RelatedNodeProvider<model::AgentSession, model::Project>;
     }
     impl AgentSessionNodeExt for locus_provider::NodeRef<model::AgentSession> {
         fn cwd(&self) -> NodePropertyBinding<model::AgentSession, ::std::string::String> {
@@ -414,10 +493,19 @@ pub mod source {
         ) -> SelectedNodeProvider<model::AgentSession, TargetBinding<model::AgentSession>> {
             SelectedNodeProvider::new(paths::SELECTED_AGENT_SESSION.target(), self.id().to_owned())
         }
+        fn session_project(&self) -> RelatedNodeProvider<model::AgentSession, model::Project> {
+            RelatedNodeProvider::new(
+                self.clone(),
+                "session-project",
+                CollectionDirection::Targets,
+                Some("project"),
+            )
+        }
     }
     pub trait AppInstanceNodeExt {
         fn icon(&self) -> NodePropertyBinding<model::AppInstance, ::std::string::String>;
         fn name(&self) -> NodePropertyBinding<model::AppInstance, ::std::string::String>;
+        fn agent_session(&self) -> RelatedNodeProvider<model::AppInstance, model::AgentSession>;
     }
     impl AppInstanceNodeExt for locus_provider::NodeRef<model::AppInstance> {
         fn icon(&self) -> NodePropertyBinding<model::AppInstance, ::std::string::String> {
@@ -425,6 +513,14 @@ pub mod source {
         }
         fn name(&self) -> NodePropertyBinding<model::AppInstance, ::std::string::String> {
             self.property(model::AppInstance::NAME)
+        }
+        fn agent_session(&self) -> RelatedNodeProvider<model::AppInstance, model::AgentSession> {
+            RelatedNodeProvider::new(
+                self.clone(),
+                "agent-session",
+                CollectionDirection::Targets,
+                Some("agent-session"),
+            )
         }
     }
     pub trait ContextNodeExt {}
@@ -515,6 +611,7 @@ pub mod source {
         fn title(&self) -> NodePropertyBinding<model::Window, ::std::string::String>;
         fn urgent(&self) -> NodePropertyBinding<model::Window, bool>;
         fn is_selected(&self) -> SelectedNodeProvider<model::Window, TargetBinding<model::Window>>;
+        fn app_instance(&self) -> RelatedNodeProvider<model::Window, model::AppInstance>;
     }
     impl WindowNodeExt for locus_provider::NodeRef<model::Window> {
         fn app_icon(&self) -> NodePropertyBinding<model::Window, ::std::string::String> {
@@ -544,6 +641,14 @@ pub mod source {
         fn is_selected(&self) -> SelectedNodeProvider<model::Window, TargetBinding<model::Window>> {
             SelectedNodeProvider::new(paths::SELECTED_WINDOW.target(), self.id().to_owned())
         }
+        fn app_instance(&self) -> RelatedNodeProvider<model::Window, model::AppInstance> {
+            RelatedNodeProvider::new(
+                self.clone(),
+                "app-instance",
+                CollectionDirection::Targets,
+                Some("app-instance"),
+            )
+        }
     }
     pub trait WorkspaceNodeExt {
         fn active(&self) -> NodePropertyBinding<model::Workspace, bool>;
@@ -555,6 +660,8 @@ pub mod source {
         fn is_selected(
             &self,
         ) -> SelectedNodeProvider<model::Workspace, TargetBinding<model::Workspace>>;
+        fn output(&self) -> RelatedNodeProvider<model::Workspace, model::Output>;
+        fn project(&self) -> RelatedNodeProvider<model::Workspace, model::Project>;
     }
     impl WorkspaceNodeExt for locus_provider::NodeRef<model::Workspace> {
         fn active(&self) -> NodePropertyBinding<model::Workspace, bool> {
@@ -579,6 +686,356 @@ pub mod source {
             &self,
         ) -> SelectedNodeProvider<model::Workspace, TargetBinding<model::Workspace>> {
             SelectedNodeProvider::new(paths::SELECTED_WORKSPACE.target(), self.id().to_owned())
+        }
+        fn output(&self) -> RelatedNodeProvider<model::Workspace, model::Output> {
+            RelatedNodeProvider::new(
+                self.clone(),
+                "output",
+                CollectionDirection::Targets,
+                Some("output"),
+            )
+        }
+        fn project(&self) -> RelatedNodeProvider<model::Workspace, model::Project> {
+            RelatedNodeProvider::new(
+                self.clone(),
+                "project",
+                CollectionDirection::Targets,
+                Some("project"),
+            )
+        }
+    }
+    pub trait OptionalAgentSessionNodeExt {
+        fn cwd(&self) -> OptionalNodePropertyBinding<model::AgentSession, ::std::string::String>;
+        fn model(&self) -> OptionalNodePropertyBinding<model::AgentSession, ::std::string::String>;
+    }
+    impl OptionalAgentSessionNodeExt for Option<locus_provider::NodeRef<model::AgentSession>> {
+        fn cwd(&self) -> OptionalNodePropertyBinding<model::AgentSession, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::AgentSession::CWD,
+                decode: <model::AgentSession as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn model(&self) -> OptionalNodePropertyBinding<model::AgentSession, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::AgentSession::MODEL,
+                decode: <model::AgentSession as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+    }
+    pub trait OptionalAppInstanceNodeExt {
+        fn icon(&self) -> OptionalNodePropertyBinding<model::AppInstance, ::std::string::String>;
+        fn name(&self) -> OptionalNodePropertyBinding<model::AppInstance, ::std::string::String>;
+    }
+    impl OptionalAppInstanceNodeExt for Option<locus_provider::NodeRef<model::AppInstance>> {
+        fn icon(&self) -> OptionalNodePropertyBinding<model::AppInstance, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::AppInstance::ICON,
+                decode: <model::AppInstance as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn name(&self) -> OptionalNodePropertyBinding<model::AppInstance, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::AppInstance::NAME,
+                decode: <model::AppInstance as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+    }
+    pub trait OptionalContextNodeExt {}
+    impl OptionalContextNodeExt for Option<locus_provider::NodeRef<model::Context>> {}
+    pub trait OptionalOutputNodeExt {
+        fn connector(&self) -> OptionalNodePropertyBinding<model::Output, ::std::string::String>;
+        fn source(&self) -> OptionalNodePropertyBinding<model::Output, ::std::string::String>;
+    }
+    impl OptionalOutputNodeExt for Option<locus_provider::NodeRef<model::Output>> {
+        fn connector(&self) -> OptionalNodePropertyBinding<model::Output, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Output::CONNECTOR,
+                decode: <model::Output as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn source(&self) -> OptionalNodePropertyBinding<model::Output, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Output::SOURCE,
+                decode: <model::Output as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+    }
+    pub trait OptionalProjectNodeExt {
+        fn branch(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn display_icon(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn display_main(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn display_secondary(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn icon(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn name(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn notebook_path(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn path(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn subproj(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn task(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn worktree(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+        fn worktree_path(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String>;
+    }
+    impl OptionalProjectNodeExt for Option<locus_provider::NodeRef<model::Project>> {
+        fn branch(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::BRANCH,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn display_icon(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::DISPLAY_ICON,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn display_main(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::DISPLAY_MAIN,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn display_secondary(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::DISPLAY_SECONDARY,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn icon(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::ICON,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn name(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::NAME,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn notebook_path(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::NOTEBOOK_PATH,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn path(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::PATH,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn subproj(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::SUBPROJ,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn task(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::TASK,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn worktree(&self) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::WORKTREE,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn worktree_path(
+            &self,
+        ) -> OptionalNodePropertyBinding<model::Project, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Project::WORKTREE_PATH,
+                decode: <model::Project as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+    }
+    pub trait OptionalWindowNodeExt {
+        fn app_icon(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String>;
+        fn app_id(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String>;
+        fn class(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String>;
+        fn icon(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String>;
+        fn instance(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String>;
+        fn source(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String>;
+        fn title(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String>;
+        fn urgent(&self) -> OptionalNodePropertyBinding<model::Window, bool>;
+    }
+    impl OptionalWindowNodeExt for Option<locus_provider::NodeRef<model::Window>> {
+        fn app_icon(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Window::APP_ICON,
+                decode: <model::Window as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn app_id(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Window::APP_ID,
+                decode: <model::Window as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn class(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Window::CLASS,
+                decode: <model::Window as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn icon(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Window::ICON,
+                decode: <model::Window as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn instance(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Window::INSTANCE,
+                decode: <model::Window as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn source(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Window::SOURCE,
+                decode: <model::Window as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn title(&self) -> OptionalNodePropertyBinding<model::Window, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Window::TITLE,
+                decode: <model::Window as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn urgent(&self) -> OptionalNodePropertyBinding<model::Window, bool> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Window::URGENT,
+                decode: <model::Window as Decode<bool>>::decode,
+                _value: PhantomData,
+            }
+        }
+    }
+    pub trait OptionalWorkspaceNodeExt {
+        fn active(&self) -> OptionalNodePropertyBinding<model::Workspace, bool>;
+        fn focused(&self) -> OptionalNodePropertyBinding<model::Workspace, bool>;
+        fn index(&self) -> OptionalNodePropertyBinding<model::Workspace, u32>;
+        fn name(&self) -> OptionalNodePropertyBinding<model::Workspace, ::std::string::String>;
+        fn source(&self) -> OptionalNodePropertyBinding<model::Workspace, ::std::string::String>;
+        fn urgent(&self) -> OptionalNodePropertyBinding<model::Workspace, bool>;
+    }
+    impl OptionalWorkspaceNodeExt for Option<locus_provider::NodeRef<model::Workspace>> {
+        fn active(&self) -> OptionalNodePropertyBinding<model::Workspace, bool> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Workspace::ACTIVE,
+                decode: <model::Workspace as Decode<bool>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn focused(&self) -> OptionalNodePropertyBinding<model::Workspace, bool> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Workspace::FOCUSED,
+                decode: <model::Workspace as Decode<bool>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn index(&self) -> OptionalNodePropertyBinding<model::Workspace, u32> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Workspace::INDEX,
+                decode: <model::Workspace as Decode<u32>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn name(&self) -> OptionalNodePropertyBinding<model::Workspace, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Workspace::NAME,
+                decode: <model::Workspace as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn source(&self) -> OptionalNodePropertyBinding<model::Workspace, ::std::string::String> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Workspace::SOURCE,
+                decode: <model::Workspace as Decode<::std::string::String>>::decode,
+                _value: PhantomData,
+            }
+        }
+        fn urgent(&self) -> OptionalNodePropertyBinding<model::Workspace, bool> {
+            OptionalNodePropertyBinding {
+                node: self.clone(),
+                property: model::Workspace::URGENT,
+                decode: <model::Workspace as Decode<bool>>::decode,
+                _value: PhantomData,
+            }
         }
     }
     pub trait OutputPathExt {

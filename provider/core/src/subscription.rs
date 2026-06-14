@@ -75,6 +75,11 @@ impl SubscriptionGroup {
         self.subscriptions.push(subscription);
     }
 
+    /// Moves every subscription from `other` into this group.
+    pub fn extend(&mut self, mut other: SubscriptionGroup) {
+        self.subscriptions.append(&mut other.subscriptions);
+    }
+
     /// Stops and removes every subscription in the group.
     pub fn cancel(&mut self) {
         for mut subscription in self.subscriptions.drain(..) {
