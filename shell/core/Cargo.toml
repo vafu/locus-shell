@@ -10,6 +10,5 @@ async-channel = "2.5.0"
 gtk.workspace = true
 gtk4-layer-shell.workspace = true
 notify = "6.1.1"
-providers.workspace = true
 relm4.workspace = true
-tokio = { version = "1.52.3", features = ["net", "rt-multi-thread", "time"] }
+rxrust.workspace = true

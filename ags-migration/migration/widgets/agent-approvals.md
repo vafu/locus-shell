@@ -14,7 +14,7 @@
 
 Implement this as a user-facing `rsynapse-shell` overlay widget, not in
 `shell/core`. `shell/core` should only provide the generic layer-shell window,
-CSS registration, provider runtime, and Relm4 integration primitives.
+CSS registration, source runtime, and Relm4 integration primitives.
 
 The widget should own:
 
@@ -63,7 +63,7 @@ row/child component keyed by a stable approval id.
 ## Initial Models
 
 Start with plain Rust data structs for D-Bus data and derived view data, then
-wrap provider-backed fields in `#[shell_macros::model]` models as macro support
+wrap source-backed fields in `#[shell_macros::model]` models as macro support
 allows.
 
 ```rust
@@ -164,12 +164,12 @@ pub struct ApprovalCardModel {
 ```
 
 The first implementation can keep `pending` as a derived field updated whenever
-`sessions` changes. Longer term, a derived provider should emit
+`sessions` changes. Longer term, an observable source function should emit
 `Vec<PendingApproval>` directly so view models remain simple.
 
-## Provider And Stream Dependencies
+## Source Dependencies
 
-Required provider sources:
+Required sources:
 
 - `AgentSessionsProvider`: session-bus ObjectManager provider for
   `io.github.AgentDBus` at `/io/github/AgentDBus`, tracking session objects under
@@ -265,7 +265,7 @@ Do not move this styling into `shell/core`; consumer CSS owns the visual design.
   needed to bootstrap, add, remove, and update dynamic agent session objects.
 - [D-Bus method command provider](../../missing-shell-features/dbus-method-commands.md):
   needed for `RespondToElicitation` and `RespondToElicitationById`.
-- [Derived provider combinators](../../missing-shell-features/derived-provider-combinators.md):
+- [Observable source composition](../../missing-shell-features/observable-source-composition.md):
   needed for pending approval derivation, auto-open matching, distinct
   signatures, and project icon fallback.
 - [Locus graph collection providers](../../missing-shell-features/locus-graph-collection-providers.md):

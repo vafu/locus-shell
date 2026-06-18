@@ -8,3 +8,11 @@ Each widget proposal should include:
 - Provider and stream dependencies.
 - Links to missing shell features in `../../missing-shell-features/`.
 - Open questions.
+
+Current proposals:
+
+- [App runtime](app-runtime.md)
+- [Bar](bar.md)
+- [System indicators](system-indicators.md)
+- [Agent approvals](agent-approvals.md)
+- [OSD](osd.md)

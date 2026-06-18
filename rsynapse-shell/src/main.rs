@@ -1,5 +1,4 @@
-mod providers;
-mod schema;
+mod sources;
 mod theme;
 mod widgets;
 

@@ -1,289 +1,74 @@
 @startuml
-title Locus Shell Architecture\nCurrent crate boundaries
-skinparam packageStyle rectangle
-skinparam classAttributeIconSize 0
-hide empty methods
+title Locus Shell Current Architecture
 
 package "shell/core\ncrate: shell_core" {
   class ShellApp {
-    + new(app_id)
-    + with_css(path)
     + with_scss(path)
     + watch_stylesheets(enabled)
-    + install provider runtime
-    + run(component)
+    + run<Component>(init)
   }
 
-  class ProviderRuntime {
-    + install_provider_runtime()
-  }
+  class WindowConfig
+  class "source::Observable<T>" as Observable
+  class "source::Subscriptions" as Subscriptions
 
-  package "css" {
-    class Stylesheet {
-      + load()
-      + install()
-      + watch()
-    }
-
-    enum CssPriority {
-      Application
-      User
-    }
-
-    class StylesheetSource {
-      + path()
-      + load()
-      + watch_roots()
-    }
-  }
-
-  package "window" {
-    class WindowConfig {
-      + new(layer)
-      + with_anchors(anchors)
-      + with_surface_margins(margins)
-      + with_exclusive_zone(zone)
-      + with_auto_exclusive_zone()
-      + with_namespace(namespace)
-      + with_keyboard_interactive(enabled)
-    }
-
-    enum Layer
-    enum Edge
-    enum ExclusiveZone
-    class Anchors
-    class SurfaceMargins
-  }
-
-  ShellApp --> Stylesheet
-  ShellApp --> ProviderRuntime
-  Stylesheet --> StylesheetSource
-  Stylesheet --> CssPriority
-  WindowConfig --> Layer
-  WindowConfig --> Anchors
-  WindowConfig --> SurfaceMargins
-  WindowConfig --> ExclusiveZone
-  Anchors --> Edge
-}
-
-package "provider/core\ncrate: providers" {
-  interface "Provider<T>" as Provider {
-    + stream(cancellation): Stream<Result<T,E>>
-  }
-
-  interface "ProviderExt<T>" as ProviderExt {
-    + shared()
-  }
-
-  class Subscription {
-    + spawn(run)
-    + cancellation()
-    + cancel()
-  }
-
-  class SubscriptionGroup {
-    + push(subscription)
-    + cancel()
-  }
-
-  class "SharedProvider<P,T>" as SharedProvider {
-    + new(provider)
-    + stream(cancellation)
-  }
-
-  class CancellationToken
-  class ProviderError
-  interface TaskSpawner {
-    + spawn_boxed(future)
-  }
-
-  ProviderExt --|> Provider
-  SharedProvider ..|> Provider
-  Subscription --> TaskSpawner
-  Subscription --> CancellationToken
-  SubscriptionGroup --> Subscription
-}
-
-package "provider/property\ncrate: property_provider" {
-  class "Property<Target,Value>" as SharedProperty {
-    - key: &'static str
-    + new(key)
-    + key()
-  }
-
-  interface "PropertyBinding<T>" as SharedPropertyBinding {
-    + property()
-    + key()
-  }
-
-  SharedPropertyBinding --|> Provider
-  SharedPropertyBinding --> SharedProperty
-}
-
-package "provider/dbus\ncrate: dbus_provider" {
-  enum DbusBus {
-    Session
-    System
-  }
-
-  class "Object<Target>" as DbusObject {
-    + session(service,path,interface)
-    + system(service,path,interface)
-    + bind(property)
-    + bus()
-    + service()
-    + path()
-    + interface()
-  }
-
-  class "PropertyBinding<Target,Value>" as DbusPropertyBinding {
-    + bus()
-    + service()
-    + path()
-    + interface()
-    + property_name()
-    + binding_key()
-    + stream(cancellation)
-  }
-
-  class DbusPropertyKey
-  class WatchError
-
-  DbusObject --> DbusPropertyBinding
-  DbusObject --> SharedProperty
-  DbusPropertyBinding ..|> Provider
-  DbusPropertyBinding ..|> SharedPropertyBinding
-  DbusPropertyBinding --> DbusPropertyKey
-  DbusPropertyBinding --> WatchError
-}
-
-package "provider/locus\ncrate: locus_provider" {
-  class "Path<Target>" as LocusPath {
-    + new(name,source,relations,many)
-    + raw_property(property)
-    + target()
-    + all()
-    + source()
-    + relations()
-  }
-
-  class "LocusPropertyBinding<Target>" as LocusPropertyBinding {
-    + source()
-    + relations()
-    + property_name()
-    + binding_key()
-    + stream(cancellation)
-  }
-
-  class "NodeRef<Model>" as NodeRef {
-    + new(id)
-    + id()
-    + raw_property(property)
-  }
-
-  class "NodePropertyBinding<Model>" as NodePropertyBinding {
-    + node()
-    + property_name()
-    + stream(cancellation)
-  }
-
-  class "Relation<Source,Target>" as Relation {
-    + new(name)
-    + sources(target)
-    + targets(source)
-  }
-
-  class "TargetBinding<Target>" as TargetBinding {
-    + source()
-    + relations()
-    + stream(cancellation)
-  }
-
-  class "NodeListBinding<Target>" as NodeListBinding {
-    + resolve_all(source,relations)
-    + sources(target,relation)
-    + targets(source,relation)
-    + filter_kind(kind)
-    + query()
-    + stream(cancellation)
-  }
-
-  class "KindFilteredNodeListBinding<Target>" as KindFilteredNodeListBinding {
-    + binding()
-    + kind()
-    + into_parts()
-    + stream(cancellation)
-  }
-
-  class WatchError
-  class ListError
-  class DecodeError
-
-  LocusPath --> LocusPropertyBinding
-  LocusPath --> TargetBinding
-  LocusPath --> NodeListBinding
-  NodeRef --> NodePropertyBinding
-  Relation --> NodeListBinding
-  NodeListBinding --> KindFilteredNodeListBinding
-  LocusPropertyBinding ..|> Provider
-  LocusPropertyBinding ..|> SharedPropertyBinding
-  NodePropertyBinding ..|> Provider
-  NodePropertyBinding ..|> SharedPropertyBinding
-  TargetBinding ..|> Provider
-  NodeListBinding ..|> Provider
-  KindFilteredNodeListBinding ..|> Provider
+  ShellApp --> WindowConfig
+  Subscriptions --> Observable
 }
 
 package "shell/macros\ncrate: shell_macros" {
   class "#[model]" as ModelMacro {
-    + generated state
-    + result-carrying messages
+    + plain model fields
+    + source update messages
     + dirty tracking
     + subscription ownership
   }
 
   class "#[component]" as ComponentMacro {
-    + starts provider subscriptions
+    + starts Observable subscriptions
     + rewrites bind attributes
   }
 
-  class "#[bindings]" as BindingsMacro {
-    + legacy compatibility module
-  }
-
-  ModelMacro ..> Provider
-  ComponentMacro ..> Provider
-  ComponentMacro --> SubscriptionGroup
-  BindingsMacro ..> Provider
+  ModelMacro --> Observable
+  ComponentMacro --> Subscriptions
 }
 
-package "provider/common\ncrate: common_providers" {
-  class upower {
-    + DISPLAY_DEVICE
-    + DisplayDevice::PERCENTAGE
+package "consumer source modules" {
+  class "locusfs source fn" as LocusSource {
+    + window_title(String)
+    + window_is_selected(String)
+    + selected_workspace_windows()
   }
 
-  upower --> DbusObject
-  upower --> SharedProperty
+  class "other source fn" as OtherSource
+
+  LocusSource --> Observable
+  OtherSource --> Observable
 }
 
 package "dev-widgets\ncrate: dev_widgets" {
   class Bar
   class WindowTitle
-  class "generated locus_schema" as DevSchema
 
   Bar --> WindowTitle
-  Bar ..> Provider
-  DevSchema --> LocusPath
-  DevSchema --> SharedProperty
-  DevSchema --> NodeRef
+  Bar --> LocusSource
+  WindowTitle --> LocusSource
 }
 
-DbusPropertyBinding --> CancellationToken
-LocusPropertyBinding --> CancellationToken
-NodePropertyBinding --> CancellationToken
-TargetBinding --> CancellationToken
-NodeListBinding --> CancellationToken
-KindFilteredNodeListBinding --> CancellationToken
+package "rsynapse-shell\ncrate: rsynapse_shell" {
+  class MainBar
+  class ProjectLabel
+  class WindowTile
+
+  MainBar --> ProjectLabel
+  MainBar --> WindowTile
+  ProjectLabel --> LocusSource
+  WindowTile --> LocusSource
+}
+
+database "locusfs" as Locusfs
+
+LocusSource --> Locusfs : read/watch node path strings
+ModelMacro --> ComponentMacro
 
 @enduml

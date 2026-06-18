@@ -12,26 +12,28 @@
 
 ## Expected Locus-Shell Update Areas
 
-### Provider Core
+### Observable Source API
 
-- Keep `combine_latest2_stream` / `combine_latest2` as the first derived
-  provider primitive.
-- Add only concrete stream helpers demanded by migration code:
-  - restartable delayed hide for OSD.
-  - possibly `combine_latest3` for dense bar DTOs.
-- Preserve custom streams as the escape hatch for dynamic collection hydration.
+- Adopt the Observable source API in `../SOURCE_API.md` as the target authoring
+  model for derived widget data.
+- Use `#[shell_macros::observable]` functions for workspace status, window
+  indicators, agent status, build status, and system summaries.
+- Keep current provider helpers only as a migration bridge until generated
+  Locus/D-Bus/common sources are observable-native.
 
 ### Shell Macros
 
 - Add multi-field `#[bind(a, b)]` view setters so composed DTO fields are not
   required for every small formatting case.
+- Add `#[shell_macros::observable]`, `#[observe(...)]`, and `#[inject]` support
+  so custom data composition does not require custom source structs.
 - Continue improving `#[bind_list]`:
   - keyed row identity.
   - GTK-native or custom list backends when approval or bar lists require
     selection, paging, or custom layout.
   - stable row component ownership for dynamic collections.
 - Keep generated code understandable and avoid hiding dependency graphs inside
-  component-local derived-field magic.
+  component-local manual wiring.
 
 ### Shell Core
 
@@ -46,9 +48,9 @@
 - CSS registration and watcher APIs are already close to the needed direction;
   migration-specific SCSS preprocessing should stay in `rsynapse-shell`.
 
-### Provider Backends And Common Providers
+### Source Backends And Common Sources
 
-- Add or prototype typed providers/clients for:
+- Add or prototype typed sources/clients for:
   - D-Bus ObjectManager collections.
   - D-Bus method calls.
   - MPRIS.
@@ -59,18 +61,18 @@
   - Pomodoro.
   - brightness/backlight.
 - Keep service-specific display policy in `rsynapse-shell`; promote only stable
-  typed service definitions into `common-providers`.
+  typed service definitions into common source crates.
 
 ### Locus Schema And Collection Helpers
 
-- Generate or hand-write consumer schema helpers for semantic collections:
+- Generate consumer schema helpers for semantic collections:
   - workspace rows for an output.
   - active workspace for an output.
   - workspace windows with hydrated window/project/agent data.
   - selected workspace agent sessions for approval auto-open.
   - build invocation summaries.
-- Keep graph traversal and hydration in provider/schema helpers, not in view
-  components.
+- Keep graph traversal and hydration in generated schema/source helpers, not in
+  view components.
 
 ### Shell Consumer Work
 
@@ -83,20 +85,19 @@
 - Replace `ags request` with `rsynapsectl` over a typed session D-Bus request
   service.
 - Keep scripts where low risk, then replace stats and side-effect scripts with
-  typed Rust providers/helpers.
+  typed Rust sources/helpers.
 
 ## First Migration Order
 
-1. Finalize provider-core `combine_latest2` and commit it.
-2. Keep `rsynapse-shell` compiling as an empty playground.
-3. Port CSS files into `rsynapse-shell` and verify stylesheet loading.
-4. Build the request bridge and `rsynapsectl` because approvals, hints, and
+1. Keep `rsynapse-shell` compiling while the Observable source API is introduced.
+2. Port CSS files into `rsynapse-shell` and verify stylesheet loading.
+3. Build the request bridge and `rsynapsectl` because approvals, hints, and
    theme commands depend on it.
-5. Port monitor provider/lifecycle helpers for per-monitor bars and
+4. Port monitor source/lifecycle helpers for per-monitor bars and
    active-monitor overlays.
-6. Port the OSD first: small UI surface, clear provider gaps, good test of
+5. Port the OSD first: small UI surface, clear source gaps, good test of
    transient streams.
-7. Port agent approvals: exercises ObjectManager, Locus joins, dynamic lists,
+6. Port agent approvals: exercises ObjectManager, Locus joins, dynamic lists,
    keyboard mode, and GtkSourceView.
-8. Port the bar incrementally by cluster: clock/battery, workspace strip,
+7. Port the bar incrementally by cluster: clock/battery, workspace strip,
    window indicators, build status, audio/network/Bluetooth/tray/media.

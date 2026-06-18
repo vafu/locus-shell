@@ -108,6 +108,30 @@ Candidate DTOs: `WorkspaceModel`, `WorkspaceWindowIndicatorModel`,
 `NetworkStatusView`, `BatteryStatusView`, `PowerProfileView`, `ClockView`, and
 `SystemStatusView`.
 
+## Essential Panel Phase
+
+Before the full AGS bar is complete, port the right-side essentials as a focused
+system cluster phase. The concrete plan lives in
+[System Indicators Migration Plan](system-indicators.md).
+
+Initial scope:
+
+- clock/date button, including the `swaync-client -t` click action.
+- CPU/memory dual level bar, matching the AGS `DualIndicator` thresholds and
+  `memory` Material icon.
+- battery indicator through locusfs UPower BAT1, including the AGS-equivalent
+  UPower `IconName`/`battery_icon_name` symbolic icons instead of a single
+  placeholder icon.
+- Wi-Fi indicator with SSID tooltip and NetworkManager icon-name equivalent.
+- ALSA/PipeWire default output indicator with default volume icon and output
+  description tooltip.
+- power profile button with active profile tooltip/icon and profile cycling
+  once a method/command path is available.
+
+Explicitly skip Bluetooth in this phase. The Bluetooth widget can be migrated
+after the simpler D-Bus/locusfs indicators are stable because it adds device
+classification and per-device battery fallback behavior.
+
 ## Providers And Stream Composition
 
 Create consumer-owned provider modules rather than adding bar policy to
@@ -131,24 +155,24 @@ Create consumer-owned provider modules rather than adding bar policy to
 - `process_providers`: narrow command providers for `scripts/sysstats.sh`,
   `pw-dump`, `swaync-client -t`, and any future shell commands.
 
-Use `combine_latest2` for simple pairs such as selected workspace plus monitor
-workspace list, status plus project branch, and default speaker plus icon
-metadata. Custom providers are expected for dynamic collections where the
-upstream list changes and each item needs hydration, for example workspace
-lists, workspace window tiles, build invocations, tray items, and Bluetooth
-device rows. Those providers should read as typed data composition; shared
-helpers or an evaluated `rxrust` layer should hide watcher loops,
-switch/restart plumbing, subscription wiring, and fanout policy.
+Use Observable source functions for composition such as selected workspace plus
+monitor workspace list, status plus project branch, and default speaker plus
+icon metadata. Dynamic collections where the upstream list changes and each
+item needs hydration should also be expressed as observable source functions
+once the macro API from `../../../SOURCE_API.md` exists. Those functions should
+read as typed data composition and hide watcher loops, switch/restart plumbing,
+subscription wiring, and fanout policy.
 
-Use shared latest providers for expensive or fanout-heavy sources: AgentDBus
+Use shared latest sources for expensive or fanout-heavy inputs: AgentDBus
 sessions map, Locus selected nodes, per-output workspace list, per-window agent
 data, app-id-to-icon lookup, Bluetooth device list, PipeWire sink props, bzbus
 properties store, and clock ticks.
 
-Stream merging should live in consumer provider modules. Relm4 components should
-receive already-shaped DTOs and handle only view-local interactions such as
-hover reveal, popover open state, selecting an audio sink, toggling Bluetooth,
-cycling power profile, responding to elicitation, and toggling notifications.
+Observable merging should live in consumer source functions. Relm4 components
+should receive already-shaped DTOs and handle only view-local interactions such
+as hover reveal, popover open state, selecting an audio sink, toggling
+Bluetooth, cycling power profile, responding to elicitation, and toggling
+notifications.
 
 ## D-Bus And Locus Dependencies
 
@@ -186,8 +210,8 @@ D-Bus/provider dependencies:
 - [Per-monitor layer surface lifecycle](../../missing-shell-features/per-monitor-layer-surface-lifecycle.md)
 - [Dynamic provider collections](../../missing-shell-features/dynamic-provider-collections.md)
 - [Typed Locus collection hydration](../../missing-shell-features/typed-locus-collection-hydration.md)
-- [Shared provider fanout keys](../../missing-shell-features/shared-provider-fanout-keys.md)
-- [Provider stream combinators](../../missing-shell-features/provider-stream-combinators.md)
+- [Shared source fanout keys](../../missing-shell-features/shared-source-fanout-keys.md)
+- [Observable source composition](../../missing-shell-features/observable-source-composition.md)
 - [StatusNotifier tray provider](../../missing-shell-features/statusnotifier-tray-provider.md)
 - [MPRIS provider](../../missing-shell-features/mpris-provider.md)
 - [WirePlumber audio provider](../../missing-shell-features/wireplumber-audio-provider.md)

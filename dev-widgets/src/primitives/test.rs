@@ -1,25 +1,25 @@
 use super::window_title::{WINDOW_ROW_CLASSES, WINDOW_ROW_SELECTED_CLASSES, window_title_classes};
 
-use crate::locus_schema::{WindowNodeExt, WorkspacePathExt, model, paths};
-use providers::Provider;
+use crate::locus;
+use shell_core::source::IntoObservable;
 
 #[test]
-fn selected_workspace_windows_are_semantic_provider() {
-    fn assert_provider<T: Send + 'static, P: Provider<T>>(_provider: P) {}
+fn selected_workspace_windows_are_semantic_source() {
+    fn assert_source<T: Send + 'static, P: IntoObservable<T>>(_source: P) {}
 
-    let provider = paths::SELECTED_WORKSPACE.windows();
+    let source = locus::selected_workspace_windows();
 
-    assert_provider::<Vec<locus_provider::NodeRef<model::Window>>, _>(provider);
+    assert_source::<Vec<String>, _>(source);
 }
 
 #[test]
 fn window_title_is_local_to_window_node() {
-    fn assert_provider<T: Send + 'static, P: Provider<T>>(_provider: P) {}
+    fn assert_source<T: Send + 'static, P: IntoObservable<T>>(_source: P) {}
 
-    let window = locus_provider::node::<model::Window>("window:1");
+    let window = "window:1".to_owned();
 
-    assert_provider::<String, _>(window.title());
-    assert_provider::<bool, _>(window.is_selected());
+    assert_source::<String, _>(locus::window_title(window.clone()));
+    assert_source::<bool, _>(locus::window_is_selected(window));
 }
 
 #[test]

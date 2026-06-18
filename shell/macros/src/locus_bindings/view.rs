@@ -149,7 +149,7 @@ fn view_binding(field: Ident, bindings: &ViewBindings<'_>) -> Result<ViewBinding
                 .iter()
                 .find(|binding| binding.field == field)
                 .ok_or_else(|| {
-                    syn::Error::new_spanned(field, "unknown provider field in view attribute")
+                    syn::Error::new_spanned(field, "unknown source field in view attribute")
                 })?;
             Ok(ViewBinding::Known {
                 field: binding.field.clone(),
@@ -200,7 +200,7 @@ fn binding_attr_field(current: &TokenTree, next: Option<&TokenTree>) -> Result<O
     if args.next().is_some() || attr_tokens.next().is_some() {
         return Err(syn::Error::new_spanned(
             field,
-            "expected exactly one provider field",
+            "expected exactly one source field",
         ));
     }
     Ok(Some(field))
@@ -271,7 +271,7 @@ fn append_locus_tracked_setter(
         let Some(token) = iter.next() else {
             return Err(syn::Error::new_spanned(
                 binding.field(),
-                "expected setter after provider binding attribute",
+                "expected setter after source binding attribute",
             ));
         };
         let is_colon = matches!(&token, TokenTree::Punct(punct) if punct.as_char() == ':');
@@ -479,7 +479,7 @@ fn locus_setter_value_expr(
     if closure.inputs.len() != 1 {
         return Err(syn::Error::new_spanned(
             closure.or1_token,
-            "provider setter closures must accept exactly one field value",
+            "source setter closures must accept exactly one field value",
         ));
     }
 
@@ -507,7 +507,7 @@ fn validate_locus_value_pat(input: &Pat) -> Result<()> {
     let Pat::Ident(_) = input else {
         return Err(syn::Error::new_spanned(
             input,
-            "provider setter closure parameters must be identifiers or typed patterns",
+            "source setter closure parameters must be identifiers or typed patterns",
         ));
     };
 

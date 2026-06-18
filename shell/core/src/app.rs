@@ -8,7 +8,6 @@ use relm4::{Component, RelmApp};
 use crate::css::{
     CssPriority, SassConfig, Stylesheet, StylesheetError, StylesheetSource, StylesheetWatcher,
 };
-use crate::runtime;
 
 pub struct ShellApp {
     app_id: String,
@@ -113,8 +112,6 @@ impl ShellApp {
             sass_config,
             startup_handlers,
         } = self;
-
-        runtime::ensure_provider_runtime();
 
         let app = RelmApp::<C::Input>::new(&app_id);
         let stylesheets = Self::prepare_stylesheets(stylesheets, sass_config)

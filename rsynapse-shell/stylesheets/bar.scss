@@ -2,6 +2,10 @@ $label-margin: 4px;
 $outline-width: $label-margin * 0.4;
 $outline-offset: $label-margin * 0.5;
 
+.bar-window {
+  background-color: transparent;
+}
+
 .bar {
   background-color: transparent;
   padding: 0px 0px 8px 0px;
@@ -121,6 +125,24 @@ $outline-offset: $label-margin * 0.5;
 
 .panel-widget {
   margin: 0 4px;
+}
+
+.system-cluster {
+  margin-right: 8px;
+}
+
+.network-icon,
+.audio-icon,
+.battery-icon {
+  opacity: 0.78;
+}
+
+.clock-widget {
+  min-height: 28px;
+
+  .clock-label {
+    font-weight: 700;
+  }
 }
 
 .projects-list {

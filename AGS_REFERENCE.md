@@ -1,6 +1,6 @@
 # AGS Shell Reference
 
-This document summarizes `/home/v47/.config/ags` as a product reference for future Rust shell widgets. It is not an implementation template. The AGS code uses JavaScript/TypeScript, Astal, RxJS-style streams, and imperative GTK updates; `locus-shell` should use the feature inventory and data contracts while keeping the Rust/Relm4/provider architecture native and simpler.
+This document summarizes `/home/v47/.config/ags` as a product reference for future Rust shell widgets. It is not an implementation template. The AGS code uses JavaScript/TypeScript, Astal, RxJS-style streams, and imperative GTK updates; `locus-shell` should use the feature inventory and data contracts while keeping the Rust/Relm4 architecture typed, compiled, and declarative.
 
 ## Top-Level Shape
 
@@ -18,20 +18,20 @@ For Rust this suggests a future external `locus-bar` crate, not framework code. 
 
 ## Data Sources
 
-Relevant provider families:
+Relevant source families:
 
 - Locus graph D-Bus: workspaces, windows, projects, app instances, outputs, selected entities, build invocations.
 - Agent D-Bus: agent sessions, status, pending prompts, model/cost/context details, approval interactions.
 - Standard D-Bus/system services: UPower battery, NetworkManager or equivalent, Bluetooth, notifications, tray/status notifier.
 - PipeWire/WirePlumber: audio sinks/sources, default route, volume/mute.
 - MPRIS: media player metadata and playback status.
-- Process/file providers: sysstats scripts, CSS compilation, theme/accent sync.
-- Time providers: clock and date ticks.
-- HTTP/cache providers: weather and icon enrichment can be derived from Locus/system state.
+- Process/file sources: sysstats scripts, CSS compilation, theme/accent sync.
+- Time sources: clock and date ticks.
+- HTTP/cache sources: weather and icon enrichment can be derived from Locus/system state.
 
 ## Domain Models
 
-The AGS bar builds summarized data before rendering. Equivalent Rust models should be explicit structs emitted by providers or derived provider chains:
+The AGS bar builds summarized data before rendering. Equivalent Rust models should be explicit structs emitted by generated sources or user-authored observable source functions:
 
 - `WorkspaceStatus`: workspace id/index/name, active/current/urgent state, project display data, work status.
 - `WindowIndicator`: window id/title/app icon, active/urgent state, agent session linkage, compact status.
@@ -41,15 +41,15 @@ The AGS bar builds summarized data before rendering. Equivalent Rust models shou
 
 ## Update Pattern To Preserve
 
-AGS uses RxJS-style streams with `shareReplay`, distinct checks, and per-widget subscriptions. The Rust equivalent should not copy RxJS. It should use:
+AGS uses RxJS-style streams with `shareReplay`, distinct checks, and per-widget subscriptions. The Rust equivalent should preserve that dataflow clarity through the Observable source API in `SOURCE_API.md`, not through JavaScript or imperative GTK wiring. It should use:
 
-- provider expressions that emit typed values,
-- derived providers for summaries,
+- source expressions that emit typed values,
+- derived observable source functions for summaries,
 - Relm4 messages for model updates,
-- `#[locus(field)]` tracked setters for precise GTK updates,
-- shared provider/subscription handles to avoid duplicate D-Bus watches.
+- `#[bind(field)]` tracked setters for precise GTK updates,
+- shared source/subscription handles to avoid duplicate D-Bus watches.
 
-The key product behavior is “derive summarized UI models from multiple sources”; the implementation should stay Rust-native.
+The key product behavior is “derive summarized UI models from multiple sources”; the implementation should stay Rust-native and macro-driven.
 
 ## Styling Reference
 
@@ -59,15 +59,16 @@ Styling is external SCSS/CSS. The bar uses class-driven states for active, urgen
 
 Likely reusable crates or feature-gated modules:
 
-- `providers`: core provider traits, subscriptions, and combinators.
-- `locus-provider`: generated Locus graph contracts and Locus-over-D-Bus provider implementation.
-- `dbus-provider`: generic D-Bus object/property provider implementation.
+- Observable source API: `SOURCE_API.md`.
+- Current `providers`: migration bridge for source traits, subscriptions, and sharing.
+- `locus-provider`: generic Locus graph watch implementation used by generated schema sources.
+- `dbus-provider`: generic D-Bus object/property source implementation.
 - `common-providers`: feature-gated typed definitions for common services such as UPower.
-- Future `pipewire` or `common-pipewire`: typed audio providers.
-- Future `common-system`: time, sysstats, filesystem, process providers.
-- Future `common-network`: network and Bluetooth providers if D-Bus definitions grow large.
+- Future `pipewire` or `common-pipewire`: typed audio sources.
+- Future `common-system`: time, sysstats, filesystem, process sources.
+- Future `common-network`: network and Bluetooth sources if D-Bus definitions grow large.
 - Future `common-media`: MPRIS and status-notifier/tray helpers.
-- Future `common-icons`: icon lookup/cache providers.
+- Future `common-icons`: icon lookup/cache sources.
 
 ## Boundary
 

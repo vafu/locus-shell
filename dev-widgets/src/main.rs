@@ -1,4 +1,4 @@
-mod locus_schema;
+mod locus;
 mod primitives;
 
 use shell_core::ShellApp;

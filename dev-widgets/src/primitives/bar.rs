@@ -1,4 +1,3 @@
-use common_providers::upower::{DISPLAY_DEVICE, DisplayDevice};
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
@@ -6,12 +5,9 @@ use shell_core::{
     window::{self, Anchors, Edge, Layer, WindowConfig},
 };
 
-use crate::locus_schema::{self, WorkspacePathExt};
+use crate::locus::{self, WindowNode};
 
-use super::{
-    battery::battery_fraction,
-    window_title::{WindowNode, WindowTitle},
-};
+use super::window_title::WindowTitle;
 
 pub struct BarInit {
     pub title: &'static str,
@@ -19,11 +15,8 @@ pub struct BarInit {
 
 #[shell_macros::model]
 pub struct Bar {
-    #[source(locus_schema::paths::SELECTED_WORKSPACE.windows())]
+    #[source(locus::selected_workspace_windows())]
     pub window_nodes: Vec<WindowNode>,
-
-    #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
-    pub battery_percent: f64,
 }
 
 #[shell_macros::component(model = Bar)]
@@ -48,14 +41,6 @@ impl SimpleComponent for Bar {
                     set_orientation: gtk::Orientation::Horizontal,
                 },
 
-                gtk::ProgressBar {
-                    set_widget_name: "battery-percent",
-                    add_css_class: "dev-panel__battery",
-                    set_show_text: true,
-
-                    #[bind(battery_percent)]
-                    set_fraction: |percent| battery_fraction(percent),
-                }
             }
         }
     }

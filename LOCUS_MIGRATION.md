@@ -17,14 +17,16 @@ The current bridge is:
 - `provider/property` defines shared typed `Property<Target, Value>` and
   inspectable `PropertyBinding<T>` contracts.
 - `provider/locus` owns generic Locus graph descriptors and D-Bus-backed raw
-  providers.
+  watch mechanics.
 - Generated schema wrappers convert raw Locus wire strings into expected Rust
   property values.
-- `shell-macros` sees only `providers::Provider<T>` source expressions.
+- `shell-macros` currently accepts `providers::ObservableSource<T>` source expressions.
+  The target source contract is Observable-first, as defined in
+  `SOURCE_API.md`.
 
 ## Generated API Direction
 
-Generated consumer schema should expose semantic typed providers, for example:
+Generated consumer schema should expose semantic typed sources, for example:
 
 ```rust
 #[source(paths::SELECTED_WORKSPACE.windows())]
@@ -41,14 +43,15 @@ The widget author should not manually wire raw graph directions such as
 `sources`, `targets`, `SubscribeSources`, or `SubscribeTargets` unless they are
 working at an explicitly low-level escape hatch.
 
-## Locus Provider Responsibility
+## Locus Source Responsibility
 
 `locus-provider` remains generic and schema-free. It owns:
 
 - `Path<Target>` and raw resolved-path property bindings.
 - `NodeRef<Model>` and direct-node property bindings.
 - `Relation<Source, Target>`, target bindings, and node-list bindings.
-- Stream-native watcher implementations using `providers::Provider<T>`.
+- Stream-native watcher implementations that can be adapted into shell-owned
+  observables.
 - Collection diff application for UI-facing node id lists.
 
 It does not own:
@@ -60,30 +63,35 @@ It does not own:
 
 ## DBus And Property Contract
 
-DBus and Locus property-backed providers share the property vocabulary through
+DBus and Locus property-backed sources share the property vocabulary through
 `property-provider`, but each backend keeps its own runtime key type and watcher
 implementation.
 
-Base provider streams pass backend errors as `Err(E)`. Defaulting or swallowing
+Base source streams pass backend errors as `Err(E)`. Defaulting or swallowing
 errors should be explicit wrapper behavior, not part of the base watcher.
 
 ## Macro Contract
 
 Macros should stay backend-agnostic:
 
-- `#[source(...)]` expressions must type-check as `providers::Provider<T>`.
-- Generated messages carry `Result<T, E>` per source field.
+- `#[source(...)]` on model fields binds a plain model value from an observable
+  source expression.
+- Current `ObservableSource<T>` expressions may be accepted through a bridge while
+  migrating existing crates.
+- Derived user sources use `#[shell_macros::observable]` functions with
+  `#[observe(...)]` reactive dependencies and explicit `#[inject]` DI services.
+- Generated messages carry result-carrying source updates per field.
 - Per-field dirty tracking drives `#[bind(field)]` view updates.
 - Legacy `#[locus(...)]` remains compatibility syntax only.
 
 ## Remaining Migration Work
 
 - Add compile-expanded macro tests for realistic Relm4 components.
-- Add compile-expanded macro tests for realistic Relm4 components.
+- Implement the Observable source API from `SOURCE_API.md`.
 - Add row hydration helpers for collection results when real widgets need
   summary models instead of one property subscription per child row.
 - Design backend descriptor-keyed sharing registries so repeated DBus/Locus
-  sources reuse one upstream watch automatically.
+  observable sources reuse one upstream watch automatically.
 
 ## Assumptions
 

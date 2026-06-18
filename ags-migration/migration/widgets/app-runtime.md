@@ -22,7 +22,7 @@ proposal describes process layout, monitor/window lifecycle, request routing,
 CSS/theme preparation, Pomodoro/DND side effects, and shared runtime helpers.
 
 It is not a `shell/core` mandate. `shell/core` should continue to expose generic
-GTK, Relm4, layer-shell, CSS registration, provider runtime, and window
+GTK, Relm4, layer-shell, CSS registration, source runtime, and window
 primitives. `rsynapse-shell` owns product-specific surfaces and policies.
 
 ## Proposed Process Layout
@@ -231,21 +231,22 @@ Candidate missing shell feature:
 
 ## Shared Helper Migration
 
-AGS helper behavior maps to ordinary Rust/provider concepts:
+AGS helper behavior maps to ordinary Rust source concepts:
 
 - `diffs()` becomes monitor-set diffing by stable monitor id.
-- `withPrevious()` becomes local state in a stream consumer or a small stream
-  helper.
-- `binding()` and `bindAs()` become `Provider<T>` streams feeding Relm4 model
+- `withPrevious()` becomes local state in an observable source function or a
+  small observable helper.
+- `binding()` and `bindAs()` become Observable sources feeding Relm4 model
   messages and `#[watch]`/generated `#[bind]` setters.
 - `disposeOnDestroy()` becomes component/window-owned subscriptions with
   cancellation tokens.
-- `fromFile()` becomes a file-watch provider.
-- `fromJsonProcess()` and `execPeriodically()` become process providers or
-  native Rust providers.
+- `fromFile()` becomes a file-watch source.
+- `fromJsonProcess()` and `execPeriodically()` become process sources or native
+  Rust sources.
 
-Do not port RxJS as a runtime dependency. Use `providers::Provider<T>`, Tokio
-streams, Relm4 messages, cancellation tokens, and normal Rust state.
+Do not port RxJS or JavaScript runtime code. Use the Rust Observable source API
+from `../../../SOURCE_API.md`, Relm4 messages, cancellation tokens, and normal
+Rust state.
 
 Candidate missing shell feature:
 

@@ -1,7 +1,8 @@
-use providers::{Provider, SubscriptionGroup};
 use relm4::ComponentSender;
 
-/// A model whose source context can be driven by another provider.
+use crate::source::{IntoObservable, Subscriptions};
+
+/// A model whose source context can be driven by another Observable source.
 ///
 /// This is used by `shell-macros` for nested source models such as a workspace
 /// row whose current project may change over time.
@@ -19,12 +20,12 @@ pub trait SourceModel: Sized + Send + 'static {
         source: Source,
         sender: ComponentSender<Component>,
         map: Map,
-    ) -> SubscriptionGroup
+    ) -> Subscriptions
     where
         Component: relm4::Component + 'static,
         Component::Input: Send,
         Component::Output: Send,
         Component::CommandOutput: Send,
-        Source: Provider<Self::Context>,
+        Source: IntoObservable<Self::Context>,
         Map: Fn(Self::Msg) -> Component::Input + Clone + Send + 'static;
 }

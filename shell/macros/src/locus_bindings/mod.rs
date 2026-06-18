@@ -19,7 +19,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
     if module.content.is_none() {
         return Err(syn::Error::new_spanned(
             module_ident,
-            "provider binding modules must use inline module syntax: mod bindings {}",
+            "source binding modules must use inline module syntax: mod bindings {}",
         ));
     }
 
@@ -62,7 +62,7 @@ fn model_fields(item: &ItemStruct) -> Result<Vec<(Ident, Type)>> {
     let Fields::Named(fields) = &item.fields else {
         return Err(syn::Error::new_spanned(
             item,
-            "provider models must use named fields",
+            "source models must use named fields",
         ));
     };
 
@@ -71,7 +71,7 @@ fn model_fields(item: &ItemStruct) -> Result<Vec<(Ident, Type)>> {
         .iter()
         .map(|field| {
             let ident = field.ident.clone().ok_or_else(|| {
-                syn::Error::new_spanned(field, "provider models must use named fields")
+                syn::Error::new_spanned(field, "source models must use named fields")
             })?;
             Ok((ident, field.ty.clone()))
         })
@@ -96,7 +96,7 @@ fn push_generated_model_fields(item: &mut ItemStruct, module: &Ident) -> Result<
     let Fields::Named(fields) = &mut item.fields else {
         return Err(syn::Error::new_spanned(
             item,
-            "provider models must use named fields",
+            "source models must use named fields",
         ));
     };
 
@@ -107,7 +107,7 @@ fn push_generated_model_fields(item: &mut ItemStruct, module: &Ident) -> Result<
         if ident == "__shell" {
             return Err(syn::Error::new_spanned(
                 ident,
-                "provider models reserve __shell",
+                "source models reserve __shell",
             ));
         }
     }

@@ -1,21 +1,20 @@
 use relm4::prelude::*;
 use shell_core::gtk::{self, prelude::*};
 
-use locus_provider::NodeRef;
-
-use crate::providers::{WindowTileKind, WindowTileView, window_tile_for_window};
-use crate::schema::{WindowNodeExt, model};
+use crate::sources::{
+    WindowNode, WindowTileKind, WindowTileView, window_is_selected, window_tile_for_window,
+};
 use crate::widgets::material_icon;
 
 #[derive(Debug)]
 #[shell_macros::model(module = window_tile_sources)]
 pub(super) struct WindowTile {
-    pub window: NodeRef<model::Window>,
+    pub window: WindowNode,
 
-    #[source(window_tile_for_window(window.id().to_owned()))]
+    #[source(window_tile_for_window(window.clone()))]
     pub view: WindowTileView,
 
-    #[source(window.is_selected())]
+    #[source(window_is_selected(window.clone()))]
     pub active: bool,
 }
 
@@ -25,7 +24,7 @@ pub(super) struct WindowTile {
 )]
 #[relm4::component(pub(crate))]
 impl SimpleComponent for WindowTile {
-    type Init = NodeRef<model::Window>;
+    type Init = WindowNode;
     type Input = window_tile_sources::Msg;
     type Output = ();
 

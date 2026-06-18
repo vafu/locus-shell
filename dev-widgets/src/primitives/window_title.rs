@@ -1,19 +1,17 @@
 use relm4::prelude::*;
 use shell_core::gtk::prelude::*;
 
-use crate::locus_schema::{WindowNodeExt, model};
-
-pub(super) type WindowNode = locus_provider::NodeRef<model::Window>;
+use crate::locus::{WindowNode, window_is_selected, window_title};
 
 #[derive(Debug)]
 #[shell_macros::model(module = window_title_sources)]
 pub(super) struct WindowTitle {
     pub window: WindowNode,
 
-    #[source(window.title())]
+    #[source(window_title(window.clone()))]
     pub title: String,
 
-    #[source(window.is_selected())]
+    #[source(window_is_selected(window.clone()))]
     pub selected: bool,
 }
 

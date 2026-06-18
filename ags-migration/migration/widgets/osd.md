@@ -12,7 +12,7 @@
 
 ## Native Structure
 
-Implement this as an external consumer binary, for example `rsynapse-osd`, not inside `shell/core`. The binary owns the OSD role, placement, event policy, and CSS. `shell-core` should only provide the GTK app, stylesheet registration, provider runtime, and layer-shell window creation primitives described in `PLAN.md`.
+Implement this as an external consumer binary, for example `rsynapse-osd`, not inside `shell/core`. The binary owns the OSD role, placement, event policy, and CSS. `shell-core` should only provide the GTK app, stylesheet registration, source runtime, and layer-shell window creation primitives described in `PLAN.md`.
 
 Initial component tree:
 
@@ -71,12 +71,12 @@ The view bindings should derive:
 
 ## Provider And Stream Dependencies
 
-Required providers:
+Required sources:
 
-- `BrightnessProvider`: normalized display brightness level, driven by the backlight device. Initial implementation can mirror the AGS behavior by reading `brightnessctl max/get` and watching `/sys/class/backlight/<device>/brightness`, but the provider should expose a typed `Provider<f64>`.
-- `DefaultSpeakerProvider`: current default audio endpoint and changes to its volume and volume icon. Prefer a WirePlumber/PipeWire-backed provider or a focused D-Bus provider instead of carrying AstalWp concepts into Rust UI code.
-- `ActiveMonitorProvider`: maps Locus selected output connector to the GTK monitor used by the layer surface.
-- `OsdPayloadProvider`: merges brightness and audio events into a single `Provider<OsdPayload>` stream.
+- `BrightnessSource`: normalized display brightness level, driven by the backlight device. Initial implementation can mirror the AGS behavior by reading `brightnessctl max/get` and watching `/sys/class/backlight/<device>/brightness`, but the provider should expose a typed `ObservableSource<f64>`.
+- `DefaultSpeakerSource`: current default audio endpoint and changes to its volume and volume icon. Prefer a WirePlumber/PipeWire-backed provider or a focused D-Bus provider instead of carrying AstalWp concepts into Rust UI code.
+- `ActiveMonitorSource`: maps Locus selected output connector to the GTK monitor used by the layer surface.
+- `OsdPayloadSource`: merges brightness and audio events into a single `ObservableSource<OsdPayload>` stream.
 
 Stream behavior:
 
@@ -90,7 +90,7 @@ Hidden -> set reveal_child false immediately
 Hidden -> keep window visible briefly for crossfade, then hide surface
 ```
 
-The hide timer is part of the OSD policy, so it belongs in the consumer widget or a consumer-owned provider. If multiple level sources emit during startup, consider suppressing the first snapshot unless it corresponds to an actual user-visible change.
+The hide timer is part of the OSD policy, so it belongs in the consumer widget or a consumer-owned source. If multiple level sources emit during startup, consider suppressing the first snapshot unless it corresponds to an actual user-visible change.
 
 ## D-Bus, Locus, And Provider Dependencies
 
@@ -101,14 +101,16 @@ Locus dependencies:
 
 D-Bus/system dependencies:
 
-- Backlight device discovery and change notification from `/sys/class/backlight`, `brightnessctl`, or a future typed display-brightness provider.
-- WirePlumber/PipeWire default sink volume and icon/semantic volume state. If icon names are not available from the backend, derive the symbolic icon from volume and mute state in the provider.
+- Backlight device discovery and change notification from `/sys/class/backlight`, `brightnessctl`, or a future typed display-brightness source.
+- WirePlumber/PipeWire default sink volume and icon/semantic volume state. If icon names are not available from the backend, derive the symbolic icon from volume and mute state in the source.
 
-Provider dependencies:
+Source dependencies:
 
-- `providers::Provider<T>` for all async value streams.
-- Shared latest/fanout support if audio endpoint identity, volume, mute state, and icon are exposed as separate fields from one upstream connection.
-- A thin stream helper for switch/restart timer behavior, or a local Relm4 command task if provider combinators are not ready.
+- Observable sources for all async value streams.
+- Shared latest/fanout support if audio endpoint identity, volume, mute state,
+  and icon are exposed as separate fields from one upstream connection.
+- Observable timer/switch support for restartable delayed hide behavior, or a
+  local Relm4 command task as a bridge until the source API is ready.
 
 ## CSS
 

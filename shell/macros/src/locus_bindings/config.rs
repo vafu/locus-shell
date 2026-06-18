@@ -77,7 +77,7 @@ impl Parse for BindingsConfig {
         let component = component.ok_or_else(|| input.error("missing component = Type"))?;
         let message = message.ok_or_else(|| input.error("missing message = Enum::Variant"))?;
         if bindings.is_empty() {
-            return Err(input.error("expected at least one provider binding"));
+            return Err(input.error("expected at least one source binding"));
         }
         validate_bindings(&bindings)?;
 
@@ -126,7 +126,7 @@ impl Parse for ComponentConfig {
 
         if bindings.is_empty() {
             if model.is_none() {
-                return Err(input.error("expected model = Type or at least one provider binding"));
+                return Err(input.error("expected model = Type or at least one source binding"));
             }
         } else {
             validate_bindings(&bindings)?;
@@ -248,7 +248,7 @@ pub(super) fn model_bindings(item: &ItemStruct) -> Result<ModelBindings> {
     let Fields::Named(fields) = &item.fields else {
         return Err(syn::Error::new_spanned(
             item,
-            "provider models must use named fields",
+            "source models must use named fields",
         ));
     };
 
@@ -282,7 +282,7 @@ pub(super) fn model_bindings(item: &ItemStruct) -> Result<ModelBindings> {
     if bindings.is_empty() && nested_models.is_empty() {
         return Err(syn::Error::new_spanned(
             item,
-            "provider models require at least one #[source(...)], #[locus(source = ...)], or #[model(source = ...)] field",
+            "source models require at least one #[source(...)], #[locus(source = ...)], or #[model(source = ...)] field",
         ));
     }
 
@@ -377,7 +377,7 @@ fn validate_bindings(bindings: &[BindingConfig]) -> Result<()> {
             .expect("bindings is not empty");
         return Err(syn::Error::new_spanned(
             field,
-            "provider models support at most 128 bindings; split the model when it grows beyond that",
+            "source models support at most 128 bindings; split the model when it grows beyond that",
         ));
     }
 
@@ -388,13 +388,13 @@ fn validate_bindings(bindings: &[BindingConfig]) -> Result<()> {
         if !fields.insert(binding.field.to_string()) {
             return Err(syn::Error::new_spanned(
                 &binding.field,
-                "duplicate provider binding field",
+                "duplicate source binding field",
             ));
         }
         if !variants.insert(binding.variant.to_string()) {
             return Err(syn::Error::new_spanned(
                 &binding.field,
-                "provider binding fields must generate unique message variants",
+                "source binding fields must generate unique message variants",
             ));
         }
     }

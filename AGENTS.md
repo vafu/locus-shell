@@ -4,10 +4,12 @@ Before planning or implementing work in this repository, read:
 
 - `PROJECT.md` for the project blueprint and constraints.
 - `PLAN.md` for the current roadmap and responsibility boundaries.
+- `SOURCE_API.md` when work touches source bindings, observable APIs, or macro
+  ergonomics.
 
 Use `$locus-shell` whenever working with shell widgets, GTK/Relm4 components,
-AGS migration code, Locus graph schema, generated schema APIs, providers,
-or framework boundary decisions in this repository.
+AGS migration code, Locus graph source functions, providers, or framework
+boundary decisions in this repository.
 
 Preserve the framework boundary:
 

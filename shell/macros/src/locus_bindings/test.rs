@@ -10,8 +10,7 @@ fn parses_binding_config() {
     let config = parse2::<BindingsConfig>(quote! {
         component = Bar,
         message = BarMsg::Locus,
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
+        selected_window_title: String = selected_window_title(),
     })
     .unwrap();
 
@@ -25,8 +24,7 @@ fn expands_inline_module() {
     let attr = quote! {
         component = Bar,
         message = BarMsg::Locus,
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
+        selected_window_title: String = selected_window_title(),
     };
     let item = quote! {
         mod locus {}
@@ -39,8 +37,7 @@ fn expands_inline_module() {
 #[test]
 fn expands_component_impl() {
     let attr = quote! {
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
+        selected_window_title: String = selected_window_title(),
     };
     let item = quote! {
         impl SimpleComponent for Bar {
@@ -72,15 +69,15 @@ fn expands_component_impl() {
     assert!(source.contains("mod sources"));
     assert!(source.contains("model . sources . set_subscriptions (sources :: start"));
     assert!(source.contains("fn update"));
-    assert!(source.contains("providers :: run_provider"));
-    assert!(source.contains("providers :: Subscription :: spawn"));
-    assert!(source.contains("providers :: provider_for :: < String"));
-    assert!(source.contains("subscriptions : :: providers :: SubscriptionGroup"));
+    assert!(source.contains("shell_core :: source :: subscribe"));
+    assert!(source.contains("shell_core :: source :: subscribe"));
+    assert!(source.contains("shell_core :: source :: into_observable :: < String"));
+    assert!(source.contains("subscriptions : :: shell_core :: source :: Subscriptions"));
     assert!(source.contains("subscriptions . push (subscription)"));
 }
 
 #[test]
-fn expands_dbus_property_provider_source() {
+fn expands_dbus_property_source() {
     let attr = quote! {
         battery_percent: f64 = BATTERY.bind(Battery::PERCENTAGE),
     };
@@ -89,17 +86,16 @@ fn expands_dbus_property_provider_source() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
 
-    assert!(source.contains("providers :: run_provider"));
-    assert!(source.contains("providers :: Subscription :: spawn"));
-    assert!(source.contains("providers :: provider_for :: < f64"));
+    assert!(source.contains("shell_core :: source :: subscribe"));
+    assert!(source.contains("shell_core :: source :: subscribe"));
+    assert!(source.contains("shell_core :: source :: into_observable :: < f64"));
     assert!(source.contains("BATTERY . bind"));
 }
 
 #[test]
-fn expands_mixed_provider_sources() {
+fn expands_mixed_source_sources() {
     let attr = quote! {
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
+        selected_window_title: String = selected_window_title(),
         battery_percent: f64 = BATTERY.bind(Battery::PERCENTAGE),
     };
     let item = component_item();
@@ -107,9 +103,12 @@ fn expands_mixed_provider_sources() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
 
-    assert_eq!(source.matches("providers :: run_provider").count(), 2);
     assert_eq!(
-        source.matches("providers :: Subscription :: spawn").count(),
+        source.matches("shell_core :: source :: subscribe").count(),
+        2
+    );
+    assert_eq!(
+        source.matches("shell_core :: source :: subscribe").count(),
         2
     );
 }
@@ -117,8 +116,7 @@ fn expands_mixed_provider_sources() {
 #[test]
 fn expands_locus_view_setters() {
     let attr = quote! {
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
+        selected_window_title: String = selected_window_title(),
     };
     let item = quote! {
         impl SimpleComponent for Bar {
@@ -162,10 +160,9 @@ fn expands_locus_view_setters() {
 }
 
 #[test]
-fn expands_provider_view_setters() {
+fn expands_source_view_setters() {
     let attr = quote! {
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
+        selected_window_title: String = selected_window_title(),
     };
     let item = quote! {
         impl SimpleComponent for Bar {
@@ -208,8 +205,7 @@ fn expands_provider_view_setters() {
 fn expands_typed_model() {
     let item = quote! {
         pub struct BarLocus {
-            #[source(schema::paths::SELECTED_WINDOW
-                .property(schema::model::Window::TITLE))]
+            #[source(selected_window_title())]
             pub selected_window_title: String,
             #[source(DISPLAY_DEVICE.bind(DisplayDevice::PERCENTAGE))]
             pub battery_percent: f64,
@@ -227,21 +223,21 @@ fn expands_typed_model() {
     assert!(source.contains("BatteryPercent"));
     assert!(source.contains("__shell : sources :: Runtime"));
     assert!(source.contains("last_error : :: std :: option :: Option < WatchError >"));
-    assert!(source.contains("subscriptions : :: providers :: SubscriptionGroup"));
+    assert!(source.contains("subscriptions : :: shell_core :: source :: Subscriptions"));
     assert!(source.contains("subscriptions . push (subscription)"));
     assert!(source.contains("pub fn new () -> Self"));
     assert!(source.contains("impl :: std :: default :: Default for BarLocus"));
-    assert!(source.contains("providers :: provider_for :: < String"));
-    assert!(source.contains("providers :: provider_for :: < f64"));
-    assert!(source.contains("providers :: run_provider"));
+    assert!(source.contains("shell_core :: source :: into_observable :: < String"));
+    assert!(source.contains("shell_core :: source :: into_observable :: < f64"));
+    assert!(source.contains("shell_core :: source :: subscribe"));
 }
 
 #[test]
 fn expands_typed_model_sources_that_reference_model_fields() {
     let item = quote! {
         pub struct WindowTitleSources {
-            pub window: locus_provider::NodeRef<schema::model::Window>,
-            #[source(window.title())]
+            pub window: String,
+            #[source(window_title(window.clone()))]
             pub title: String,
         }
     };
@@ -250,23 +246,25 @@ fn expands_typed_model_sources_that_reference_model_fields() {
     let source = expanded.to_string();
 
     assert!(source.contains("pub mod window_title_sources"));
-    assert!(source.contains(
-        "pub fn new (window : locus_provider :: NodeRef < schema :: model :: Window >) -> Self"
-    ));
+    assert!(source.contains("pub fn new (window : String) -> Self"));
     assert!(!source.contains("impl :: std :: default :: Default for WindowTitleSources"));
     assert!(source.contains("pub fn start < Component > (& self"));
     assert!(source.contains("let window = & self . window"));
-    assert!(source.contains("providers :: provider_for :: < String , _ > (window . title ())"));
+    assert!(
+        source.contains(
+            "shell_core :: source :: into_observable :: < String , _ > (window_title (window . clone ()))"
+        )
+    );
 }
 
 #[test]
 fn expands_typed_model_nested_source_fields() {
     let item = quote! {
         pub struct ProjectLabel {
-            pub workspace: locus_provider::NodeRef<schema::model::Workspace>,
-            #[source(workspace.name())]
+            pub workspace: String,
+            #[source(workspace_name(workspace.clone()))]
             pub workspace_name: String,
-            #[model(source = workspace.project())]
+            #[model(source = workspace_project(workspace.clone()))]
             pub project: ProjectLabelProject,
         }
     };
@@ -284,7 +282,7 @@ fn expands_typed_model_nested_source_fields() {
     ));
     assert!(source.contains("ProjectLabelProject as :: shell_core :: model :: SourceModel"));
     assert!(source.contains("start_source_model"));
-    assert!(source.contains("workspace . project ()"));
+    assert!(source.contains("workspace_project (workspace . clone ())"));
     assert!(source.contains("update_source_model"));
     assert!(source.contains("& mut self . project"));
 }
@@ -293,8 +291,8 @@ fn expands_typed_model_nested_source_fields() {
 fn expands_source_model_trait_for_single_context_models() {
     let item = quote! {
         pub struct ProjectLabelProject {
-            pub project: Option<locus_provider::NodeRef<schema::model::Project>>,
-            #[source(project.display_icon())]
+            pub project: Option<String>,
+            #[source(project_display_icon(project.clone()))]
             pub icon: Option<String>,
         }
     };
@@ -303,12 +301,10 @@ fn expands_source_model_trait_for_single_context_models() {
     let source = expanded.to_string();
 
     assert!(source.contains("impl :: shell_core :: model :: SourceModel for ProjectLabelProject"));
-    assert!(source.contains(
-        "type Context = Option < locus_provider :: NodeRef < schema :: model :: Project > >"
-    ));
+    assert!(source.contains("type Context = Option < String >"));
     assert!(source.contains("__ShellContext"));
     assert!(source.contains("start_for_source_context"));
-    assert!(source.contains("project . display_icon ()"));
+    assert!(source.contains("project_display_icon (project . clone ())"));
 }
 
 #[test]
@@ -433,7 +429,7 @@ fn expands_legacy_locus_model_sources() {
     let source = expanded.to_string();
 
     assert!(source.contains("BatteryPercent"));
-    assert!(source.contains("providers :: provider_for :: < f64"));
+    assert!(source.contains("shell_core :: source :: into_observable :: < f64"));
 }
 
 #[test]
@@ -580,8 +576,7 @@ fn expands_model_component_with_wrapped_input() {
 fn expands_model_start_for_wrapped_component_input() {
     let item = quote! {
         pub struct BarLocus {
-            #[source(schema::paths::SELECTED_WINDOW
-                .property(schema::model::Window::TITLE))]
+            #[source(selected_window_title())]
             pub selected_window_title: String,
         }
     };
@@ -598,32 +593,24 @@ fn expands_model_start_for_wrapped_component_input() {
 #[test]
 fn rejects_duplicate_binding_fields() {
     let error = component_parse_error(quote! {
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
+        selected_window_title: String = selected_window_title(),
+        selected_window_title: String = selected_window_title(),
     });
 
-    assert!(
-        error
-            .to_string()
-            .contains("duplicate provider binding field")
-    );
+    assert!(error.to_string().contains("duplicate source binding field"));
 }
 
 #[test]
 fn rejects_duplicate_generated_variants() {
     let error = component_parse_error(quote! {
-        selected_window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
-        selected__window_title: String = schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE),
+        selected_window_title: String = selected_window_title(),
+        selected__window_title: String = selected_window_title(),
     });
 
     assert!(
         error
             .to_string()
-            .contains("provider binding fields must generate unique message variants")
+            .contains("source binding fields must generate unique message variants")
     );
 }
 
@@ -632,8 +619,7 @@ fn rejects_too_many_bindings_for_dirty_mask() {
     let bindings = (0..129).map(|index| {
         let field = format_ident!("field_{index}");
         quote! {
-            #field: String = schema::paths::SELECTED_WINDOW
-                .property(schema::model::Window::TITLE),
+            #field: String = selected_window_title(),
         }
     });
     let error = component_parse_error(quote! {
@@ -643,7 +629,7 @@ fn rejects_too_many_bindings_for_dirty_mask() {
     assert!(
         error
             .to_string()
-            .contains("provider models support at most 128 bindings")
+            .contains("source models support at most 128 bindings")
     );
 }
 
@@ -652,13 +638,11 @@ fn accepts_parenthesized_binding_expr() {
     let config = parse2::<BindingsConfig>(quote! {
         component = Bar,
         message = BarMsg::Locus,
-        selected_window_title: String = (schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE)),
+        selected_window_title: String = (selected_window_title()),
     })
     .unwrap();
     let expected = quote! {
-        schema::paths::SELECTED_WINDOW
-            .property(schema::model::Window::TITLE)
+        selected_window_title()
     };
 
     let expr = &config.bindings[0].source;
@@ -666,7 +650,7 @@ fn accepts_parenthesized_binding_expr() {
 }
 
 #[test]
-fn treats_sources_as_generic_provider_expressions() {
+fn treats_sources_as_generic_source_expressions() {
     let config = parse2::<ComponentConfig>(quote! {
         battery_percent: f64 = BATTERY.bind(Battery::PERCENTAGE),
     })
