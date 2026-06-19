@@ -17,4 +17,19 @@ Preserve the framework boundary:
 - Consumer crates own widget roles such as bars, OSDs, notifications, launchers, and workspace switchers.
 - `dev-widgets` is internal development code for testing framework ergonomics, not a user-facing implementation.
 
+Source implementation rule:
+
+- Prefer Rx-native operators for source behavior whenever possible. Model source
+  functions as observable dataflow using operators such as `map`, `filter_map`,
+  `combine_latest`, `merge`, `switch_map`, `start_with`, and
+  `distinct_until_changed`; keep handwritten async/watch loops isolated inside
+  small reusable observable primitives only when an external API must be bridged
+  into Rx.
+- Do not use timing hacks for correctness or UI update behavior. Avoid
+  debounce/throttle/sleep/timeouts to mask partial source updates, list churn,
+  ordering bugs, or lifecycle issues; fix the source semantics, event shape, or
+  reconciliation model instead. Time-based coalescing is only acceptable for
+  inherently noisy external systems such as filesystem stylesheet reloads, and
+  must be named as such.
+
 When proposing or changing architecture, cross-reference `PLAN.md` and keep it updated if the roadmap changes.

@@ -10,11 +10,11 @@ use shell_core::{
     window::{self, Anchors, Edge, Layer, WindowConfig},
 };
 
-use crate::sources::{AudioView, BatteryView, ClockView, NetworkView, WindowNode, WorkspaceNode};
-
 use self::project_label::ProjectLabel;
 use self::window_tile::WindowTile;
+use crate::sources::{AudioView, BatteryView, ClockView, NetworkView, WindowNode, WorkspaceNode};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MainBarInit {
     pub title: &'static str,
 }
@@ -178,7 +178,7 @@ impl SimpleComponent for MainBar {
         window::apply_layer_shell_config(&root, bar_window_config());
         root.set_title(Some(init.title));
 
-        let model = MainBar::default();
+        let model = MainBar::new();
         let widgets = view_output!();
         widgets.clock_button.connect_clicked(|_| {
             thread::spawn(|| {

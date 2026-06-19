@@ -1,13 +1,18 @@
 use std::{
-    io,
+    future::Future,
     path::{Path, PathBuf},
+    pin::Pin,
 };
 
-use shell_core::source::{self, Observable, SourceError};
+use shell_core::source::{Observable, SourceError, rx::Observable as _};
+
+use super::watch::{self, WatchSpec};
 
 const ROOT_ENV: &str = "LOCUSFS_ROOT";
 const DEFAULT_ROOT: &str = "/tmp/rsynapse";
 const BATTERY_OBJECT_PATH: &str = "dbus-service/upower/object/battery_BAT1";
+
+type ReadFuture<T> = Pin<Box<dyn Future<Output = Result<T, SourceError>> + Send>>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BatteryView {
@@ -45,62 +50,40 @@ impl BatteryState {
 }
 
 pub(crate) fn battery_status() -> Observable<BatteryView> {
-    source::from_async_loop(|emitter| async move {
-        let battery_path = battery_object_path();
+    let battery_path = battery_object_path();
+    let present = battery_property(battery_path.join("IsPresent"), read_bool);
+    let percent = battery_property(battery_path.join("Percentage"), read_percent);
+    let state = battery_property(battery_path.join("State"), read_battery_state);
 
-        loop {
-            let mut watch = match open_directory_watch(&battery_path).await {
-                Ok(watch) => watch,
-                Err(error) => {
-                    emitter.error(SourceError::new(format!(
-                        "failed to watch {}: {error}",
-                        battery_path.display()
-                    )));
-                    return;
-                }
-            };
-
-            match read_battery(&battery_path).await {
-                Ok(battery) => emitter.next(battery),
-                Err(error) => {
-                    emitter.error(error);
-                    return;
-                }
-            }
-
-            if let Err(error) = watch.wait_event_to_string().await {
-                emitter.error(SourceError::new(format!(
-                    "watch failed for {}: {error}",
-                    battery_path.display()
-                )));
-                return;
-            }
-        }
-    })
+    present
+        .combine_latest(percent, |present, percent| (present, percent))
+        .combine_latest(state, |(present, percent), state| BatteryView {
+            present,
+            percent,
+            state,
+        })
+        .distinct_until_changed()
+        .box_it()
 }
 
-async fn open_directory_watch(path: &Path) -> io::Result<locusfs_client::Watch> {
-    let data_path = locusfs_client::absolute_path(path)?;
-    let mount_root = locusfs_client::find_mount_root(&data_path).await?;
-    let mut logical_path = locusfs_client::logical_watch_path(&mount_root, &data_path)?;
-
-    if !logical_path.ends_with('/') {
-        logical_path.push('/');
-    }
-
-    locusfs_client::Watch::open_with_parts(data_path, mount_root, logical_path).await
+fn battery_property<Value>(
+    path: PathBuf,
+    read: fn(PathBuf) -> ReadFuture<Value>,
+) -> Observable<Value>
+where
+    Value: Send + PartialEq + Clone + 'static,
+{
+    watch::read_on_change_async(WatchSpec::value(path.clone()), move || read(path.clone()))
+        .distinct_until_changed()
+        .box_it()
 }
 
-async fn read_battery(object_path: &Path) -> Result<BatteryView, SourceError> {
-    let percent = read_f64(&object_path.join("Percentage")).await?;
-    let state = battery_state(read_u32(&object_path.join("State")).await?);
-    let present = read_bool(&object_path.join("IsPresent")).await?;
+fn read_percent(path: PathBuf) -> ReadFuture<u8> {
+    Box::pin(async move { Ok(read_f64(&path).await?.round().clamp(0.0, 100.0) as u8) })
+}
 
-    Ok(BatteryView {
-        present,
-        percent: percent.round().clamp(0.0, 100.0) as u8,
-        state,
-    })
+fn read_battery_state(path: PathBuf) -> ReadFuture<BatteryState> {
+    Box::pin(async move { Ok(battery_state(read_u32(&path).await?)) })
 }
 
 async fn read_f64(path: &Path) -> Result<f64, SourceError> {
@@ -117,13 +100,15 @@ async fn read_u32(path: &Path) -> Result<u32, SourceError> {
         .map_err(|error| SourceError::new(format!("invalid u32 value {value}: {error}")))
 }
 
-async fn read_bool(path: &Path) -> Result<bool, SourceError> {
-    let value = read_trimmed(path).await?;
-    match scalar_value(&value) {
-        "true" | "1" => Ok(true),
-        "false" | "0" => Ok(false),
-        value => Err(SourceError::new(format!("invalid bool value: {value}"))),
-    }
+fn read_bool(path: PathBuf) -> ReadFuture<bool> {
+    Box::pin(async move {
+        let value = read_trimmed(&path).await?;
+        match scalar_value(&value) {
+            "true" | "1" => Ok(true),
+            "false" | "0" => Ok(false),
+            value => Err(SourceError::new(format!("invalid bool value: {value}"))),
+        }
+    })
 }
 
 async fn read_trimmed(path: &Path) -> Result<String, SourceError> {

@@ -67,8 +67,14 @@ impl SimpleComponent for WindowTile {
                     },
 
                     gtk::ProgressBar {
-                        add_css_class: "levelindicator",
-                        add_css_class: "line",
+                        #[watch]
+                        set_css_classes: context_indicator_classes(model.view.context_pct),
+
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_inverted: true,
+                        set_width_request: 8,
+                        set_height_request: 24,
+                        set_valign: gtk::Align::Center,
 
                         #[watch]
                         set_fraction: model.view.context_pct as f64 / 100.0,
@@ -196,6 +202,22 @@ fn window_tile_classes(
         (WindowTileKind::Plain, true, false) => PLAIN_ACTIVE_CLASSES,
         (WindowTileKind::Plain, false, true) => PLAIN_URGENT_CLASSES,
         (WindowTileKind::Plain, false, false) => PLAIN_CLASSES,
+    }
+}
+
+const CONTEXT_NORMAL_CLASSES: &[&str] = &["agent-context-indicator", "normal"];
+const CONTEXT_WARN_CLASSES: &[&str] = &["agent-context-indicator", "warn"];
+const CONTEXT_HIGH_CLASSES: &[&str] = &["agent-context-indicator", "high"];
+const CONTEXT_DANGER_CLASSES: &[&str] = &["agent-context-indicator", "danger"];
+const CONTEXT_CRITICAL_CLASSES: &[&str] = &["agent-context-indicator", "critical"];
+
+fn context_indicator_classes(context_pct: u32) -> &'static [&'static str] {
+    match context_pct {
+        95.. => CONTEXT_CRITICAL_CLASSES,
+        90.. => CONTEXT_DANGER_CLASSES,
+        75.. => CONTEXT_HIGH_CLASSES,
+        50.. => CONTEXT_WARN_CLASSES,
+        _ => CONTEXT_NORMAL_CLASSES,
     }
 }
 

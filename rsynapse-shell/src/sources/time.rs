@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use shell_core::{
     gtk::glib,
-    source::{self, Observable, SourceError},
+    source::{
+        Observable, SourceError,
+        rx::{Observable as _, ObservableFactory as _, Shared},
+    },
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -12,19 +15,12 @@ pub(crate) struct ClockView {
 }
 
 pub(crate) fn clock() -> Observable<ClockView> {
-    source::from_async_loop(|emitter| async move {
-        loop {
-            match read_clock() {
-                Ok(clock) => emitter.next(clock),
-                Err(error) => {
-                    emitter.error(error);
-                    return;
-                }
-            }
-
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    })
+    Shared::<()>::interval(Duration::from_secs(1))
+        .start_with(vec![0])
+        .map(|_| read_clock().unwrap_or_default())
+        .map_err(|error| SourceError::new(error.to_string()))
+        .distinct_until_changed()
+        .box_it()
 }
 
 fn read_clock() -> Result<ClockView, SourceError> {

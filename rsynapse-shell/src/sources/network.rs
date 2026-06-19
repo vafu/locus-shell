@@ -1,9 +1,8 @@
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use shell_core::source::{self, Observable, SourceError};
+use shell_core::source::{Observable, SourceError, rx::Observable as _};
+
+use super::watch::{self, WatchSpec};
 
 const ROOT_ENV: &str = "LOCUSFS_ROOT";
 const DEFAULT_ROOT: &str = "/tmp/rsynapse";
@@ -65,65 +64,41 @@ impl Default for EthernetView {
 }
 
 pub(crate) fn network_status() -> Observable<NetworkView> {
-    source::from_async_loop(|emitter| async move {
-        loop {
-            let watch_path = if network_object_path().exists() {
-                network_object_path()
-            } else {
-                dbus_service_path()
-            };
-
-            let mut watch = match open_directory_watch(&watch_path).await {
-                Ok(watch) => watch,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    emitter.next(NetworkView::default());
-                    return;
-                }
-                Err(error) => {
-                    emitter.error(SourceError::new(format!(
-                        "failed to watch {}: {error}",
-                        watch_path.display()
-                    )));
-                    return;
-                }
-            };
-
-            match read_network() {
-                Ok(network) => emitter.next(network),
-                Err(error) => {
-                    emitter.error(error);
-                    return;
-                }
-            }
-
-            if let Err(error) = watch.wait_event_to_string().await {
-                emitter.error(SourceError::new(format!(
-                    "watch failed for {}: {error}",
-                    watch_path.display()
-                )));
-                return;
-            }
-        }
-    })
+    watch::read_on_any_change_async(open_network_watch_specs, read_network)
+        .distinct_until_changed()
+        .box_it()
 }
 
-fn read_network() -> Result<NetworkView, SourceError> {
+async fn read_network() -> Result<NetworkView, SourceError> {
     let object_dir = network_object_path();
-    if !object_dir.exists() {
+    if !locusfs_client::exists(&object_dir).await {
         return Ok(NetworkView::default());
     }
 
-    let devices = read_devices(&object_dir)?;
-    let wifi = devices
+    let devices = read_devices(&object_dir).await?;
+    let wifi = if let Some(device) = devices
         .iter()
         .find(|device| device.device_type == DEVICE_TYPE_WIFI)
-        .map(read_wifi)
-        .transpose()?
-        .unwrap_or_default();
+    {
+        read_wifi(device).await?
+    } else {
+        WifiView::default()
+    };
     let ethernet = devices
         .iter()
         .filter(|device| device.device_type == DEVICE_TYPE_ETHERNET)
-        .find(|device| device.state != DEVICE_STATE_DISCONNECTED)
+        .find(|device| device.state == DEVICE_STATE_ACTIVATED)
+        .or_else(|| {
+            devices
+                .iter()
+                .filter(|device| device.device_type == DEVICE_TYPE_ETHERNET)
+                .find(|device| {
+                    !matches!(
+                        device.state,
+                        DEVICE_STATE_DISCONNECTED | DEVICE_STATE_UNAVAILABLE
+                    )
+                })
+        })
         .or_else(|| {
             devices
                 .iter()
@@ -135,20 +110,23 @@ fn read_network() -> Result<NetworkView, SourceError> {
     Ok(NetworkView { wifi, ethernet })
 }
 
-fn read_devices(object_dir: &Path) -> Result<Vec<NetworkDevice>, SourceError> {
+async fn read_devices(object_dir: &Path) -> Result<Vec<NetworkDevice>, SourceError> {
     let mut devices = Vec::new();
 
-    for entry in fs::read_dir(object_dir).map_err(|error| {
-        SourceError::new(format!("failed to read NetworkManager objects: {error}"))
-    })? {
-        let path = entry
-            .map_err(|error| SourceError::new(error.to_string()))?
-            .path();
-        let Ok(device_type) = read_u32(&path.join("DeviceType")) else {
+    for name in locusfs_client::read_dir_names(object_dir)
+        .await
+        .map_err(|error| {
+            SourceError::new(format!("failed to read NetworkManager objects: {error}"))
+        })?
+    {
+        let path = object_dir.join(name);
+        let Ok(device_type) = read_u32(&path.join("DeviceType")).await else {
             continue;
         };
-        let state = read_u32(&path.join("State")).unwrap_or(0);
-        let interface = read_string(&path.join("Interface")).unwrap_or_default();
+        let state = read_u32(&path.join("State")).await.unwrap_or(0);
+        let interface = read_string(&path.join("Interface"))
+            .await
+            .unwrap_or_default();
 
         devices.push(NetworkDevice {
             path,
@@ -161,14 +139,43 @@ fn read_devices(object_dir: &Path) -> Result<Vec<NetworkDevice>, SourceError> {
     Ok(devices)
 }
 
-fn read_wifi(device: &NetworkDevice) -> Result<WifiView, SourceError> {
-    let active_ap = read_object_path(&device.path.join("ActiveAccessPoint")).ok();
-    let (ssid, strength) = active_ap
-        .as_deref()
-        .and_then(|path| object_for_dbus_path(path))
-        .map(|path| read_access_point(&path))
-        .transpose()?
-        .unwrap_or_else(|| (String::new(), 0));
+async fn open_network_watch_specs() -> Result<Vec<WatchSpec>, SourceError> {
+    if !locusfs_client::exists(network_object_path()).await {
+        return Ok(vec![WatchSpec::directory(dbus_service_path())]);
+    }
+
+    let mut specs = vec![
+        WatchSpec::directory(network_object_path()),
+        WatchSpec::optional_directory(network_root_object_path()),
+    ];
+
+    for device in read_devices(&network_object_path()).await? {
+        specs.push(WatchSpec::optional_directory(device.path.clone()));
+        if let Some(active_ap) = read_object_path(&device.path.join("ActiveAccessPoint"))
+            .await
+            .ok()
+            .and_then(|path| dbus_path_to_object_path(&path))
+            && locusfs_client::exists(&active_ap).await
+        {
+            specs.push(WatchSpec::optional_directory(active_ap));
+        }
+    }
+
+    Ok(specs)
+}
+
+async fn read_wifi(device: &NetworkDevice) -> Result<WifiView, SourceError> {
+    let active_ap = match read_object_path(&device.path.join("ActiveAccessPoint")).await {
+        Ok(path) => dbus_path_to_object_path(&path),
+        Err(_) => None,
+    };
+    let (ssid, strength) = if let Some(path) = active_ap {
+        read_access_point(&path)
+            .await
+            .unwrap_or_else(|_| (String::new(), 0))
+    } else {
+        (String::new(), 0)
+    };
 
     Ok(WifiView {
         visible: true,
@@ -192,9 +199,12 @@ fn read_ethernet(device: &NetworkDevice) -> EthernetView {
     }
 }
 
-fn read_access_point(path: &Path) -> Result<(String, u8), SourceError> {
-    let ssid = read_ssid(&path.join("Ssid")).unwrap_or_default();
-    let strength = read_u32(&path.join("Strength")).unwrap_or(0).clamp(0, 100) as u8;
+async fn read_access_point(path: &Path) -> Result<(String, u8), SourceError> {
+    let ssid = read_ssid(&path.join("Ssid")).await.unwrap_or_default();
+    let strength = read_u32(&path.join("Strength"))
+        .await
+        .unwrap_or(0)
+        .clamp(0, 100) as u8;
     Ok((ssid, strength))
 }
 
@@ -234,52 +244,77 @@ fn ethernet_icon_name(state: u32) -> &'static str {
     }
 }
 
-fn object_for_dbus_path(path: &str) -> Option<PathBuf> {
+fn dbus_path_to_object_path(path: &str) -> Option<PathBuf> {
     if path == "/" {
         return None;
     }
 
-    let local = path.rsplit('/').next()?;
-    let object = network_object_path().join(local);
-    object.exists().then_some(object)
+    let local = path
+        .strip_prefix("/org/freedesktop/NetworkManager/")
+        .unwrap_or(path.trim_start_matches('/'))
+        .replace('/', "%2F");
+    Some(network_object_path().join(local))
 }
 
-fn read_object_path(path: &Path) -> Result<String, SourceError> {
-    read_string(path)
+async fn read_object_path(path: &Path) -> Result<String, SourceError> {
+    read_string(path).await
 }
 
-fn read_string(path: &Path) -> Result<String, SourceError> {
-    let value = read_trimmed(path)?;
+async fn read_string(path: &Path) -> Result<String, SourceError> {
+    let value = read_trimmed(path).await?;
     Ok(strip_scalar_prefix(&value).trim_matches('"').to_owned())
 }
 
-fn read_ssid(path: &Path) -> Result<String, SourceError> {
-    let value = read_trimmed(path)?;
+async fn read_ssid(path: &Path) -> Result<String, SourceError> {
+    let value = read_trimmed(path).await?;
     let value = strip_scalar_prefix(&value);
     if value.is_empty() {
         return Ok(String::new());
     }
 
-    let bytes = value
-        .split_whitespace()
-        .map(|part| {
-            part.parse::<u8>()
-                .map_err(|error| SourceError::new(format!("invalid SSID byte {part}: {error}")))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let bytes = if value.contains("U8(") {
+        parse_owned_u8_array(value)?
+    } else {
+        value
+            .split_whitespace()
+            .map(|part| {
+                part.parse::<u8>()
+                    .map_err(|error| SourceError::new(format!("invalid SSID byte {part}: {error}")))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
 
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn read_u32(path: &Path) -> Result<u32, SourceError> {
-    let value = read_trimmed(path)?;
+fn parse_owned_u8_array(value: &str) -> Result<Vec<u8>, SourceError> {
+    let mut bytes = Vec::new();
+    let mut rest = value;
+
+    while let Some((_, after_prefix)) = rest.split_once("U8(") {
+        let Some((byte, after_byte)) = after_prefix.split_once(')') else {
+            return Err(SourceError::new(format!("invalid U8 array value: {value}")));
+        };
+        bytes.push(
+            byte.parse::<u8>()
+                .map_err(|error| SourceError::new(format!("invalid SSID byte {byte}: {error}")))?,
+        );
+        rest = after_byte;
+    }
+
+    Ok(bytes)
+}
+
+async fn read_u32(path: &Path) -> Result<u32, SourceError> {
+    let value = read_trimmed(path).await?;
     strip_scalar_prefix(&value)
         .parse()
         .map_err(|error| SourceError::new(format!("invalid u32 value {value}: {error}")))
 }
 
-fn read_trimmed(path: &Path) -> Result<String, SourceError> {
-    let value = fs::read_to_string(path)
+async fn read_trimmed(path: &Path) -> Result<String, SourceError> {
+    let value = locusfs_client::read_to_string(path)
+        .await
         .map_err(|error| SourceError::new(format!("failed to read {}: {error}", path.display())))?;
     Ok(value.trim().to_owned())
 }
@@ -296,20 +331,12 @@ fn strip_scalar_prefix(value: &str) -> &str {
     }
 }
 
-async fn open_directory_watch(path: &Path) -> io::Result<locusfs_client::Watch> {
-    let data_path = locusfs_client::absolute_path(path)?;
-    let mount_root = locusfs_client::find_mount_root(&data_path).await?;
-    let mut logical_path = locusfs_client::logical_watch_path(&mount_root, &data_path)?;
-
-    if !logical_path.ends_with('/') {
-        logical_path.push('/');
-    }
-
-    locusfs_client::Watch::open_with_parts(data_path, mount_root, logical_path).await
-}
-
 fn network_object_path() -> PathBuf {
     root().join(NETWORK_OBJECT_PATH)
+}
+
+fn network_root_object_path() -> PathBuf {
+    network_object_path().join("%40")
 }
 
 fn dbus_service_path() -> PathBuf {

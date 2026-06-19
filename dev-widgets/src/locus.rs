@@ -1,10 +1,9 @@
 use std::{
-    fs,
     future::Future,
     path::{Path, PathBuf},
 };
 
-use shell_core::source::{self, Observable, SourceError};
+use shell_core::source::{self, Observable, SourceError, rx::Observable as _};
 
 pub(super) type NodeId = String;
 pub(super) type WindowNode = String;
@@ -13,7 +12,9 @@ const ROOT_ENV: &str = "LOCUSFS_ROOT";
 const DEFAULT_ROOT: &str = "/tmp/locusfs-niri-run";
 
 pub(super) fn selected_workspace_windows() -> Observable<Vec<WindowNode>> {
-    observe_with_refresh(selected_workspace_path(), read_selected_workspace_windows)
+    read_on_change(selected_workspace_path(), read_selected_workspace_windows)
+        .distinct_until_changed()
+        .box_it()
 }
 
 pub(super) fn window_title(window: WindowNode) -> Observable<String> {
@@ -29,18 +30,17 @@ fn observe_property<Value>(
     parse: fn(&str) -> Result<Value, SourceError>,
 ) -> Observable<Value>
 where
-    Value: Send + 'static,
+    Value: Send + PartialEq + Clone + 'static,
 {
-    observe_with_refresh(path.clone(), move || {
+    read_on_change(path.clone(), move || {
         let path = path.clone();
         async move { read_property(&path, parse).await }
     })
+    .distinct_until_changed()
+    .box_it()
 }
 
-fn observe_with_refresh<Value, Read, ReadFuture>(
-    watch_path: PathBuf,
-    mut read: Read,
-) -> Observable<Value>
+fn read_on_change<Value, Read, ReadFuture>(watch_path: PathBuf, mut read: Read) -> Observable<Value>
 where
     Value: Send + 'static,
     Read: FnMut() -> ReadFuture + Send + 'static,
@@ -79,17 +79,20 @@ where
 }
 
 async fn read_selected_workspace_windows() -> Result<Vec<WindowNode>, SourceError> {
-    let selected = read_link_node_id(&selected_workspace_path())?;
-    let mut windows = fs::read_dir(root().join("window"))
+    let selected = read_link_node_id(&selected_workspace_path()).await?;
+    let mut windows = Vec::new();
+    for window_id in locusfs_client::read_dir_names(root().join("window"))
+        .await
         .map_err(|error| SourceError::new(format!("failed to read windows: {error}")))?
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let window_id = entry.file_name().into_string().ok()?;
-            let node = format!("window:{window_id}");
-            let workspace = read_link_node_id(&node_relation_path(&node, "workspace")).ok()?;
-            (workspace == selected).then_some(node)
-        })
-        .collect::<Vec<_>>();
+    {
+        let node = format!("window:{window_id}");
+        let Ok(workspace) = read_link_node_id(&node_relation_path(&node, "workspace")).await else {
+            continue;
+        };
+        if workspace == selected {
+            windows.push(node);
+        }
+    }
 
     let mut indexed = Vec::with_capacity(windows.len());
     for window in windows.drain(..) {
@@ -112,15 +115,10 @@ async fn read_property<Value>(
     parse(value.trim())
 }
 
-fn read_link_node_id(path: &Path) -> Result<NodeId, SourceError> {
-    let target = fs::read_link(path).map_err(|error| {
+async fn read_link_node_id(path: &Path) -> Result<NodeId, SourceError> {
+    let path = locusfs_client::read_link(path).await.map_err(|error| {
         SourceError::new(format!("failed to resolve {}: {error}", path.display()))
     })?;
-    let path = if target.is_absolute() {
-        target
-    } else {
-        path.parent().unwrap_or_else(|| Path::new("/")).join(target)
-    };
 
     let local = path
         .file_name()
