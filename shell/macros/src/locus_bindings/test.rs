@@ -69,10 +69,10 @@ fn expands_component_impl() {
     assert!(source.contains("mod sources"));
     assert!(source.contains("model . sources . set_subscriptions (sources :: start"));
     assert!(source.contains("fn update"));
-    assert!(source.contains("shell_core :: source :: subscribe"));
-    assert!(source.contains("shell_core :: source :: subscribe"));
-    assert!(source.contains("shell_core :: source :: into_observable :: < String"));
-    assert!(source.contains("subscriptions : :: shell_core :: source :: Subscriptions"));
+    assert!(source.contains(". on_error"));
+    assert!(source.contains(". subscribe"));
+    assert!(source.contains("shell_core :: source :: Observable < String"));
+    assert!(source.contains("BoxedSubscriptionSend"));
     assert!(source.contains("subscriptions . push (subscription)"));
 }
 
@@ -86,9 +86,9 @@ fn expands_dbus_property_source() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
 
-    assert!(source.contains("shell_core :: source :: subscribe"));
-    assert!(source.contains("shell_core :: source :: subscribe"));
-    assert!(source.contains("shell_core :: source :: into_observable :: < f64"));
+    assert!(source.contains(". on_error"));
+    assert!(source.contains(". subscribe"));
+    assert!(source.contains("shell_core :: source :: Observable < f64"));
     assert!(source.contains("BATTERY . bind"));
 }
 
@@ -103,14 +103,7 @@ fn expands_mixed_source_sources() {
     let expanded = expand_component(attr, item).unwrap();
     let source = expanded.to_string();
 
-    assert_eq!(
-        source.matches("shell_core :: source :: subscribe").count(),
-        2
-    );
-    assert_eq!(
-        source.matches("shell_core :: source :: subscribe").count(),
-        2
-    );
+    assert_eq!(source.matches(". on_error").count(), 2);
 }
 
 #[test]
@@ -223,13 +216,14 @@ fn expands_typed_model() {
     assert!(source.contains("BatteryPercent"));
     assert!(source.contains("__shell : sources :: Runtime"));
     assert!(source.contains("last_error : :: std :: option :: Option < WatchError >"));
-    assert!(source.contains("subscriptions : :: shell_core :: source :: Subscriptions"));
+    assert!(source.contains("BoxedSubscriptionSend"));
     assert!(source.contains("subscriptions . push (subscription)"));
     assert!(source.contains("pub fn new () -> Self"));
     assert!(source.contains("impl :: std :: default :: Default for BarLocus"));
-    assert!(source.contains("shell_core :: source :: into_observable :: < String"));
-    assert!(source.contains("shell_core :: source :: into_observable :: < f64"));
-    assert!(source.contains("shell_core :: source :: subscribe"));
+    assert!(source.contains("shell_core :: source :: Observable < String"));
+    assert!(source.contains("shell_core :: source :: Observable < f64"));
+    assert!(source.contains(". on_error"));
+    assert!(source.contains(". subscribe"));
 }
 
 #[test]
@@ -252,7 +246,7 @@ fn expands_typed_model_sources_that_reference_model_fields() {
     assert!(source.contains("let window = & self . window"));
     assert!(
         source.contains(
-            "shell_core :: source :: into_observable :: < String , _ > (window_title (window . clone ()))"
+            "let source : :: shell_core :: source :: Observable < String , _ > = window_title (window . clone ())"
         )
     );
 }
@@ -429,7 +423,7 @@ fn expands_legacy_locus_model_sources() {
     let source = expanded.to_string();
 
     assert!(source.contains("BatteryPercent"));
-    assert!(source.contains("shell_core :: source :: into_observable :: < f64"));
+    assert!(source.contains("shell_core :: source :: Observable < f64"));
 }
 
 #[test]

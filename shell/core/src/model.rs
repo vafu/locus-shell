@@ -1,6 +1,8 @@
+use std::fmt::Display;
+
 use relm4::ComponentSender;
 
-use crate::source::{IntoObservable, Subscriptions};
+use crate::source::Observable;
 
 /// A model whose source context can be driven by another Observable source.
 ///
@@ -16,16 +18,16 @@ pub trait SourceModel: Sized + Send + 'static {
 
     fn update_source_model(&mut self, msg: Self::Msg);
 
-    fn start_source_model<Component, Source, Map>(
-        source: Source,
+    fn start_source_model<Component, E, Map>(
+        source: Observable<Self::Context, E>,
         sender: ComponentSender<Component>,
         map: Map,
-    ) -> Subscriptions
+    ) -> Vec<rxrust::subscription::SubscriptionGuard<rxrust::prelude::BoxedSubscriptionSend>>
     where
         Component: relm4::Component + 'static,
         Component::Input: Send,
         Component::Output: Send,
         Component::CommandOutput: Send,
-        Source: IntoObservable<Self::Context>,
+        E: Display + Send + Sync + 'static,
         Map: Fn(Self::Msg) -> Component::Input + Clone + Send + 'static;
 }

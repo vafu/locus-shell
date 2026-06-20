@@ -7,8 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-futures-util = "0.3.32"
-locusfs-client = { path = "../../locusfs/locusfs-client" }
+locusfs-watch = { path = "../../locusfs/watch", default-features = false, features = ["client"] }
 relm4.workspace = true
 shell-core.workspace = true
 shell-macros.workspace = true

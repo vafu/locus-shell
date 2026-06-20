@@ -3,9 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use shell_core::source::{self, Observable, SourceError, rx::Observable as _};
-
-use super::watch::{self, WatchSpec};
+use shell_core::source::{self, LegacyWatchEvent, Observable, WatchSpec, rx::Observable as _};
 
 pub(crate) type NodeId = String;
 pub(crate) type WorkspaceNode = String;
@@ -50,13 +48,9 @@ pub(crate) fn workspace_project_icon(workspace: WorkspaceNode) -> Observable<Opt
     observe_workspace_project_property(workspace, &["display-icon", "icon"])
 }
 
-pub(crate) fn window_is_selected(window: WindowNode) -> Observable<bool> {
-    observe_property(node_property_path(&window, "selected"), parse_bool)
-}
-
 fn observe_property<Value>(
     path: PathBuf,
-    parse: fn(&str) -> Result<Value, SourceError>,
+    parse: fn(&str) -> Result<Value, String>,
 ) -> Observable<Value>
 where
     Value: Send + PartialEq + Clone + 'static,
@@ -71,7 +65,7 @@ fn observe_workspace_project_property(
     workspace: WorkspaceNode,
     properties: &'static [&'static str],
 ) -> Observable<Option<String>> {
-    watch::read_on_any_change_async(
+    source::read_on_any_change_async(
         {
             let workspace = workspace.clone();
             move || {
@@ -92,16 +86,16 @@ fn observe_with_refresh<Value, Read, ReadFuture>(watch: WatchSpec, read: Read) -
 where
     Value: Send + PartialEq + Clone + 'static,
     Read: FnMut() -> ReadFuture + Send + 'static,
-    ReadFuture: Future<Output = Result<Value, SourceError>> + Send,
+    ReadFuture: Future<Output = Result<Value, String>> + Send,
 {
-    watch::read_on_change_async(watch, read)
+    source::read_on_change_async(watch, read)
         .distinct_until_changed()
         .box_it()
 }
 
 fn observe_selected_workspace_windows() -> Observable<Vec<WindowNode>> {
     let mut selected_workspace = SelectedWorkspaceState::Unknown;
-    watch::change_events_async(open_selected_workspace_window_watches)
+    source::change_events_async(open_selected_workspace_window_watches)
         .filter_map(move |event| selected_workspace_windows_refresh(event, &mut selected_workspace))
         .switch_map(read_selected_workspace_windows_once)
         .filter_map(|windows| windows)
@@ -123,7 +117,7 @@ enum SelectedWorkspaceRead {
 }
 
 fn selected_workspace_windows_refresh(
-    event: watch::WatchEvent,
+    event: LegacyWatchEvent,
     selected_workspace: &mut SelectedWorkspaceState,
 ) -> Option<SelectedWorkspaceRead> {
     if event.is_initial() {
@@ -165,13 +159,14 @@ fn selected_workspace_read(selected_workspace: &SelectedWorkspaceState) -> Selec
 fn read_selected_workspace_windows_once(
     selected: SelectedWorkspaceRead,
 ) -> Observable<Option<Vec<WindowNode>>> {
+    #[allow(deprecated)]
     source::from_async_loop(|emitter| async move {
         emitter.next(read_selected_workspace_windows_async(selected).await.ok());
         emitter.complete();
     })
 }
 
-async fn open_selected_workspace_window_watches() -> Result<Vec<WatchSpec>, SourceError> {
+async fn open_selected_workspace_window_watches() -> Result<Vec<WatchSpec>, String> {
     let mut watches = vec![
         WatchSpec::value(selected_workspace_path()),
         WatchSpec::directory(windows_path()),
@@ -194,11 +189,11 @@ async fn open_selected_workspace_window_watches() -> Result<Vec<WatchSpec>, Sour
 
 async fn push_window_sort_watches(watches: &mut Vec<WatchSpec>, window: &str) {
     let column = node_property_path(window, "column");
-    if locusfs_client::exists(&column).await {
+    if locusfs_watch::exists(&column).await {
         watches.push(WatchSpec::optional_value(column));
     }
     let row = node_property_path(window, "row");
-    if locusfs_client::exists(&row).await {
+    if locusfs_watch::exists(&row).await {
         watches.push(WatchSpec::optional_value(row));
     }
 }
@@ -206,13 +201,13 @@ async fn push_window_sort_watches(watches: &mut Vec<WatchSpec>, window: &str) {
 async fn open_workspace_project_watches(
     workspace: &str,
     properties: &[&str],
-) -> Result<Vec<WatchSpec>, SourceError> {
+) -> Result<Vec<WatchSpec>, String> {
     let mut watches = vec![WatchSpec::value(node_relation_path(workspace, "project"))];
 
     if let Ok(project) = read_link_node_id(&node_relation_path(workspace, "project")).await {
         for property in properties {
             let path = node_property_path(&project, property);
-            if locusfs_client::exists(&path).await {
+            if locusfs_watch::exists(&path).await {
                 watches.push(WatchSpec::optional_value(path));
             }
         }
@@ -221,10 +216,10 @@ async fn open_workspace_project_watches(
     Ok(watches)
 }
 
-async fn read_workspaces() -> Result<Vec<WorkspaceNode>, SourceError> {
-    let mut workspaces = locusfs_client::read_dir_names(workspaces_path())
+async fn read_workspaces() -> Result<Vec<WorkspaceNode>, String> {
+    let mut workspaces = locusfs_watch::read_dir_names(workspaces_path())
         .await
-        .map_err(|error| SourceError::new(format!("failed to read workspaces: {error}")))?
+        .map_err(|error| format!("failed to read workspaces: {error}"))?
         .into_iter()
         .map(|id| format!("workspace:{id}"))
         .collect::<Vec<_>>();
@@ -244,10 +239,10 @@ async fn read_workspaces() -> Result<Vec<WorkspaceNode>, SourceError> {
     Ok(workspaces)
 }
 
-async fn read_windows() -> Result<Vec<WindowNode>, SourceError> {
-    Ok(locusfs_client::read_dir_names(windows_path())
+async fn read_windows() -> Result<Vec<WindowNode>, String> {
+    Ok(locusfs_watch::read_dir_names(windows_path())
         .await
-        .map_err(|error| SourceError::new(format!("failed to read windows: {error}")))?
+        .map_err(|error| format!("failed to read windows: {error}"))?
         .into_iter()
         .map(|window_id| format!("window:{window_id}"))
         .collect())
@@ -255,16 +250,16 @@ async fn read_windows() -> Result<Vec<WindowNode>, SourceError> {
 
 async fn read_selected_workspace_windows_async(
     selected: SelectedWorkspaceRead,
-) -> Result<Vec<WindowNode>, SourceError> {
+) -> Result<Vec<WindowNode>, String> {
     let selected = match selected {
         SelectedWorkspaceRead::Cached(Some(selected)) => selected,
         SelectedWorkspaceRead::Cached(None) => return Ok(Vec::new()),
         SelectedWorkspaceRead::ResolveCurrent => read_link_node_id(&selected_workspace_path())
             .await
             .map_err(|error| {
-                SourceError::new(format!(
+                format!(
                     "selected workspace windows read failed: failed to resolve selected workspace: {error}"
-                ))
+                )
             })?,
     };
     let mut windows = Vec::new();
@@ -280,7 +275,7 @@ async fn read_selected_workspace_windows_async(
     sort_windows_async(windows).await
 }
 
-async fn sort_windows_async(mut windows: Vec<WindowNode>) -> Result<Vec<WindowNode>, SourceError> {
+async fn sort_windows_async(mut windows: Vec<WindowNode>) -> Result<Vec<WindowNode>, String> {
     let mut indexed = Vec::with_capacity(windows.len());
     for window in windows.drain(..) {
         let key = read_window_sort_key_async(&window).await;
@@ -306,7 +301,7 @@ async fn read_window_sort_key_async(window: &str) -> (u32, u32, u32) {
 async fn read_workspace_project_property(
     workspace: &str,
     properties: &[&str],
-) -> Result<Option<String>, SourceError> {
+) -> Result<Option<String>, String> {
     let project = match read_link_node_id(&node_relation_path(workspace, "project")).await {
         Ok(project) => project,
         Err(_) => return Ok(None),
@@ -327,75 +322,75 @@ async fn read_workspace_project_property(
     Ok(None)
 }
 
-async fn read_window_workspace(window: &str) -> Result<NodeId, SourceError> {
+async fn read_window_workspace(window: &str) -> Result<NodeId, String> {
     if let Ok(workspace) = read_link_node_id(&node_relation_path(window, "workspace")).await {
         return Ok(workspace);
     }
 
     let workspace_id = read_property(&node_property_path(window, "workspace-id"), parse_string)
         .await
-        .map_err(|error| SourceError::new(format!("failed to read {window} workspace: {error}")))?;
+        .map_err(|error| format!("failed to read {window} workspace: {error}"))?;
     Ok(format!("workspace:{workspace_id}"))
 }
 
-fn node_id_from_path(path: &Path) -> Result<NodeId, SourceError> {
+fn node_id_from_path(path: &Path) -> Result<NodeId, String> {
     let local = path
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| SourceError::new(format!("invalid node path: {}", path.display())))?;
+        .ok_or_else(|| format!("invalid node path: {}", path.display()))?;
     let kind = path
         .parent()
         .and_then(Path::file_name)
         .and_then(|value| value.to_str())
-        .ok_or_else(|| SourceError::new(format!("invalid node path: {}", path.display())))?;
+        .ok_or_else(|| format!("invalid node path: {}", path.display()))?;
 
     Ok(format!("{kind}:{local}"))
 }
 
 async fn read_property<Value>(
     path: &Path,
-    parse: fn(&str) -> Result<Value, SourceError>,
-) -> Result<Value, SourceError> {
-    let value = locusfs_client::read_to_string(path)
+    parse: fn(&str) -> Result<Value, String>,
+) -> Result<Value, String> {
+    let value = locusfs_watch::read_to_string(path)
         .await
-        .map_err(|error| SourceError::new(format!("failed to read {}: {error}", path.display())))?;
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     parse(value.trim())
 }
 
-async fn read_link_node_id(path: &Path) -> Result<NodeId, SourceError> {
-    let path = locusfs_client::read_link(path).await.map_err(|error| {
-        SourceError::new(format!("failed to resolve {}: {error}", path.display()))
-    })?;
+async fn read_link_node_id(path: &Path) -> Result<NodeId, String> {
+    let path = locusfs_watch::read_link(path)
+        .await
+        .map_err(|error| format!("failed to resolve {}: {error}", path.display()))?;
 
     let local = path
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| SourceError::new(format!("invalid node path: {}", path.display())))?;
+        .ok_or_else(|| format!("invalid node path: {}", path.display()))?;
     let kind = path
         .parent()
         .and_then(Path::file_name)
         .and_then(|value| value.to_str())
-        .ok_or_else(|| SourceError::new(format!("invalid node path: {}", path.display())))?;
+        .ok_or_else(|| format!("invalid node path: {}", path.display()))?;
 
     Ok(format!("{kind}:{local}"))
 }
 
-fn parse_string(value: &str) -> Result<String, SourceError> {
+fn parse_string(value: &str) -> Result<String, String> {
     Ok(value.to_owned())
 }
 
-fn parse_bool(value: &str) -> Result<bool, SourceError> {
+fn parse_bool(value: &str) -> Result<bool, String> {
     match value {
         "true" | "1" => Ok(true),
         "false" | "0" => Ok(false),
-        _ => Err(SourceError::new(format!("invalid bool value: {value}"))),
+        _ => Err(format!("invalid bool value: {value}")),
     }
 }
 
-fn parse_u32(value: &str) -> Result<u32, SourceError> {
+fn parse_u32(value: &str) -> Result<u32, String> {
     value
         .parse()
-        .map_err(|error| SourceError::new(format!("invalid u32 value {value}: {error}")))
+        .map_err(|error| format!("invalid u32 value {value}: {error}"))
 }
 
 fn optional_text(value: &str) -> Option<&str> {

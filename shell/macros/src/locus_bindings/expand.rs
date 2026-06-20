@@ -9,6 +9,16 @@ pub(super) enum ModuleMode {
     MappedInput(Path),
 }
 
+fn shell_subscriptions_ty() -> TokenStream {
+    quote! {
+        ::std::vec::Vec<
+            ::shell_core::source::rxrust::subscription::SubscriptionGuard<
+                ::shell_core::source::rxrust::prelude::BoxedSubscriptionSend,
+            >,
+        >
+    }
+}
+
 pub(super) fn expand_locus_module(
     visibility: Visibility,
     module_ident: Ident,
@@ -16,6 +26,7 @@ pub(super) fn expand_locus_module(
     bindings: Vec<BindingConfig>,
     mode: ModuleMode,
 ) -> TokenStream {
+    let subscriptions_ty = shell_subscriptions_ty();
     let fields = bindings.iter().map(|binding| {
         let field = &binding.field;
         let ty = &binding.ty;
@@ -33,7 +44,7 @@ pub(super) fn expand_locus_module(
         let variant = &binding.variant;
         let ty = &binding.ty;
         quote! {
-            #variant(::std::result::Result<#ty, ::shell_core::source::SourceError>),
+            #variant(::std::result::Result<#ty, ::std::string::String>),
         }
     });
     let field_variants = bindings.iter().map(|binding| {
@@ -80,13 +91,27 @@ pub(super) fn expand_locus_module(
         quote! {
             {
                 let update_sender = sender.clone();
-                let source = ::shell_core::source::into_observable::<#ty, _>(#source);
-                let subscription = ::shell_core::source::subscribe(source, move |result| {
-                        let result = result.map_err(|error| {
-                            ::shell_core::source::SourceError::new(error.to_string())
-                        });
+                let error_sender = sender.clone();
+                let source: ::shell_core::source::Observable<#ty, _> = #source;
+                let subscription = {
+                    use ::shell_core::source::rx::{
+                        IntoBoxedSubscription as _, Observable as _, Subscription as _,
+                    };
+
+                    let subscription: ::shell_core::source::rxrust::prelude::BoxedSubscriptionSend =
+                        source
+                            .on_error(move |error| {
+                                let result = ::std::result::Result::Err(error.to_string());
+                                error_sender.input(#input);
+                            })
+                            .subscribe(move |value| {
+                        let result = ::std::result::Result::Ok(value);
                         update_sender.input(#input);
-                    });
+                            })
+                            .into_boxed();
+
+                    subscription.unsubscribe_when_dropped()
+                };
                 subscriptions.push(subscription);
             }
         }
@@ -103,12 +128,11 @@ pub(super) fn expand_locus_module(
                 pub error: ::std::string::String,
             }
 
-            #[derive(Debug)]
             pub struct Model {
                 #(#fields)*
                 pub last_error: ::std::option::Option<WatchError>,
                 changed: Changed,
-                subscriptions: ::shell_core::source::Subscriptions,
+                subscriptions: #subscriptions_ty,
             }
 
             impl ::std::default::Default for Model {
@@ -117,7 +141,7 @@ pub(super) fn expand_locus_module(
                         #(#defaults)*
                         last_error: ::std::option::Option::None,
                         changed: Changed::default(),
-                        subscriptions: ::shell_core::source::Subscriptions::new(),
+                        subscriptions: <#subscriptions_ty>::new(),
                     }
                 }
             }
@@ -169,7 +193,7 @@ pub(super) fn expand_locus_module(
 
                 pub fn set_subscriptions(
                     &mut self,
-                    subscriptions: ::shell_core::source::Subscriptions,
+                    subscriptions: #subscriptions_ty,
                 ) {
                     self.subscriptions = subscriptions;
                 }
@@ -183,8 +207,8 @@ pub(super) fn expand_locus_module(
 
             pub fn start(
                 sender: ::relm4::ComponentSender<super::#component>,
-            ) -> ::shell_core::source::Subscriptions {
-                let mut subscriptions = ::shell_core::source::Subscriptions::new();
+            ) -> #subscriptions_ty {
+                let mut subscriptions = <#subscriptions_ty>::new();
                 #(#watchers)*
                 subscriptions
             }
@@ -198,6 +222,7 @@ pub(super) fn expand_model_impl(
     fields: &[(Ident, Type)],
     model_bindings: &ModelBindings,
 ) -> TokenStream {
+    let subscriptions_ty = shell_subscriptions_ty();
     let bindings = &model_bindings.sources;
     let nested_models = &model_bindings.nested_models;
     let source_local_fields = fields
@@ -251,14 +276,14 @@ pub(super) fn expand_model_impl(
         let variant = &binding.variant;
         let ty = &binding.ty;
         quote! {
-            #variant(::std::result::Result<#ty, ::shell_core::source::SourceError>),
+            #variant(::std::result::Result<#ty, ::std::string::String>),
         }
     });
     let context_update_variant = format_ident!("__ShellContext");
     let context_message_variant =
         source_model_context(fields, bindings, nested_models).map(|(_field, ty)| {
             quote! {
-                #context_update_variant(::std::result::Result<#ty, ::shell_core::source::SourceError>),
+                #context_update_variant(::std::result::Result<#ty, ::std::string::String>),
             }
         });
     let nested_message_variants = nested_models.iter().map(|nested| {
@@ -317,16 +342,32 @@ pub(super) fn expand_model_impl(
         quote! {
             {
                 let update_sender = sender.clone();
+                let error_sender = sender.clone();
                 #(#source_locals)*
-                let source = ::shell_core::source::into_observable::<#ty, _>(#source);
-                let subscription = ::shell_core::source::subscribe(source, move |result| {
-                        let result = result.map_err(|error| {
-                            ::shell_core::source::SourceError::new(error.to_string())
-                        });
+                let source: ::shell_core::source::Observable<#ty, _> = #source;
+                let subscription = {
+                    use ::shell_core::source::rx::{
+                        IntoBoxedSubscription as _, Observable as _, Subscription as _,
+                    };
+
+                    let subscription: ::shell_core::source::rxrust::prelude::BoxedSubscriptionSend =
+                        source
+                            .on_error(move |error| {
+                                let result = ::std::result::Result::Err(error.to_string());
+                                let input: <Component as ::relm4::Component>::Input =
+                                    #module_ident::Msg::#variant(result).into();
+                                error_sender.input(input);
+                            })
+                            .subscribe(move |value| {
+                        let result = ::std::result::Result::Ok(value);
                         let input: <Component as ::relm4::Component>::Input =
                             #module_ident::Msg::#variant(result).into();
                         update_sender.input(input);
-                    });
+                            })
+                            .into_boxed();
+
+                    subscription.unsubscribe_when_dropped()
+                };
                 subscriptions.push(subscription);
             }
         }
@@ -444,11 +485,11 @@ pub(super) fn expand_model_impl(
                 #(#nested_message_variants)*
             }
 
-            #[derive(Debug, Default)]
+            #[derive(Default)]
             pub(super) struct Runtime {
                 last_error: ::std::option::Option<WatchError>,
                 changed: Changed,
-                subscriptions: ::shell_core::source::Subscriptions,
+                subscriptions: #subscriptions_ty,
             }
 
             impl Runtime {
@@ -478,7 +519,7 @@ pub(super) fn expand_model_impl(
 
                 pub(super) fn set_subscriptions(
                     &mut self,
-                    subscriptions: ::shell_core::source::Subscriptions,
+                    subscriptions: #subscriptions_ty,
                 ) {
                     self.subscriptions = subscriptions;
                 }
@@ -507,7 +548,7 @@ pub(super) fn expand_model_impl(
 
             pub fn set_subscriptions(
                 &mut self,
-                subscriptions: ::shell_core::source::Subscriptions,
+                subscriptions: #subscriptions_ty,
             ) {
                 self.__shell.set_subscriptions(subscriptions);
             }
@@ -523,7 +564,7 @@ pub(super) fn expand_model_impl(
             pub fn start<Component>(
                 &self,
                 sender: ::relm4::ComponentSender<Component>,
-            ) -> ::shell_core::source::Subscriptions
+            ) -> #subscriptions_ty
             where
                 Component: ::relm4::Component + 'static,
                 <Component as ::relm4::Component>::Input:
@@ -531,7 +572,7 @@ pub(super) fn expand_model_impl(
                 <Component as ::relm4::Component>::Output: Send,
                 <Component as ::relm4::Component>::CommandOutput: Send,
             {
-                let mut subscriptions = ::shell_core::source::Subscriptions::new();
+                let mut subscriptions = <#subscriptions_ty>::new();
                 #(#watchers)*
                 #(#nested_watchers)*
                 subscriptions
@@ -549,6 +590,7 @@ fn source_model_impl(
     model_bindings: &ModelBindings,
     module_ident: &Ident,
 ) -> TokenStream {
+    let subscriptions_ty = shell_subscriptions_ty();
     let bindings = &model_bindings.sources;
     let nested_models = &model_bindings.nested_models;
     let context_fields = fields
@@ -575,16 +617,33 @@ fn source_model_impl(
         quote! {
             {
                 let update_sender = sender.clone();
+                let error_sender = sender.clone();
                 let map = map.clone();
+                let error_map = map.clone();
                 #[allow(unused_variables)]
                 let #context_field = &context;
-                let source = ::shell_core::source::into_observable::<#ty, _>(#source);
-                let subscription = ::shell_core::source::subscribe(source, move |result| {
-                        let result = result.map_err(|error| {
-                            ::shell_core::source::SourceError::new(error.to_string())
-                        });
-                        update_sender.input(map(#module_ident::Msg::#variant(result)));
-                    });
+                let source: ::shell_core::source::Observable<#ty, _> = #source;
+                let subscription = {
+                    use ::shell_core::source::rx::{
+                        IntoBoxedSubscription as _, Observable as _, Subscription as _,
+                    };
+
+                    let subscription: ::shell_core::source::rxrust::prelude::BoxedSubscriptionSend =
+                        source
+                            .on_error(move |error| {
+                                error_sender.input(error_map(#module_ident::Msg::#variant(
+                                    ::std::result::Result::Err(error.to_string()),
+                                )));
+                            })
+                            .subscribe(move |value| {
+                        update_sender.input(map(#module_ident::Msg::#variant(
+                            ::std::result::Result::Ok(value),
+                        )));
+                            })
+                            .into_boxed();
+
+                    subscription.unsubscribe_when_dropped()
+                };
                 subscriptions.push(subscription);
             }
         }
@@ -628,42 +687,52 @@ fn source_model_impl(
                 Self::update(self, msg);
             }
 
-            fn start_source_model<Component, Source, Map>(
-                source: Source,
+            fn start_source_model<Component, E, Map>(
+                source: ::shell_core::source::Observable<Self::Context, E>,
                 sender: ::relm4::ComponentSender<Component>,
                 map: Map,
-            ) -> ::shell_core::source::Subscriptions
+            ) -> #subscriptions_ty
             where
                 Component: ::relm4::Component + 'static,
                 <Component as ::relm4::Component>::Input: Send,
                 <Component as ::relm4::Component>::Output: Send,
                 <Component as ::relm4::Component>::CommandOutput: Send,
-                Source: ::shell_core::source::IntoObservable<Self::Context>,
+                E: ::std::fmt::Display + Send + Sync + 'static,
                 Map: Fn(Self::Msg) -> <Component as ::relm4::Component>::Input
                     + Clone
                     + Send
                     + 'static,
             {
-                let mut subscriptions = ::shell_core::source::Subscriptions::new();
-                let source = ::shell_core::source::into_observable::<Self::Context, _>(source);
-                let mut context_subscriptions = ::shell_core::source::Subscriptions::new();
-                let subscription = ::shell_core::source::subscribe(source, move |result| {
-                    match result {
-                        ::std::result::Result::Ok(context) => {
-                            context_subscriptions.cancel();
-                            sender.input(map.clone()(#module_ident::Msg::#context_update_variant(
-                                ::std::result::Result::Ok(context.clone()),
-                            )));
-                            context_subscriptions =
-                                #model::start_for_source_context(context, sender.clone(), map.clone());
-                        }
-                        ::std::result::Result::Err(error) => {
-                            sender.input(map.clone()(#module_ident::Msg::#context_update_variant(
-                                ::std::result::Result::Err(::shell_core::source::SourceError::new(error.to_string())),
-                            )));
-                        }
-                    }
-                });
+                let mut subscriptions = <#subscriptions_ty>::new();
+                let mut context_subscriptions = <#subscriptions_ty>::new();
+                let update_sender = sender.clone();
+                let error_sender = sender.clone();
+                let update_map = map.clone();
+                let error_map = map.clone();
+                let subscription = {
+                    use ::shell_core::source::rx::{
+                        IntoBoxedSubscription as _, Observable as _, Subscription as _,
+                    };
+
+                    let subscription: ::shell_core::source::rxrust::prelude::BoxedSubscriptionSend =
+                        source
+                            .on_error(move |error| {
+                                error_sender.input(error_map.clone()(#module_ident::Msg::#context_update_variant(
+                                    ::std::result::Result::Err(error.to_string()),
+                                )));
+                            })
+                            .subscribe(move |context| {
+                        context_subscriptions.clear();
+                        update_sender.input(update_map.clone()(#module_ident::Msg::#context_update_variant(
+                            ::std::result::Result::Ok(context.clone()),
+                        )));
+                        context_subscriptions =
+                            #model::start_for_source_context(context, update_sender.clone(), update_map.clone());
+                            })
+                            .into_boxed();
+
+                    subscription.unsubscribe_when_dropped()
+                };
                 subscriptions.push(subscription);
                 subscriptions
             }
@@ -674,7 +743,7 @@ fn source_model_impl(
                 context: <Self as ::shell_core::model::SourceModel>::Context,
                 sender: ::relm4::ComponentSender<Component>,
                 map: Map,
-            ) -> ::shell_core::source::Subscriptions
+            ) -> #subscriptions_ty
             where
                 Component: ::relm4::Component + 'static,
                 <Component as ::relm4::Component>::Input: Send,
@@ -685,7 +754,7 @@ fn source_model_impl(
                     + Send
                     + 'static,
             {
-                let mut subscriptions = ::shell_core::source::Subscriptions::new();
+                let mut subscriptions = <#subscriptions_ty>::new();
                 #(#source_model_watchers)*
                 #(#nested_source_model_watchers)*
                 subscriptions

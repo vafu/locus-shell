@@ -1,9 +1,7 @@
 use relm4::prelude::*;
 use shell_core::gtk::{self, prelude::*};
 
-use crate::sources::{
-    WindowNode, WindowTileKind, WindowTileView, window_is_selected, window_tile_for_window,
-};
+use crate::sources::{WindowNode, WindowTileKind, WindowTileVm, window_tile_vm};
 use crate::widgets::material_icon;
 
 #[derive(Debug)]
@@ -11,11 +9,8 @@ use crate::widgets::material_icon;
 pub(super) struct WindowTile {
     pub window: WindowNode,
 
-    #[source(window_tile_for_window(window.clone()))]
-    pub view: WindowTileView,
-
-    #[source(window_is_selected(window.clone()))]
-    pub active: bool,
+    #[source(window_tile_vm(window.clone()))]
+    pub vm: Option<WindowTileVm>,
 }
 
 #[shell_macros::component(
@@ -31,14 +26,17 @@ impl SimpleComponent for WindowTile {
     view! {
         gtk::Box {
             #[watch]
-            set_css_classes: window_tile_classes(model.view.kind, model.active, model.view.urgent),
+            set_visible: model.vm.is_some(),
+
+            #[watch]
+            set_css_classes: window_tile_classes(&model.vm),
 
             set_halign: gtk::Align::Center,
             set_valign: gtk::Align::Fill,
             set_vexpand: true,
 
             #[watch]
-            set_tooltip_text: Some(model.view.tooltip.as_str()),
+            set_tooltip_text: model.vm.as_ref().map(|vm| vm.tooltip.as_str()),
 
             gtk::Box {
                 add_css_class: "workspace-window-content",
@@ -48,27 +46,27 @@ impl SimpleComponent for WindowTile {
 
                 gtk::Image {
                     #[watch]
-                    set_visible: model.view.kind != WindowTileKind::Agent,
+                    set_visible: is_plain_visible(&model.vm),
 
                     #[watch]
-                    set_icon_name: Some(plain_icon_name(&model.view.icon).as_str()),
+                    set_icon_name: plain_icon_name(&model.vm).as_deref(),
                 },
 
                 gtk::Box {
                     add_css_class: "agent-inner",
 
                     #[watch]
-                    set_visible: model.view.kind == WindowTileKind::Agent,
+                    set_visible: is_agent_visible(&model.vm),
 
                     #[local_ref]
                     agent_icon -> gtk::Image {
                         #[watch]
-                        set_icon_name: Some(material_icon::icon_name(&model.view.icon).as_str()),
+                        set_icon_name: Some(material_icon::icon_name(vm_icon(&model.vm)).as_str()),
                     },
 
                     gtk::ProgressBar {
                         #[watch]
-                        set_css_classes: context_indicator_classes(model.view.context_pct),
+                        set_css_classes: context_indicator_classes(context_pct(&model.vm)),
 
                         set_orientation: gtk::Orientation::Vertical,
                         set_inverted: true,
@@ -77,17 +75,17 @@ impl SimpleComponent for WindowTile {
                         set_valign: gtk::Align::Center,
 
                         #[watch]
-                        set_fraction: model.view.context_pct as f64 / 100.0,
+                        set_fraction: context_pct(&model.vm) as f64 / 100.0,
                     },
 
                     gtk::Label {
                         add_css_class: "agent-subagent-badge",
 
                         #[watch]
-                        set_label: agent_badge_label(model.view.substatus_count).as_str(),
+                        set_label: agent_badge_label(substatus_count(&model.vm)).as_str(),
 
                         #[watch]
-                        set_visible: model.view.substatus_count > 0,
+                        set_visible: substatus_count(&model.vm) > 0,
                     }
                 }
             }
@@ -100,7 +98,7 @@ impl SimpleComponent for WindowTile {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = WindowTile::new(init);
-        let agent_icon = material_icon::image(&model.view.icon);
+        let agent_icon = material_icon::image(vm_icon(&model.vm));
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
@@ -184,12 +182,12 @@ const NEOVIM_ACTIVE_URGENT_CLASSES: &[&str] = &[
     "urgent",
 ];
 
-fn window_tile_classes(
-    kind: WindowTileKind,
-    active: bool,
-    urgent: bool,
-) -> &'static [&'static str] {
-    match (kind, active, urgent) {
+fn window_tile_classes(vm: &Option<WindowTileVm>) -> &'static [&'static str] {
+    let Some(vm) = vm else {
+        return PLAIN_CLASSES;
+    };
+
+    match (vm.kind, vm.active, vm.urgent) {
         (WindowTileKind::Agent, true, true) => AGENT_ACTIVE_URGENT_CLASSES,
         (WindowTileKind::Agent, true, false) => AGENT_ACTIVE_CLASSES,
         (WindowTileKind::Agent, false, true) => AGENT_URGENT_CLASSES,
@@ -203,6 +201,28 @@ fn window_tile_classes(
         (WindowTileKind::Plain, false, true) => PLAIN_URGENT_CLASSES,
         (WindowTileKind::Plain, false, false) => PLAIN_CLASSES,
     }
+}
+
+fn is_plain_visible(vm: &Option<WindowTileVm>) -> bool {
+    vm.as_ref()
+        .is_some_and(|vm| vm.kind != WindowTileKind::Agent)
+}
+
+fn is_agent_visible(vm: &Option<WindowTileVm>) -> bool {
+    vm.as_ref()
+        .is_some_and(|vm| vm.kind == WindowTileKind::Agent)
+}
+
+fn vm_icon(vm: &Option<WindowTileVm>) -> &str {
+    vm.as_ref().map_or("", |vm| vm.icon.as_str())
+}
+
+fn context_pct(vm: &Option<WindowTileVm>) -> u32 {
+    vm.as_ref().map_or(0, |vm| vm.context_pct)
+}
+
+fn substatus_count(vm: &Option<WindowTileVm>) -> u32 {
+    vm.as_ref().map_or(0, |vm| vm.substatus_count)
 }
 
 const CONTEXT_NORMAL_CLASSES: &[&str] = &["agent-context-indicator", "normal"];
@@ -221,11 +241,15 @@ fn context_indicator_classes(context_pct: u32) -> &'static [&'static str] {
     }
 }
 
-fn plain_icon_name(icon: &str) -> String {
-    if icon.is_empty() {
-        "application-x-executable-symbolic".to_owned()
+fn plain_icon_name(vm: &Option<WindowTileVm>) -> Option<String> {
+    let vm = vm.as_ref()?;
+    if vm.kind == WindowTileKind::Agent {
+        return None;
+    }
+    if vm.icon.is_empty() {
+        Some("application-x-executable-symbolic".to_owned())
     } else {
-        icon.to_owned()
+        Some(vm.icon.clone())
     }
 }
 

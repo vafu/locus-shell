@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use shell_core::source::{Observable, SourceError, rx::Observable as _};
-
-use super::watch::{self, WatchSpec};
+use shell_core::source::{self as watch, Observable, WatchSpec, rx::Observable as _};
 
 const ROOT_ENV: &str = "LOCUSFS_ROOT";
 const DEFAULT_ROOT: &str = "/tmp/rsynapse";
@@ -69,9 +67,9 @@ pub(crate) fn network_status() -> Observable<NetworkView> {
         .box_it()
 }
 
-async fn read_network() -> Result<NetworkView, SourceError> {
+async fn read_network() -> Result<NetworkView, String> {
     let object_dir = network_object_path();
-    if !locusfs_client::exists(&object_dir).await {
+    if !locusfs_watch::exists(&object_dir).await {
         return Ok(NetworkView::default());
     }
 
@@ -110,14 +108,12 @@ async fn read_network() -> Result<NetworkView, SourceError> {
     Ok(NetworkView { wifi, ethernet })
 }
 
-async fn read_devices(object_dir: &Path) -> Result<Vec<NetworkDevice>, SourceError> {
+async fn read_devices(object_dir: &Path) -> Result<Vec<NetworkDevice>, String> {
     let mut devices = Vec::new();
 
-    for name in locusfs_client::read_dir_names(object_dir)
+    for name in locusfs_watch::read_dir_names(object_dir)
         .await
-        .map_err(|error| {
-            SourceError::new(format!("failed to read NetworkManager objects: {error}"))
-        })?
+        .map_err(|error| format!("failed to read NetworkManager objects: {error}"))?
     {
         let path = object_dir.join(name);
         let Ok(device_type) = read_u32(&path.join("DeviceType")).await else {
@@ -139,8 +135,8 @@ async fn read_devices(object_dir: &Path) -> Result<Vec<NetworkDevice>, SourceErr
     Ok(devices)
 }
 
-async fn open_network_watch_specs() -> Result<Vec<WatchSpec>, SourceError> {
-    if !locusfs_client::exists(network_object_path()).await {
+async fn open_network_watch_specs() -> Result<Vec<WatchSpec>, String> {
+    if !locusfs_watch::exists(network_object_path()).await {
         return Ok(vec![WatchSpec::directory(dbus_service_path())]);
     }
 
@@ -155,7 +151,7 @@ async fn open_network_watch_specs() -> Result<Vec<WatchSpec>, SourceError> {
             .await
             .ok()
             .and_then(|path| dbus_path_to_object_path(&path))
-            && locusfs_client::exists(&active_ap).await
+            && locusfs_watch::exists(&active_ap).await
         {
             specs.push(WatchSpec::optional_directory(active_ap));
         }
@@ -164,7 +160,7 @@ async fn open_network_watch_specs() -> Result<Vec<WatchSpec>, SourceError> {
     Ok(specs)
 }
 
-async fn read_wifi(device: &NetworkDevice) -> Result<WifiView, SourceError> {
+async fn read_wifi(device: &NetworkDevice) -> Result<WifiView, String> {
     let active_ap = match read_object_path(&device.path.join("ActiveAccessPoint")).await {
         Ok(path) => dbus_path_to_object_path(&path),
         Err(_) => None,
@@ -199,7 +195,7 @@ fn read_ethernet(device: &NetworkDevice) -> EthernetView {
     }
 }
 
-async fn read_access_point(path: &Path) -> Result<(String, u8), SourceError> {
+async fn read_access_point(path: &Path) -> Result<(String, u8), String> {
     let ssid = read_ssid(&path.join("Ssid")).await.unwrap_or_default();
     let strength = read_u32(&path.join("Strength"))
         .await
@@ -256,16 +252,16 @@ fn dbus_path_to_object_path(path: &str) -> Option<PathBuf> {
     Some(network_object_path().join(local))
 }
 
-async fn read_object_path(path: &Path) -> Result<String, SourceError> {
+async fn read_object_path(path: &Path) -> Result<String, String> {
     read_string(path).await
 }
 
-async fn read_string(path: &Path) -> Result<String, SourceError> {
+async fn read_string(path: &Path) -> Result<String, String> {
     let value = read_trimmed(path).await?;
     Ok(strip_scalar_prefix(&value).trim_matches('"').to_owned())
 }
 
-async fn read_ssid(path: &Path) -> Result<String, SourceError> {
+async fn read_ssid(path: &Path) -> Result<String, String> {
     let value = read_trimmed(path).await?;
     let value = strip_scalar_prefix(&value);
     if value.is_empty() {
@@ -279,7 +275,7 @@ async fn read_ssid(path: &Path) -> Result<String, SourceError> {
             .split_whitespace()
             .map(|part| {
                 part.parse::<u8>()
-                    .map_err(|error| SourceError::new(format!("invalid SSID byte {part}: {error}")))
+                    .map_err(|error| format!("invalid SSID byte {part}: {error}"))
             })
             .collect::<Result<Vec<_>, _>>()?
     };
@@ -287,17 +283,17 @@ async fn read_ssid(path: &Path) -> Result<String, SourceError> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn parse_owned_u8_array(value: &str) -> Result<Vec<u8>, SourceError> {
+fn parse_owned_u8_array(value: &str) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     let mut rest = value;
 
     while let Some((_, after_prefix)) = rest.split_once("U8(") {
         let Some((byte, after_byte)) = after_prefix.split_once(')') else {
-            return Err(SourceError::new(format!("invalid U8 array value: {value}")));
+            return Err(format!("invalid U8 array value: {value}"));
         };
         bytes.push(
             byte.parse::<u8>()
-                .map_err(|error| SourceError::new(format!("invalid SSID byte {byte}: {error}")))?,
+                .map_err(|error| format!("invalid SSID byte {byte}: {error}"))?,
         );
         rest = after_byte;
     }
@@ -305,17 +301,17 @@ fn parse_owned_u8_array(value: &str) -> Result<Vec<u8>, SourceError> {
     Ok(bytes)
 }
 
-async fn read_u32(path: &Path) -> Result<u32, SourceError> {
+async fn read_u32(path: &Path) -> Result<u32, String> {
     let value = read_trimmed(path).await?;
     strip_scalar_prefix(&value)
         .parse()
-        .map_err(|error| SourceError::new(format!("invalid u32 value {value}: {error}")))
+        .map_err(|error| format!("invalid u32 value {value}: {error}"))
 }
 
-async fn read_trimmed(path: &Path) -> Result<String, SourceError> {
-    let value = locusfs_client::read_to_string(path)
+async fn read_trimmed(path: &Path) -> Result<String, String> {
+    let value = locusfs_watch::read_to_string(path)
         .await
-        .map_err(|error| SourceError::new(format!("failed to read {}: {error}", path.display())))?;
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     Ok(value.trim().to_owned())
 }
 

@@ -121,7 +121,7 @@ name = "dev-widgets"
 version = "0.1.0"
 dependencies = [
  "futures",
- "locusfs-client",
+ "locusfs-watch",
  "relm4",
  "shell-core",
  "shell-macros",
@@ -718,7 +718,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "locusfs-client"
+name = "locusfs-watch"
 version = "0.1.0"
 dependencies = [
  "libc",
@@ -917,8 +917,7 @@ dependencies = [
 name = "rsynapse-shell"
 version = "0.1.0"
 dependencies = [
- "futures-util",
- "locusfs-client",
+ "locusfs-watch",
  "relm4",
  "shell-core",
  "shell-macros",
@@ -1012,8 +1011,10 @@ name = "shell-core"
 version = "0.1.0"
 dependencies = [
  "async-channel",
+ "futures-util",
  "gtk4",
  "gtk4-layer-shell",
+ "locusfs-watch",
  "notify",
  "relm4",
  "rxrust",

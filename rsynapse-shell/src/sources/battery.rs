@@ -4,15 +4,13 @@ use std::{
     pin::Pin,
 };
 
-use shell_core::source::{Observable, SourceError, rx::Observable as _};
-
-use super::watch::{self, WatchSpec};
+use shell_core::source::{self as watch, Observable, WatchSpec, rx::Observable as _};
 
 const ROOT_ENV: &str = "LOCUSFS_ROOT";
 const DEFAULT_ROOT: &str = "/tmp/rsynapse";
 const BATTERY_OBJECT_PATH: &str = "dbus-service/upower/object/battery_BAT1";
 
-type ReadFuture<T> = Pin<Box<dyn Future<Output = Result<T, SourceError>> + Send>>;
+type ReadFuture<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BatteryView {
@@ -86,18 +84,18 @@ fn read_battery_state(path: PathBuf) -> ReadFuture<BatteryState> {
     Box::pin(async move { Ok(battery_state(read_u32(&path).await?)) })
 }
 
-async fn read_f64(path: &Path) -> Result<f64, SourceError> {
+async fn read_f64(path: &Path) -> Result<f64, String> {
     let value = read_trimmed(path).await?;
     scalar_value(&value)
         .parse()
-        .map_err(|error| SourceError::new(format!("invalid f64 value {value}: {error}")))
+        .map_err(|error| format!("invalid f64 value {value}: {error}"))
 }
 
-async fn read_u32(path: &Path) -> Result<u32, SourceError> {
+async fn read_u32(path: &Path) -> Result<u32, String> {
     let value = read_trimmed(path).await?;
     scalar_value(&value)
         .parse()
-        .map_err(|error| SourceError::new(format!("invalid u32 value {value}: {error}")))
+        .map_err(|error| format!("invalid u32 value {value}: {error}"))
 }
 
 fn read_bool(path: PathBuf) -> ReadFuture<bool> {
@@ -106,15 +104,15 @@ fn read_bool(path: PathBuf) -> ReadFuture<bool> {
         match scalar_value(&value) {
             "true" | "1" => Ok(true),
             "false" | "0" => Ok(false),
-            value => Err(SourceError::new(format!("invalid bool value: {value}"))),
+            value => Err(format!("invalid bool value: {value}")),
         }
     })
 }
 
-async fn read_trimmed(path: &Path) -> Result<String, SourceError> {
-    let value = locusfs_client::read_to_string(path)
+async fn read_trimmed(path: &Path) -> Result<String, String> {
+    let value = locusfs_watch::read_to_string(path)
         .await
-        .map_err(|error| SourceError::new(format!("failed to read {}: {error}", path.display())))?;
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     Ok(value.trim().to_owned())
 }
 

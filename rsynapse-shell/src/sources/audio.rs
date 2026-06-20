@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use shell_core::source::{Observable, SourceError, rx::Observable as _};
-
-use super::watch::{self, WatchSpec};
+use shell_core::source::{self as watch, Observable, WatchSpec, rx::Observable as _};
 
 const ROOT_ENV: &str = "LOCUSFS_ROOT";
 const DEFAULT_ROOT: &str = "/tmp/rsynapse";
@@ -31,7 +29,7 @@ pub(crate) fn audio_status() -> Observable<AudioView> {
         .box_it()
 }
 
-async fn read_audio() -> Result<AudioView, SourceError> {
+async fn read_audio() -> Result<AudioView, String> {
     let sink_path = match read_active_sink_path().await {
         Ok(path) => path,
         Err(_) => return Ok(AudioView::default()),
@@ -60,8 +58,8 @@ async fn read_audio() -> Result<AudioView, SourceError> {
     })
 }
 
-async fn open_audio_watch_specs() -> Result<Vec<WatchSpec>, SourceError> {
-    if !locusfs_client::exists(pipewire_path()).await {
+async fn open_audio_watch_specs() -> Result<Vec<WatchSpec>, String> {
+    if !locusfs_watch::exists(pipewire_path()).await {
         return Ok(vec![WatchSpec::directory(root())]);
     }
 
@@ -70,7 +68,7 @@ async fn open_audio_watch_specs() -> Result<Vec<WatchSpec>, SourceError> {
         WatchSpec::directory(pipewire_path().join("sink")),
     ];
     let default = pipewire_path().join("default");
-    if locusfs_client::exists(&default).await {
+    if locusfs_watch::exists(&default).await {
         specs.push(WatchSpec::optional_directory(default));
     }
     if let Ok(sink_path) = read_active_sink_path().await {
@@ -79,29 +77,29 @@ async fn open_audio_watch_specs() -> Result<Vec<WatchSpec>, SourceError> {
     Ok(specs)
 }
 
-async fn read_active_sink_path() -> Result<PathBuf, SourceError> {
+async fn read_active_sink_path() -> Result<PathBuf, String> {
     match read_default_sink_path().await {
         Ok(path) => Ok(path),
         Err(_) => read_fallback_sink_path().await,
     }
 }
 
-async fn read_default_sink_path() -> Result<PathBuf, SourceError> {
+async fn read_default_sink_path() -> Result<PathBuf, String> {
     let default_sink = pipewire_path().join("default/sink");
-    locusfs_client::read_link(&default_sink)
+    locusfs_watch::read_link(&default_sink)
         .await
         .map_err(|error| {
-            SourceError::new(format!(
+            format!(
                 "failed to resolve default sink {}: {error}",
                 default_sink.display()
-            ))
+            )
         })
 }
 
-async fn read_fallback_sink_path() -> Result<PathBuf, SourceError> {
-    let mut sinks = locusfs_client::read_dir_names(pipewire_path().join("sink"))
+async fn read_fallback_sink_path() -> Result<PathBuf, String> {
+    let mut sinks = locusfs_watch::read_dir_names(pipewire_path().join("sink"))
         .await
-        .map_err(|error| SourceError::new(format!("failed to read PipeWire sinks: {error}")))?
+        .map_err(|error| format!("failed to read PipeWire sinks: {error}"))?
         .into_iter()
         .filter(|name| name.chars().all(|char| char.is_ascii_digit()))
         .map(|name| pipewire_path().join("sink").join(name))
@@ -119,7 +117,7 @@ async fn read_fallback_sink_path() -> Result<PathBuf, SourceError> {
         .into_iter()
         .map(|(_, _, path)| path)
         .next()
-        .ok_or_else(|| SourceError::new("no PipeWire sink found"))
+        .ok_or_else(|| "no PipeWire sink found".to_owned())
 }
 
 fn sink_state_rank(state: &str) -> u8 {
@@ -152,31 +150,31 @@ fn audio_icon_name(muted: bool, volume: u32) -> &'static str {
     }
 }
 
-async fn read_string(path: &Path) -> Result<String, SourceError> {
+async fn read_string(path: &Path) -> Result<String, String> {
     let value = read_trimmed(path).await?;
     Ok(strip_scalar_prefix(&value).trim_matches('"').to_owned())
 }
 
-async fn read_bool(path: &Path) -> Result<bool, SourceError> {
+async fn read_bool(path: &Path) -> Result<bool, String> {
     let value = read_trimmed(path).await?;
     match strip_scalar_prefix(&value) {
         "true" | "1" => Ok(true),
         "false" | "0" => Ok(false),
-        value => Err(SourceError::new(format!("invalid bool value: {value}"))),
+        value => Err(format!("invalid bool value: {value}")),
     }
 }
 
-async fn read_u32(path: &Path) -> Result<u32, SourceError> {
+async fn read_u32(path: &Path) -> Result<u32, String> {
     let value = read_trimmed(path).await?;
     strip_scalar_prefix(&value)
         .parse()
-        .map_err(|error| SourceError::new(format!("invalid u32 value {value}: {error}")))
+        .map_err(|error| format!("invalid u32 value {value}: {error}"))
 }
 
-async fn read_trimmed(path: &Path) -> Result<String, SourceError> {
-    let value = locusfs_client::read_to_string(path)
+async fn read_trimmed(path: &Path) -> Result<String, String> {
+    let value = locusfs_watch::read_to_string(path)
         .await
-        .map_err(|error| SourceError::new(format!("failed to read {}: {error}", path.display())))?;
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     Ok(value.trim().to_owned())
 }
 

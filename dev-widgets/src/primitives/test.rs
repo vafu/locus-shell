@@ -1,11 +1,11 @@
 use super::window_title::{WINDOW_ROW_CLASSES, WINDOW_ROW_SELECTED_CLASSES, window_title_classes};
 
 use crate::locus;
-use shell_core::source::IntoObservable;
+use shell_core::source::Observable;
 
 #[test]
 fn selected_workspace_windows_are_semantic_source() {
-    fn assert_source<T: Send + 'static, P: IntoObservable<T>>(_source: P) {}
+    fn assert_source<T: Send + 'static, E>(_source: Observable<T, E>) {}
 
     let source = locus::selected_workspace_windows();
 
@@ -14,7 +14,7 @@ fn selected_workspace_windows_are_semantic_source() {
 
 #[test]
 fn window_title_is_local_to_window_node() {
-    fn assert_source<T: Send + 'static, P: IntoObservable<T>>(_source: P) {}
+    fn assert_source<T: Send + 'static, E>(_source: Observable<T, E>) {}
 
     let window = "window:1".to_owned();
 

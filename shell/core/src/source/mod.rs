@@ -1,177 +1,60 @@
 use std::{
-    error::Error as StdError,
-    fmt,
+    convert::Infallible,
     future::Future,
-    marker::PhantomData,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
+use crate::locus_path::LocusPath;
+use rxrust::observer::{BoxedObserverSend, Observer as _};
 use rxrust::prelude::{
-    BoxedSubscriptionSend, IntoBoxedSubscription as _, Observable as RxObservable,
-    ObservableFactory as _, Observer as RxObserver, Shared, SharedBoxedObservable,
-    Subscription as _,
-};
-use rxrust::{
-    context::Context,
-    observable::{CoreObservable, ObservableType},
-    observer::{BoxedObserverSend, IntoBoxedObserver},
-    scheduler::{Scheduler, TaskHandle},
+    Observable as RxObservable, ObservableFactory as _, Shared, SharedBoxedObservable,
 };
 
+mod async_loop;
+mod children;
+mod children_events;
+mod conversion;
+mod legacy;
+mod node;
+mod property;
+mod relation;
+mod support;
+mod watch;
+
+pub use locusfs_watch::{WatchAction, WatchChange, WatchEvent, WatchState, WatchValue};
 pub use rxrust;
 pub use rxrust::prelude as rx;
 
-pub type Observable<T, E = SourceError> = SharedBoxedObservable<'static, T, E>;
+pub type Observable<T, E = String> = SharedBoxedObservable<'static, T, E>;
 
-pub trait IntoObservable<T>
+pub fn once<T>(value: T) -> Observable<T, Infallible>
 where
     T: Send + 'static,
 {
-    type Error: StdError + Send + Sync + 'static;
-
-    fn into_observable(self) -> Observable<T, Self::Error>;
+    Shared::<()>::of(value).box_it()
 }
 
-impl<T, E> IntoObservable<T> for Observable<T, E>
-where
-    T: Send + 'static,
-    E: StdError + Send + Sync + 'static,
-{
-    type Error = E;
-
-    fn into_observable(self) -> Observable<T, Self::Error> {
-        self
-    }
-}
-
-pub fn into_observable<T, Source>(source: Source) -> Observable<T, Source::Error>
-where
-    T: Send + 'static,
-    Source: IntoObservable<T>,
-{
-    source.into_observable()
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SourceError {
-    message: String,
-}
-
-impl SourceError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-}
-
-impl fmt::Display for SourceError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl StdError for SourceError {}
-
-#[derive(Default)]
-pub struct Subscriptions {
-    subscriptions: Vec<BoxedSubscriptionSend>,
-}
-
-impl Subscriptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn push(&mut self, subscription: BoxedSubscriptionSend) {
-        self.subscriptions.push(subscription);
-    }
-
-    pub fn extend(&mut self, mut subscriptions: Self) {
-        self.subscriptions.append(&mut subscriptions.subscriptions);
-    }
-
-    pub fn cancel(&mut self) {
-        while let Some(subscription) = self.subscriptions.pop() {
-            subscription.unsubscribe();
-        }
-    }
-}
-
-impl fmt::Debug for Subscriptions {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Subscriptions")
-            .field("len", &self.subscriptions.len())
-            .finish()
-    }
-}
-
-impl Drop for Subscriptions {
-    fn drop(&mut self) {
-        self.cancel();
-    }
-}
-
-pub fn subscribe<T, E, OnResult>(
-    observable: Observable<T, E>,
-    on_result: OnResult,
-) -> BoxedSubscriptionSend
-where
-    T: Send + 'static,
-    E: StdError + Send + Sync + 'static,
-    OnResult: FnMut(Result<T, SourceError>) + Send + 'static,
-{
-    observable
-        .subscribe_with(ResultObserver { on_result })
-        .into_boxed()
-}
-
-pub fn once<T>(value: T) -> Observable<T>
-where
-    T: Send + 'static,
-{
-    Shared::<()>::create::<T, SourceError, _, _>(move |emitter| {
-        emitter.next(value);
-        emitter.complete();
-    })
-    .box_it()
-}
-
+/// Legacy async bridge for handwritten emitter loops.
+///
+/// New source primitives should use RxRust-native factories such as
+/// `Shared::from_stream_result` or `Shared::from_future_result` near the
+/// backend implementation.
+#[deprecated(note = "legacy async-loop bridge; prefer RxRust-native stream/future factories")]
 pub fn from_async_loop<T, Run, RunFuture>(run: Run) -> Observable<T>
 where
     T: Send + 'static,
     Run: FnOnce(AsyncEmitter<T>) -> RunFuture + Send + 'static,
     RunFuture: Future<Output = ()> + Send + 'static,
 {
-    Shared::<()>::lift(AsyncLoop::new(run)).box_it()
+    async_loop::from_async_loop(run)
 }
 
-struct ResultObserver<OnResult> {
-    on_result: OnResult,
-}
-
-impl<T, E, OnResult> RxObserver<T, E> for ResultObserver<OnResult>
-where
-    OnResult: FnMut(Result<T, SourceError>),
-    E: StdError,
-{
-    fn next(&mut self, value: T) {
-        (self.on_result)(Ok(value));
-    }
-
-    fn error(mut self, error: E) {
-        (self.on_result)(Err(SourceError::new(error.to_string())));
-    }
-
-    fn complete(self) {}
-
-    fn is_closed(&self) -> bool {
-        false
-    }
-}
-
-pub struct AsyncEmitter<T, E = SourceError> {
+/// Legacy emitter used by [`from_async_loop`].
+///
+/// New source code should model event production as a stream/future and convert
+/// it with RxRust factories near the backend implementation.
+pub struct AsyncEmitter<T, E = String> {
     observer: Arc<Mutex<Option<BoxedObserverSend<'static, T, E>>>>,
 }
 
@@ -218,43 +101,228 @@ impl<T, E> AsyncEmitter<T, E> {
     }
 }
 
-struct AsyncLoop<Run, T, E> {
-    run: Run,
-    _marker: PhantomData<fn() -> (T, E)>,
+/// State of a locusfs node path.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NodeState {
+    Present,
+    Missing,
 }
 
-impl<Run, T, E> AsyncLoop<Run, T, E> {
-    fn new(run: Run) -> Self {
+/// State of a locusfs relation/symlink path.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RelationState {
+    Set(LocusPath),
+    Unset,
+}
+
+/// Child update event for a watched locusfs path.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ChildrenEvent {
+    Snapshot(Vec<LocusPath>),
+    Added(LocusPath),
+    Changed(LocusPath),
+    Removed(LocusPath),
+}
+
+/// Conversion from locusfs property text into a typed Rust value.
+pub trait FromLocusValue: Clone + PartialEq + Send + 'static {
+    fn from_locus_value(value: &str) -> Result<Self, String>;
+}
+
+/// Legacy watch event used by the temporary multi-watch helper APIs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LegacyWatchEvent {
+    path: Option<PathBuf>,
+    message: String,
+}
+
+impl LegacyWatchEvent {
+    fn initial() -> Self {
         Self {
-            run,
-            _marker: PhantomData,
+            path: None,
+            message: "initial".to_owned(),
+        }
+    }
+
+    fn new(path: PathBuf, message: String) -> Self {
+        Self {
+            path: Some(path),
+            message,
+        }
+    }
+
+    pub fn is_initial(&self) -> bool {
+        self.path.is_none()
+    }
+
+    pub fn is_unset(&self) -> bool {
+        self.event_name() == Some("unset")
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.event_name() == Some("set")
+    }
+
+    pub fn resolved_path(&self) -> Option<&Path> {
+        let path = self
+            .message
+            .strip_prefix("set ")
+            .filter(|path| !path.is_empty())?;
+        Some(Path::new(path))
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    fn event_name(&self) -> Option<&str> {
+        self.message.split_whitespace().next()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WatchTarget {
+    Value,
+    Directory,
+}
+
+/// Legacy watch descriptor used by the temporary multi-watch helper APIs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WatchSpec {
+    path: PathBuf,
+    target: WatchTarget,
+    required: bool,
+}
+
+impl WatchSpec {
+    pub fn value(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            target: WatchTarget::Value,
+            required: true,
+        }
+    }
+
+    pub fn directory(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            target: WatchTarget::Directory,
+            required: true,
+        }
+    }
+
+    pub fn optional_value(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            target: WatchTarget::Value,
+            required: false,
+        }
+    }
+
+    pub fn optional_directory(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            target: WatchTarget::Directory,
+            required: false,
         }
     }
 }
 
-impl<Run, T, E> ObservableType for AsyncLoop<Run, T, E> {
-    type Item<'a>
-        = T
-    where
-        Self: 'a;
-    type Err = E;
+/// Emits typed events for one locusfs watch path.
+///
+/// TODO: add descriptor-keyed share/replay so multiple subscribers do not open
+/// duplicate `/watch` file descriptors.
+pub fn watch(path: impl Into<PathBuf>) -> Observable<WatchEvent> {
+    watch::watch(path)
 }
 
-impl<C, Run, RunFuture, T, E> CoreObservable<C> for AsyncLoop<Run, T, E>
+/// Emits the current typed property value and future updates for one property.
+///
+/// `None` means the property is currently absent/unset.
+/// Consecutive duplicate values are suppressed.
+///
+/// TODO: add descriptor-keyed share/replay by `(path, T)`.
+pub fn property<T>(path: impl Into<PathBuf>) -> Observable<Option<T>>
 where
-    C: Context,
-    C::Inner: IntoBoxedObserver<BoxedObserverSend<'static, T, E>> + Send + 'static,
-    C::Scheduler: Scheduler<RunFuture> + Clone,
-    Run: FnOnce(AsyncEmitter<T, E>) -> RunFuture,
-    RunFuture: Future<Output = ()> + Send + 'static,
-    T: Send + 'static,
-    E: Send + 'static,
+    T: FromLocusValue,
 {
-    type Unsub = TaskHandle;
+    property::property(path)
+}
 
-    fn subscribe(self, context: C) -> Self::Unsub {
-        let scheduler = context.scheduler().clone();
-        let observer = context.into_inner().into_boxed();
-        scheduler.schedule((self.run)(AsyncEmitter::new(observer)), None)
-    }
+/// Emits the current relation target and future updates for one relation path.
+///
+/// `None` means the relation is currently unset.
+/// Consecutive duplicate targets are suppressed.
+///
+/// TODO: add descriptor-keyed share/replay by path.
+pub fn relation(path: impl Into<PathBuf>) -> Observable<Option<LocusPath>> {
+    relation::relation(path)
+}
+
+/// Emits the current node state and future updates for one node path.
+///
+/// TODO: add descriptor-keyed share/replay by path.
+pub fn node(path: impl Into<PathBuf>) -> Observable<NodeState> {
+    node::node(path)
+}
+
+/// Emits the current child path snapshot and future snapshots for one locusfs path.
+///
+/// This is the convenient list-valued API for UI sources. Each item is a full
+/// child path, so consumers can keep composing with `LocusPath::prop` and
+/// `LocusPath::rel`.
+/// Consecutive duplicate snapshots are suppressed.
+pub fn children(path: impl Into<PathBuf>) -> Observable<Vec<LocusPath>> {
+    children::children(path)
+}
+
+/// Emits child-level change events for one locusfs path.
+///
+/// Use this when the consumer needs incremental event semantics rather than a
+/// full snapshot.
+pub fn children_events(path: impl Into<PathBuf>) -> Observable<ChildrenEvent> {
+    children_events::children_events(path)
+}
+
+/// Legacy multi-watch event stream.
+///
+/// Prefer the path-specific Rx helpers above for new source implementations.
+pub fn change_events_async<Open, OpenFuture>(open_watches: Open) -> Observable<LegacyWatchEvent>
+where
+    Open: FnMut() -> OpenFuture + Send + 'static,
+    OpenFuture: Future<Output = Result<Vec<WatchSpec>, String>> + Send,
+{
+    legacy::change_events_async_impl(open_watches)
+}
+
+/// Legacy read-on-change helper for one watch descriptor.
+///
+/// Prefer the path-specific Rx helpers above for new source implementations.
+pub fn read_on_change_async<Value, Read, ReadFuture>(
+    watch: WatchSpec,
+    read: Read,
+) -> Observable<Value>
+where
+    Value: Send + 'static,
+    Read: FnMut() -> ReadFuture + Send + 'static,
+    ReadFuture: Future<Output = Result<Value, String>> + Send,
+{
+    legacy::read_on_change_async_impl(watch, read)
+}
+
+/// Legacy read-on-any-change helper for a dynamic watch set.
+///
+/// Prefer the path-specific Rx helpers above for new source implementations.
+pub fn read_on_any_change_async<Value, Open, OpenFuture, Read, ReadFuture>(
+    open_watches: Open,
+    read: Read,
+) -> Observable<Value>
+where
+    Value: Send + 'static,
+    Open: FnMut() -> OpenFuture + Send + 'static,
+    OpenFuture: Future<Output = Result<Vec<WatchSpec>, String>> + Send,
+    Read: FnMut() -> ReadFuture + Send + 'static,
+    ReadFuture: Future<Output = Result<Value, String>> + Send,
+{
+    legacy::read_on_any_change_async_impl(open_watches, read)
 }

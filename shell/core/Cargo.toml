@@ -7,8 +7,10 @@ license.workspace = true
 
 [dependencies]
 async-channel = "2.5.0"
+futures-util = "0.3.32"
 gtk.workspace = true
 gtk4-layer-shell.workspace = true
+locusfs-watch = { path = "../../../locusfs/watch", default-features = false, features = ["client"] }
 notify = "6.1.1"
 relm4.workspace = true
 rxrust.workspace = true

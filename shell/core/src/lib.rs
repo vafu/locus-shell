@@ -1,6 +1,7 @@
 pub mod app;
 pub mod css;
 pub mod list;
+pub mod locus_path;
 pub mod model;
 pub mod source;
 pub mod window;
