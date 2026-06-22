@@ -42,6 +42,25 @@ pub struct MainBarInit {
     pub title: &'static str,
 }
 
+#[derive(Debug)]
+pub enum MainBarInput {
+    Source(sources::Msg),
+    Media(MediaAction),
+}
+
+impl From<sources::Msg> for MainBarInput {
+    fn from(msg: sources::Msg) -> Self {
+        Self::Source(msg)
+    }
+}
+
+#[derive(Debug)]
+pub enum MediaAction {
+    Previous,
+    PlayPause,
+    Next,
+}
+
 #[shell_macros::model]
 pub struct MainBar {
     _osd: AsyncController<OsdWindow>,
@@ -81,7 +100,7 @@ pub struct MainBar {
 #[relm4::component(pub, async)]
 impl SimpleAsyncComponent for MainBar {
     type Init = MainBarInit;
-    type Input = sources::Msg;
+    type Input = MainBarInput;
     type Output = ();
 
     view! {
@@ -142,6 +161,17 @@ impl SimpleAsyncComponent for MainBar {
                         set_tooltip_text: Some(model.mpris.tooltip.as_str()),
                         set_halign: gtk::Align::End,
                         set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 4,
+
+                        gtk::Picture {
+                            add_css_class: "mpris-art",
+                            set_width_request: 24,
+                            set_height_request: 24,
+                            #[watch]
+                            set_visible: mpris_art_file(&model.mpris).is_some(),
+                            #[watch]
+                            set_file: mpris_art_file(&model.mpris).as_ref(),
+                        },
 
                         gtk::Label {
                             add_css_class: "mpris-label",
@@ -149,6 +179,49 @@ impl SimpleAsyncComponent for MainBar {
                             set_max_width_chars: 30,
                             #[watch]
                             set_label: model.mpris.metadata.as_str(),
+                        },
+
+                        #[name = "mpris_previous_button"]
+                        gtk::Button {
+                            add_css_class: "flat",
+                            add_css_class: "circular",
+                            add_css_class: "mpris-control",
+                            #[watch]
+                            set_sensitive: model.mpris.can_go_previous,
+
+                            gtk::Image {
+                                add_css_class: "materialicon",
+                                set_icon_name: Some(material_icon::icon_name("skip_previous").as_str()),
+                            }
+                        },
+
+                        #[name = "mpris_play_pause_button"]
+                        gtk::Button {
+                            add_css_class: "flat",
+                            add_css_class: "circular",
+                            add_css_class: "mpris-control",
+                            #[watch]
+                            set_sensitive: model.mpris.can_play_pause,
+
+                            gtk::Image {
+                                add_css_class: "materialicon",
+                                #[watch]
+                                set_icon_name: Some(material_icon::icon_name(model.mpris.play_pause_icon).as_str()),
+                            }
+                        },
+
+                        #[name = "mpris_next_button"]
+                        gtk::Button {
+                            add_css_class: "flat",
+                            add_css_class: "circular",
+                            add_css_class: "mpris-control",
+                            #[watch]
+                            set_sensitive: model.mpris.can_go_next,
+
+                            gtk::Image {
+                                add_css_class: "materialicon",
+                                set_icon_name: Some(material_icon::icon_name("skip_next").as_str()),
+                            }
                         }
                     },
 
@@ -541,6 +614,18 @@ impl SimpleAsyncComponent for MainBar {
                 let _ = Command::new("swaync-client").arg("-t").status();
             });
         });
+        let input_sender = sender.input_sender().clone();
+        widgets.mpris_previous_button.connect_clicked(move |_| {
+            input_sender.emit(MainBarInput::Media(MediaAction::Previous));
+        });
+        let input_sender = sender.input_sender().clone();
+        widgets.mpris_play_pause_button.connect_clicked(move |_| {
+            input_sender.emit(MainBarInput::Media(MediaAction::PlayPause));
+        });
+        let input_sender = sender.input_sender().clone();
+        widgets.mpris_next_button.connect_clicked(move |_| {
+            input_sender.emit(MainBarInput::Media(MediaAction::Next));
+        });
         widgets.bluetooth_power_button.connect_clicked(|_| {
             thread::spawn(|| {
                 let _ = Command::new("bluetoothctl").arg("mgmt.power").status();
@@ -604,6 +689,13 @@ impl SimpleAsyncComponent for MainBar {
 
         AsyncComponentParts { model, widgets }
     }
+
+    async fn update(&mut self, msg: Self::Input, _sender: AsyncComponentSender<Self>) {
+        match msg {
+            MainBarInput::Source(msg) => MainBar::update(self, msg),
+            MainBarInput::Media(action) => launch_playerctl(action, &self.mpris.playerctl_name),
+        }
+    }
 }
 
 fn bar_window_config() -> WindowConfig {
@@ -645,4 +737,34 @@ fn mpris_classes(mpris: &MprisView) -> Vec<&'static str> {
         classes.push(mpris.state_class);
     }
     classes
+}
+
+fn mpris_art_file(mpris: &MprisView) -> Option<gtk::gio::File> {
+    let art_url = mpris.art_url.trim();
+    if art_url.is_empty() {
+        None
+    } else if art_url.starts_with("file://") {
+        Some(gtk::gio::File::for_uri(art_url))
+    } else if art_url.starts_with('/') {
+        Some(gtk::gio::File::for_path(art_url))
+    } else {
+        None
+    }
+}
+
+fn launch_playerctl(action: MediaAction, player_name: &str) {
+    let player_name = player_name.trim().to_owned();
+    let command = match action {
+        MediaAction::Previous => "previous",
+        MediaAction::PlayPause => "play-pause",
+        MediaAction::Next => "next",
+    };
+
+    thread::spawn(move || {
+        let mut playerctl = Command::new("playerctl");
+        if !player_name.is_empty() {
+            playerctl.arg("--player").arg(player_name);
+        }
+        let _ = playerctl.arg(command).status();
+    });
 }

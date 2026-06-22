@@ -4,20 +4,27 @@
 
 - [Bar](../migration/widgets/bar.md)
 
-## Gap
+## Status
 
-The bar needs media playback metadata and status from MPRIS players.
+Implemented in `../locusfs/plugins/mpris` and consumed by the Rust bar.
 
-## Direction
+## Projection
 
-Add a live locusfs MPRIS projection. The `rsynapse-shell` bar now expects:
+The `rsynapse-shell` bar consumes:
 
 ```text
 /mpris/player/<id>/artist
 /mpris/player/<id>/title
+/mpris/player/<id>/album
+/mpris/player/<id>/art-url
 /mpris/player/<id>/playback-status
 /mpris/player/<id>/can-play
+/mpris/player/<id>/can-pause
+/mpris/player/<id>/can-go-next
+/mpris/player/<id>/can-go-previous
+/mpris/player/<id>/playerctl-name
 ```
 
-The generic locusfs D-Bus plugin is not enough yet because it snapshots service
-objects on owner changes and does not subscribe to MPRIS property changes.
+The dedicated plugin watches session-bus `org.mpris.MediaPlayer2.*` services and
+subscribes to MPRIS property changes; the generic D-Bus projection remains
+object-oriented and is not used for media player state.

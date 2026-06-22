@@ -229,10 +229,8 @@ Remaining:
 1. Add `power_profiles.rs` with `power_profile()` DTO and click/action wiring
    once method support exists.
 2. Add StatusNotifier tray.
-3. Add live locusfs MPRIS projection; the bar-side consumer is present and
-   expects `/mpris/player/*` player nodes with metadata/playback properties.
-4. Continue visual parity checks against AGS screenshots.
-5. Verify code changes with `cargo fmt --check`, `cargo check -p
+3. Continue visual parity checks against AGS screenshots.
+4. Verify code changes with `cargo fmt --check`, `cargo check -p
    rsynapse-shell`, and the existing shell test set.
 
 ## Dependencies To Confirm Before Coding
@@ -241,12 +239,11 @@ Remaining:
 - locusfs method/action path for cycling PowerProfiles.
 - locusfs or command action path for PipeWire default sink changes.
 - StatusNotifier/AppIndicator and DBusMenu source shape.
-- MPRIS source shape.
 - Whether `swaync-client -t` is acceptable as a direct click command in
   `rsynapse-shell` or should go through a command action helper first.
 
 ## Deferred
 
 - PowerProfiles.
-- Tray, MPRIS, and audio route popover/actions.
+- Tray and locusfs-backed audio route actions.
 - Notification center state beyond the clock button toggle.

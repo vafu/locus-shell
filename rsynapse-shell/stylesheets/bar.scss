@@ -145,6 +145,7 @@ $outline-offset: $label-margin * 0.5;
 
 .mpris-widget {
   min-height: 28px;
+  padding: 0 6px;
 
   &.paused,
   &.stopped {
@@ -153,6 +154,28 @@ $outline-offset: $label-margin * 0.5;
 
   .mpris-label {
     font-weight: 600;
+    margin: 0 2px;
+  }
+
+  .mpris-art {
+    border-radius: 6px;
+    min-width: 24px;
+    min-height: 24px;
+  }
+
+  .mpris-control {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    margin: 0;
+
+    image {
+      opacity: 0.82;
+    }
+
+    &:disabled image {
+      opacity: 0.38;
+    }
   }
 }
 

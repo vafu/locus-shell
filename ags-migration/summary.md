@@ -80,7 +80,6 @@
 - Still pending:
   - D-Bus method/action paths for Bluetooth, PowerProfiles, audio routing, and
     other interactive indicators.
-  - MPRIS.
   - StatusNotifier/AppIndicator tray plus DBusMenu.
   - PowerProfiles display and cycling.
   - full PipeWire/WirePlumber route list and default-sink actions.

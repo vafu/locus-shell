@@ -12,13 +12,42 @@ pub(super) struct MprisView {
     pub(super) metadata: String,
     pub(super) tooltip: String,
     pub(super) state_class: &'static str,
+    pub(super) art_url: String,
+    pub(super) playerctl_name: String,
+    pub(super) play_pause_icon: &'static str,
+    pub(super) can_play_pause: bool,
+    pub(super) can_go_next: bool,
+    pub(super) can_go_previous: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PlayerView {
     metadata: String,
+    tooltip: String,
     status: String,
     can_play: bool,
+    can_pause: bool,
+    can_go_next: bool,
+    can_go_previous: bool,
+    art_url: String,
+    playerctl_name: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PlayerMetadata {
+    metadata: String,
+    tooltip: String,
+    art_url: String,
+    playerctl_name: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PlayerPlayback {
+    status: String,
+    can_play: bool,
+    can_pause: bool,
+    can_go_next: bool,
+    can_go_previous: bool,
 }
 
 pub(super) fn mpris_status() -> Observable<MprisView> {
@@ -32,16 +61,53 @@ pub(super) fn mpris_status() -> Observable<MprisView> {
 }
 
 fn player(path: LocusPath) -> Observable<PlayerView> {
-    combine_latest!(
+    let metadata = combine_latest!(
         path.observe_prop::<String>("artist"),
         path.observe_prop::<String>("title"),
-        path.observe_prop_or::<String>("playback-status", String::new()),
-        path.observe_prop_or::<bool>("can-play", false)
-            => |(artist, title, status, can_play)| PlayerView {
+        path.observe_prop::<String>("album"),
+        path.observe_prop::<String>("identity"),
+        path.observe_prop_or::<String>("art-url", String::new()),
+        path.observe_prop_or::<String>("playerctl-name", String::new())
+            => |(artist, title, album, identity, art_url, playerctl_name)| PlayerMetadata {
                 metadata: metadata(artist.as_deref(), title.as_deref()),
+                tooltip: tooltip(
+                    identity.as_deref(),
+                    artist.as_deref(),
+                    title.as_deref(),
+                    album.as_deref(),
+                ),
+                art_url,
+                playerctl_name,
+            },
+    );
+    let playback = combine_latest!(
+        path.observe_prop_or::<String>("playback-status", String::new()),
+        path.observe_prop_or::<bool>("can-play", false),
+        path.observe_prop_or::<bool>("can-pause", false),
+        path.observe_prop_or::<bool>("can-go-next", false),
+        path.observe_prop_or::<bool>("can-go-previous", false)
+            => |(status, can_play, can_pause, can_go_next, can_go_previous)| PlayerPlayback {
                 status,
                 can_play,
+                can_pause,
+                can_go_next,
+                can_go_previous,
             },
+    );
+
+    combine_latest!(
+        metadata,
+        playback => |(metadata, playback)| PlayerView {
+            metadata: metadata.metadata,
+            tooltip: metadata.tooltip,
+            status: playback.status,
+            can_play: playback.can_play,
+            can_pause: playback.can_pause,
+            can_go_next: playback.can_go_next,
+            can_go_previous: playback.can_go_previous,
+            art_url: metadata.art_url,
+            playerctl_name: metadata.playerctl_name,
+        },
     )
     .distinct_until_changed()
     .box_it()
@@ -56,15 +122,25 @@ fn selected_player(players: Vec<PlayerView>) -> MprisView {
         return MprisView::default();
     };
 
-    if player.metadata.is_empty() {
+    if player.metadata.is_empty() && player.tooltip.is_empty() {
         return MprisView::default();
     }
 
+    let paused = matches!(
+        player.status.as_str(),
+        "Paused" | "paused" | "Stopped" | "stopped"
+    );
     MprisView {
         visible: true,
         metadata: player.metadata.clone(),
-        tooltip: player.metadata.clone(),
+        tooltip: player.tooltip.clone(),
         state_class: playback_state_class(player.status.as_str()),
+        art_url: player.art_url.clone(),
+        playerctl_name: player.playerctl_name.clone(),
+        play_pause_icon: if paused { "play_arrow" } else { "pause" },
+        can_play_pause: player.can_play || player.can_pause,
+        can_go_next: player.can_go_next,
+        can_go_previous: player.can_go_previous,
     }
 }
 
@@ -74,6 +150,27 @@ fn metadata(artist: Option<&str>, title: Option<&str>) -> String {
         (None, Some(title)) => title.to_owned(),
         (Some(artist), None) => artist.to_owned(),
         (None, None) => String::new(),
+    }
+}
+
+fn tooltip(
+    identity: Option<&str>,
+    artist: Option<&str>,
+    title: Option<&str>,
+    album: Option<&str>,
+) -> String {
+    let metadata = metadata(artist, title);
+    let album = non_empty(album);
+    let identity = non_empty(identity);
+    match (identity, non_empty(Some(metadata.as_str())), album) {
+        (Some(identity), Some(metadata), Some(album)) => format!("{metadata}\n{album}\n{identity}"),
+        (Some(identity), Some(metadata), None) => format!("{metadata}\n{identity}"),
+        (Some(identity), None, Some(album)) => format!("{album}\n{identity}"),
+        (Some(identity), None, None) => identity.to_owned(),
+        (None, Some(metadata), Some(album)) => format!("{metadata}\n{album}"),
+        (None, Some(metadata), None) => metadata.to_owned(),
+        (None, None, Some(album)) => album.to_owned(),
+        (None, None, None) => String::new(),
     }
 }
 

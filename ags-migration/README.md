@@ -79,6 +79,6 @@ Known current gaps:
   `rsynapsectl` is needed for theme switching, hints mode, approval opening,
   and other cross-widget actions.
 - Agent approval overlay is not implemented.
-- MPRIS, StatusNotifier tray, PowerProfiles, build/BzBus widget, audio route
-  popover/actions, Pomodoro/DND side effects, brightness actions/provider, and
+- StatusNotifier tray, PowerProfiles, build/BzBus widget, locusfs-backed audio
+  route actions, Pomodoro/DND side effects, brightness actions/provider, and
   triggerhappy hints bridge remain to port.

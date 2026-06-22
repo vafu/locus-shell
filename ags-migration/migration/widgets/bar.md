@@ -137,8 +137,8 @@ Completed in the Rust bar:
 - PipeWire audio route popover in the right cluster, backed by locusfs sink
   nodes and a narrow `pactl set-default-sink` action until locusfs exposes an
   action path.
-- MPRIS bar-side view/source contract for `/mpris/player/*`; hidden until
-  locusfs exposes live MPRIS player nodes.
+- MPRIS metadata, album art, playback state, and previous/play-pause/next
+  controls through live `/mpris/player/*` locusfs player nodes.
 - Bluetooth status and grouped keyboard/audio/pointer device indicators through
   locusfs BlueZ/UPower data.
 
@@ -147,7 +147,6 @@ Remaining right-side bar work:
 - PowerProfiles active profile indicator and profile cycling once the
   method/command path is available.
 - StatusNotifier tray and DBusMenu.
-- live locusfs MPRIS projection.
 - PipeWire route grouping metadata and locusfs-backed default-sink action.
 - final AGS sizing/spacing parity.
 
