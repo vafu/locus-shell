@@ -9,17 +9,37 @@
   `docs/widgets/` and `migration/widgets/`.
 - The unused AGS `widgets/rsynapse` launcher/search surface is excluded from
   the port.
+- The bar migration is partially implemented in Rust:
+  - bottom layer-shell bar and AGS-derived SCSS.
+  - workspace/project strip and selected-workspace window tiles.
+  - project labels with agent attention/working/complete state.
+  - plain/agent/neovim window tile states.
+  - clock, battery, NetworkManager wired/Wi-Fi, PipeWire default sink,
+    CPU/RAM sysstats, and BlueZ/UPower Bluetooth groups.
+  - source modules live beside their widgets and compose
+    `shell_core::source::Observable` values.
+- The current bar is not yet the final AGS shape:
+  - no per-monitor/per-output window lifecycle.
+  - no MPRIS, StatusNotifier tray, PowerProfiles, build/BzBus widget, or audio
+    route popover/actions.
+  - some visual parity work remains for exact AGS sizing/spacing.
 
 ## Expected Locus-Shell Update Areas
 
 ### Observable Source API
 
-- Adopt the Observable source API in `../SOURCE_API.md` as the target authoring
-  model for derived widget data.
-- Use `#[shell_macros::observable]` functions for workspace status, window
-  indicators, agent status, build status, and system summaries.
-- Keep current provider helpers only as a migration bridge until generated
-  Locus/D-Bus/common sources are observable-native.
+- `shell_core::source` now exposes the Observable-first Locus source layer used
+  by the migrated bar widgets.
+- Bar widget sources now live beside their widgets and compose
+  `shell_core::source::Observable` values instead of depending on a top-level
+  `rsynapse-shell/src/sources` layer.
+- Still pending:
+  - `#[shell_macros::observable]`, `#[observe(...)]`, and `#[inject]` for
+    ergonomic derived sources.
+  - descriptor-keyed sharing for fanout-heavy sources where repeated
+    subscriptions are expected.
+  - replacing repeated handwritten source composition with macro-authored
+    observable functions once the macro surface is ready.
 
 ### Shell Macros
 
@@ -50,14 +70,20 @@
 
 ### Source Backends And Common Sources
 
-- Add or prototype typed sources/clients for:
-  - D-Bus ObjectManager collections.
-  - D-Bus method calls.
+- Implemented through locusfs-backed or local observable sources in
+  `rsynapse-shell`:
+  - UPower BAT1 battery state and AGS-compatible icon mapping.
+  - NetworkManager wired and Wi-Fi indicators.
+  - PipeWire default sink display state.
+  - BlueZ/UPower Bluetooth status and device groups.
+  - CPU/RAM sysstats from local system data.
+- Still pending:
+  - D-Bus method/action paths for Bluetooth, PowerProfiles, audio routing, and
+    other interactive indicators.
   - MPRIS.
   - StatusNotifier/AppIndicator tray plus DBusMenu.
-  - WirePlumber/PipeWire audio endpoint state and actions.
-  - NetworkManager and PowerProfiles.
-  - BlueZ and UPower-backed Bluetooth battery state.
+  - PowerProfiles display and cycling.
+  - full PipeWire/WirePlumber route list and default-sink actions.
   - Pomodoro.
   - brightness/backlight.
 - Keep service-specific display policy in `rsynapse-shell`; promote only stable
@@ -76,28 +102,37 @@
 
 ### Shell Consumer Work
 
-- Copy AGS SCSS into `rsynapse-shell` stylesheets with minimal visual changes.
-- Implement binaries or modules for:
-  - bar.
+- AGS SCSS has been copied into `rsynapse-shell` stylesheets and the bar is
+  partially implemented.
+- Still implement binaries or modules for:
   - OSD.
   - agent approvals.
   - optional runtime/request coordinator.
+  - per-monitor/per-output bar lifecycle.
 - Replace `ags request` with `rsynapsectl` over a typed session D-Bus request
   service.
 - Keep scripts where low risk, then replace stats and side-effect scripts with
   typed Rust sources/helpers.
 
-## First Migration Order
+## Updated Migration Order
 
-1. Keep `rsynapse-shell` compiling while the Observable source API is introduced.
-2. Port CSS files into `rsynapse-shell` and verify stylesheet loading.
-3. Build the request bridge and `rsynapsectl` because approvals, hints, and
+Completed:
+
+1. Kept `rsynapse-shell` compiling while the Observable source API was
+   introduced.
+2. Ported CSS files into `rsynapse-shell` and verified stylesheet loading.
+3. Built the first bar pass: workspace/project strip, selected-window strip,
+   clock, battery, NetworkManager, PipeWire, CPU/RAM, and Bluetooth.
+
+Next:
+
+1. Build the request bridge and `rsynapsectl` because approvals, hints, and
    theme commands depend on it.
-4. Port monitor source/lifecycle helpers for per-monitor bars and
+2. Port monitor source/lifecycle helpers for per-monitor bars and
    active-monitor overlays.
-5. Port the OSD first: small UI surface, clear source gaps, good test of
+3. Port the OSD: small UI surface, clear source gaps, good test of
    transient streams.
-6. Port agent approvals: exercises ObjectManager, Locus joins, dynamic lists,
+4. Port agent approvals: exercises ObjectManager, Locus joins, dynamic lists,
    keyboard mode, and GtkSourceView.
-7. Port the bar incrementally by cluster: clock/battery, workspace strip,
-   window indicators, build status, audio/network/Bluetooth/tray/media.
+5. Finish the bar clusters: PowerProfiles, tray, MPRIS, build/BzBus, audio
+   route actions, and exact visual parity.

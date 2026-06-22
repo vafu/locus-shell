@@ -19,7 +19,8 @@ Consumer crates own:
 - Graph and system source values to subscribe to.
 - Rendering and state transitions.
 - CSS and visual design.
-- Process boundaries and application lifecycle.
+- Process boundaries, application lifecycle, and whether multiple surfaces live
+  in one process or separate binaries.
 
 Framework crates own:
 
@@ -35,11 +36,14 @@ Framework crates own:
 
 ### 1. Foundation: Workspace And Boundaries
 
-- Current framework crates are `shell/core`, `shell/macros`, `dev-widgets`, and `rsynapse-shell`.
+- Current workspace crates are `shell/core`, `shell/macros`,
+  `shell/rx-macros`, and `rsynapse-shell`.
 - `shell-core` exposes generic framework primitives plus the small Observable
   source facade used by generated code and handwritten sources.
 - `shell-macros` subscribes to Observable-compatible source expressions through `shell_core::source`.
-- `dev-widgets` remains internal and proves ergonomics.
+- `shell-rx-macros` exposes lightweight declarative macros that expand to
+  ordinary RxRust operators for source composition ergonomics.
+- `rsynapse-shell` is the active in-repository consumer and AGS migration target.
 - The old `provider/*` workspace family has been removed. Do not reintroduce Provider, ObservableSource, custom subscription runtime, or D-Bus graph compatibility layers.
 - The user-facing source API is Observable-first, described in `SOURCE_API.md`.
 - Do not put user-facing bar, OSD, notification, launcher, or workspace switcher behavior in framework crates.
@@ -54,26 +58,22 @@ Framework crates own:
 - Document compositor placement versus CSS layout.
 - Add pure tests for config behavior.
 
-### 3. Dev Widgets
+### 3. In-Repository Consumer
 
-- Build small primitive consumers:
-  - top strip
-  - transient overlay
-  - notification-like popup
-- Each dev widget defines its own role-specific config locally.
-- Use external SCSS registered through `ShellApp`.
-- Use handwritten locusfs Observable source functions over raw node path strings.
-- Use these widgets to test whether `shell-core` stays generic and ergonomic.
+- Use `rsynapse-shell` as the in-repository consumer for framework ergonomics.
+- Keep widget policy, source composition, CSS, and AGS migration behavior in
+  `rsynapse-shell`, not in framework crates.
+- `rsynapse-shell` currently runs the bar and OSD as multiple layer-shell
+  windows in one binary; do not split OSD back into a separate binary unless
+  that consumer policy changes again.
 
 ### 4. Locusfs Source Integration
 
 - Use `locusfs-client` as the current graph transport for reads and watches.
-- Consumer crates should represent Locus nodes as locusfs node path strings, for
-  example `window:1` and `workspace:2`.
+- Consumer crates should represent Locus paths with `LocusPath`.
 - Do not reintroduce schema-specific marker structs, `NodeRef`, `Property`,
   `Relation`, `Path`, or generated graph extension traits in this workspace.
-- Locus source helpers should return Observable-compatible values through
-  `IntoObservable<T>`.
+- Locus source helpers should return shell-owned `Observable<T>` values.
 - D-Bus can be proxied into locusfs outside this workspace; do not add D-Bus provider crates back here.
 - Keep blocking locusfs watch/read work off the GTK UI thread through RxRust-backed source expressions.
 
@@ -111,6 +111,16 @@ Framework crates own:
   GTK-native and Adwaita list adapters should remain optional integrations.
 - Keep generated code understandable and debuggable with `cargo expand`.
 
+### 5a. Rx Macro Crate
+
+- Keep `shell/rx-macros` as a small declarative macro crate for RxRust operator
+  ergonomics.
+- Macros in this crate must expand to existing RxRust operators and must not
+  introduce source runtimes, subscriptions, watchers, backend clients, or UI
+  policy.
+- Use it for concise fixed-arity composition such as `combine_latest!` where
+  Rust's heterogeneous observable types make `Vec<Observable<_>>` unsuitable.
+
 ### 6. Framework Integration Layer
 
 - Connect macro output to source subscriptions.
@@ -137,8 +147,8 @@ Framework crates own:
 - Create actual shell widgets outside this framework boundary.
 - Use `rsynapse-shell` as the in-repository AGS migration playground and
   framework stress test, while keeping product policy out of framework crates.
-- First likely consumer: bar.
-- Then OSD.
+- Current in-repository consumer: `rsynapse-shell`, with bar and OSD windows in
+  one process.
 - Then notifications.
 - These crates depend on `shell-core` and `shell-macros`; graph data should come
   from Observable source functions over locusfs.

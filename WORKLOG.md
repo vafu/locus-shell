@@ -18,10 +18,9 @@ workspace shape.
   combinators.
 - `rsynapse-shell` exists as an in-repository playground for migrating the local
   AGS shell while preserving the framework/consumer boundary.
-- Locus nodes are represented as raw locusfs node path strings such as
-  `window:1`.
-- `dev-widgets` and `rsynapse-shell` use handwritten locusfs Observable source
-  functions and component-backed rows.
+- Locus paths are represented as `LocusPath`.
+- `rsynapse-shell` uses handwritten locusfs Observable source functions and
+  component-backed rows.
 - `shell-macros` treats all source expressions as Observable-compatible
   expressions through `shell_core::source`. The target user-facing source API is
   documented in `SOURCE_API.md`.
@@ -32,7 +31,7 @@ workspace shape.
 - Removed generic provider map/combine/switch adapters from provider core.
 - Removed Locus shell-side typed descriptor wrappers; consumer source functions
   own conversion from Locus wire values.
-- Split `dev-widgets/src/primitives.rs` into logical module files.
+- Removed `dev-widgets`; `rsynapse-shell` is the active in-repository consumer.
 - Made DBus and Locus descriptor fields private behind accessors.
 - Moved provider task runtime ownership out of provider core and into
   ShellApp/framework setup.

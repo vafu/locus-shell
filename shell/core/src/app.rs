@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc};
 
 use gtk::prelude::ApplicationExt;
-use relm4::{Component, RelmApp};
+use relm4::{Component, RelmApp, component::AsyncComponent};
 
 use crate::css::{
     CssPriority, SassConfig, Stylesheet, StylesheetError, StylesheetSource, StylesheetWatcher,
@@ -146,6 +146,55 @@ impl ShellApp {
         });
 
         app.run::<C>(payload);
+    }
+
+    pub fn run_async<C>(self, payload: C::Init)
+    where
+        C: AsyncComponent,
+        C::Input: Debug + 'static,
+        C::Root: AsRef<gtk::Window>,
+    {
+        let Self {
+            app_id,
+            stylesheets,
+            watch_stylesheets,
+            sass_config,
+            startup_handlers,
+        } = self;
+
+        let app = RelmApp::<C::Input>::new(&app_id);
+        let stylesheets = Self::prepare_stylesheets(stylesheets, sass_config)
+            .expect("failed to initialize shell app stylesheets");
+        let gtk_app = relm4::main_application();
+        let stylesheets = Rc::new(RefCell::new(Some(stylesheets)));
+        let stylesheet_watchers: Rc<RefCell<Vec<StylesheetWatcher>>> =
+            Rc::new(RefCell::new(Vec::new()));
+        let startup_handlers = Rc::new(RefCell::new(Some(startup_handlers)));
+
+        gtk_app.connect_startup(move |app| {
+            if let Some(startup_handlers) = startup_handlers.borrow_mut().take() {
+                for handler in startup_handlers {
+                    handler(app);
+                }
+            }
+
+            let Some(stylesheets) = stylesheets.borrow_mut().take() else {
+                return;
+            };
+
+            for stylesheet in stylesheets {
+                stylesheet.install();
+
+                if watch_stylesheets {
+                    let watcher = stylesheet
+                        .watch()
+                        .expect("failed to initialize shell app stylesheet watcher");
+                    stylesheet_watchers.borrow_mut().push(watcher);
+                }
+            }
+        });
+
+        app.run_async::<C>(payload);
     }
 
     fn prepare_stylesheets(

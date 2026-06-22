@@ -10,11 +10,11 @@ use shell_core::{
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ClockView {
-    pub(crate) time: String,
-    pub(crate) date: String,
+    pub(super) time: String,
+    pub(super) date: String,
 }
 
-pub(crate) fn clock() -> Observable<ClockView> {
+pub(super) fn clock() -> Observable<ClockView> {
     Shared::<()>::interval(Duration::from_secs(1))
         .start_with(vec![0])
         .map(|_| read_clock().unwrap_or_default())

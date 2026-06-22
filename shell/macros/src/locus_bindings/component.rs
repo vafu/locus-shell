@@ -14,6 +14,7 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
     let config = parse2::<ComponentConfig>(attr)?;
     let mut item_impl = parse2::<ItemImpl>(item)?;
     let component = item_impl.self_ty.clone();
+    let runtime = component_runtime(&item_impl)?;
     let module_ident = config.module.clone();
     let state_ident = config.state.clone();
     let model_ty = config.model;
@@ -43,8 +44,10 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
         if function.sig.ident == "init" {
             init_found = true;
             match model_ty.as_ref() {
-                Some(model_ty) => inject_model_subscriptions(function, &state_access, model_ty)?,
-                None => inject_start_call(function, &module_ident, &state_ident)?,
+                Some(model_ty) => {
+                    inject_model_subscriptions(function, &state_access, model_ty, runtime)?
+                }
+                None => inject_start_call(function, &module_ident, &state_ident, runtime)?,
             }
         } else if function.sig.ident == "update" {
             update_found = true;
@@ -59,7 +62,7 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
     }
 
     if !update_found {
-        let update = update_method(&state_access, model_ty.as_ref());
+        let update = update_method(&state_access, model_ty.as_ref(), runtime);
         item_impl.items.push(update);
     }
 
@@ -78,6 +81,28 @@ pub(super) fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream
         #module
         #item_impl
     })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ComponentRuntime {
+    Sync,
+    Async,
+}
+
+fn component_runtime(item_impl: &ItemImpl) -> Result<ComponentRuntime> {
+    let Some((_bang, path, _for)) = &item_impl.trait_ else {
+        return Ok(ComponentRuntime::Sync);
+    };
+
+    let Some(segment) = path.segments.last() else {
+        return Ok(ComponentRuntime::Sync);
+    };
+
+    match segment.ident.to_string().as_str() {
+        "AsyncComponent" | "SimpleAsyncComponent" => Ok(ComponentRuntime::Async),
+        "Component" | "SimpleComponent" => Ok(ComponentRuntime::Sync),
+        _ => Ok(ComponentRuntime::Sync),
+    }
 }
 
 fn same_type(left: &syn::Type, right: &syn::Type) -> bool {
@@ -115,8 +140,13 @@ fn inject_start_call(
     function: &mut ImplItemFn,
     module_ident: &Ident,
     state_ident: &Ident,
+    runtime: ComponentRuntime,
 ) -> Result<()> {
     let sender_ident = sender_ident(function)?;
+    let start = match runtime {
+        ComponentRuntime::Sync => quote! { start },
+        ComponentRuntime::Async => quote! { start_async },
+    };
 
     for index in 0..function.block.stmts.len() {
         let Stmt::Local(local) = &mut function.block.stmts[index] else {
@@ -134,7 +164,7 @@ fn inject_start_call(
         }
 
         let statement: Stmt = parse_quote! {
-            model.#state_ident.set_subscriptions(#module_ident::start(#sender_ident.clone()));
+            model.#state_ident.set_subscriptions(#module_ident::#start(#sender_ident.clone()));
         };
         function.block.stmts.insert(index + 1, statement);
         return Ok(());
@@ -150,8 +180,13 @@ fn inject_model_subscriptions(
     function: &mut ImplItemFn,
     state: &StateAccess,
     _model_ty: &syn::Type,
+    runtime: ComponentRuntime,
 ) -> Result<()> {
     let sender_ident = sender_ident(function)?;
+    let start = match runtime {
+        ComponentRuntime::Sync => quote! { start },
+        ComponentRuntime::Async => quote! { start_async },
+    };
 
     for index in 0..function.block.stmts.len() {
         let Stmt::Local(local) = &mut function.block.stmts[index] else {
@@ -170,10 +205,10 @@ fn inject_model_subscriptions(
 
         let start_statement: Stmt = match state {
             StateAccess::Field(state_ident) => parse_quote! {
-                let __shell_subscriptions = model.#state_ident.start(#sender_ident.clone());
+                let __shell_subscriptions = model.#state_ident.#start(#sender_ident.clone());
             },
             StateAccess::Model => parse_quote! {
-                let __shell_subscriptions = model.start(#sender_ident.clone());
+                let __shell_subscriptions = model.#start(#sender_ident.clone());
             },
         };
         let set_statement: Stmt = match state {
@@ -214,19 +249,37 @@ fn sender_ident(function: &ImplItemFn) -> Result<Ident> {
     ))
 }
 
-fn update_method(state: &StateAccess, model_ty: Option<&syn::Type>) -> ImplItem {
+fn update_method(
+    state: &StateAccess,
+    model_ty: Option<&syn::Type>,
+    runtime: ComponentRuntime,
+) -> ImplItem {
     match state {
-        StateAccess::Field(state_ident) => parse_quote! {
-            fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
-                self.#state_ident.update(msg);
-            }
+        StateAccess::Field(state_ident) => match runtime {
+            ComponentRuntime::Sync => parse_quote! {
+                fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
+                    self.#state_ident.update(msg);
+                }
+            },
+            ComponentRuntime::Async => parse_quote! {
+                async fn update(&mut self, msg: Self::Input, _sender: ::relm4::AsyncComponentSender<Self>) {
+                    self.#state_ident.update(msg);
+                }
+            },
         },
         StateAccess::Model => {
             let model_ty = model_ty.expect("model type exists for self model component");
-            parse_quote! {
-                fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
-                    #model_ty::update(self, msg);
-                }
+            match runtime {
+                ComponentRuntime::Sync => parse_quote! {
+                    fn update(&mut self, msg: Self::Input, _sender: ::relm4::ComponentSender<Self>) {
+                        #model_ty::update(self, msg);
+                    }
+                },
+                ComponentRuntime::Async => parse_quote! {
+                    async fn update(&mut self, msg: Self::Input, _sender: ::relm4::AsyncComponentSender<Self>) {
+                        #model_ty::update(self, msg);
+                    }
+                },
             }
         }
     }

@@ -1,18 +1,39 @@
+mod audio;
+mod battery;
+mod bluetooth;
+mod network;
 mod project_label;
+mod system_stats;
+mod time;
 mod window_tile;
+mod workspaces;
 
-use std::{process::Command, thread};
+use std::{cell::Cell, process::Command, rc::Rc, thread};
 
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
     list::ComponentListBoxExt,
+    locus_path::LocusPath,
     window::{self, Anchors, Edge, Layer, WindowConfig},
 };
 
+use crate::widgets::{level_indicator, material_icon};
+
+use self::audio::{AudioView, audio_status};
+use self::battery::BatteryView;
+use self::battery::battery_status;
+use self::bluetooth::{BluetoothView, bluetooth_status};
+use self::network::{NetworkView, network_status};
 use self::project_label::ProjectLabel;
+use self::system_stats::{ArcSide, SysStatsView, sys_stats};
+use self::time::{ClockView, clock};
 use self::window_tile::WindowTile;
-use crate::sources::{AudioView, BatteryView, ClockView, NetworkView, WindowNode, WorkspaceNode};
+use self::workspaces::{selected_workspace_windows, workspaces};
+use super::{OsdInit, OsdWindow};
+
+type WorkspaceNode = LocusPath;
+type WindowNode = LocusPath;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MainBarInit {
@@ -21,28 +42,36 @@ pub struct MainBarInit {
 
 #[shell_macros::model]
 pub struct MainBar {
-    #[source(crate::sources::workspaces())]
-    pub project_labels: Vec<WorkspaceNode>,
+    _osd: AsyncController<OsdWindow>,
 
-    #[source(crate::sources::selected_workspace_windows())]
-    pub window_tiles: Vec<WindowNode>,
+    #[source(workspaces())]
+    project_labels: Vec<WorkspaceNode>,
 
-    #[source(crate::sources::battery_status())]
-    pub battery: BatteryView,
+    #[source(selected_workspace_windows())]
+    window_tiles: Vec<WindowNode>,
 
-    #[source(crate::sources::network_status())]
-    pub network: NetworkView,
+    #[source(battery_status())]
+    battery: BatteryView,
 
-    #[source(crate::sources::audio_status())]
-    pub audio: AudioView,
+    #[source(network_status())]
+    network: NetworkView,
 
-    #[source(crate::sources::clock())]
-    pub clock: ClockView,
+    #[source(audio_status())]
+    audio: AudioView,
+
+    #[source(bluetooth_status())]
+    bluetooth: BluetoothView,
+
+    #[source(sys_stats())]
+    system_stats: SysStatsView,
+
+    #[source(clock())]
+    clock: ClockView,
 }
 
 #[shell_macros::component(model = MainBar)]
-#[relm4::component(pub)]
-impl SimpleComponent for MainBar {
+#[relm4::component(pub, async)]
+impl SimpleAsyncComponent for MainBar {
     type Init = MainBarInit;
     type Input = sources::Msg;
     type Output = ();
@@ -98,9 +127,282 @@ impl SimpleComponent for MainBar {
 
                     gtk::Box {
                         add_css_class: "barblock",
+                        add_css_class: "panel-widget",
+                        set_halign: gtk::Align::End,
+                        set_orientation: gtk::Orientation::Horizontal,
+                        #[watch]
+                        set_tooltip_text: Some(system_stats::tooltip(&model.system_stats).as_str()),
+                        set_spacing: 0,
+
+                        gtk::Overlay {
+                            #[watch]
+                            set_css_classes: &system_stats::arc_root_classes(),
+
+                            add_overlay = &gtk::DrawingArea {
+                                set_css_classes: level_indicator::TRACK_CLASSES,
+                                set_content_width: 8,
+                                set_content_height: 8,
+                                set_draw_func: system_stats::track_draw_func(ArcSide::End),
+                            },
+
+                            add_overlay = &gtk::DrawingArea {
+                                #[watch]
+                                set_css_classes: &system_stats::level_classes(model.system_stats.cpu),
+                                set_content_width: 8,
+                                set_content_height: 8,
+                                #[watch]
+                                set_draw_func: system_stats::level_draw_func(model.system_stats.cpu, ArcSide::End),
+                            }
+                        },
+
+                        gtk::Image {
+                            add_css_class: "materialicon",
+                            set_icon_name: Some(material_icon::icon_name("memory").as_str()),
+                        },
+
+                        gtk::Overlay {
+                            #[watch]
+                            set_css_classes: &system_stats::arc_root_classes(),
+
+                            add_overlay = &gtk::DrawingArea {
+                                set_css_classes: level_indicator::TRACK_CLASSES,
+                                set_content_width: 8,
+                                set_content_height: 8,
+                                set_draw_func: system_stats::track_draw_func(ArcSide::Start),
+                            },
+
+                            add_overlay = &gtk::DrawingArea {
+                                #[watch]
+                                set_css_classes: &system_stats::level_classes(model.system_stats.ram),
+                                set_content_width: 8,
+                                set_content_height: 8,
+                                #[watch]
+                                set_draw_func: system_stats::level_draw_func(model.system_stats.ram, ArcSide::Start),
+                            }
+                        }
+                    },
+
+                    gtk::Box {
+                        add_css_class: "barblock",
                         set_halign: gtk::Align::End,
                         set_orientation: gtk::Orientation::Horizontal,
                         set_spacing: 0,
+
+                        // TODO(rsynapse-shell): split this into a right-cluster
+                        // component once single child component ownership is
+                        // cleaned up; the inline view preserves source macro
+                        // binding for now but makes this file too large.
+                        #[name = "bluetooth_group"]
+                        gtk::Box {
+                            add_css_class: "button-subgroup-expand-left",
+                            add_css_class: "bt-widget",
+                            set_orientation: gtk::Orientation::Horizontal,
+
+                            #[name = "bluetooth_revealer"]
+                            gtk::Revealer {
+                                set_reveal_child: false,
+                                set_transition_type: gtk::RevealerTransitionType::SlideLeft,
+
+                                gtk::Box {
+                                    add_css_class: "button-subgroup",
+                                    set_orientation: gtk::Orientation::Horizontal,
+
+                                    #[name = "bluetooth_keyboard_button"]
+                                    gtk::MenuButton {
+                                        #[watch]
+                                        set_css_classes: &bluetooth::group_classes(&model.bluetooth.keyboard),
+                                        #[watch]
+                                        set_visible: model.bluetooth.keyboard.visible,
+                                        #[watch]
+                                        set_tooltip_text: Some(model.bluetooth.keyboard.tooltip.as_str()),
+
+                                        #[wrap(Some)]
+                                        set_popover = &gtk::Popover {
+                                            gtk::Label {
+                                                add_css_class: "bt-device-list",
+                                                #[watch]
+                                                set_label: bluetooth::devices_label(&model.bluetooth.keyboard).as_str(),
+                                                set_xalign: 0.0,
+                                            }
+                                        },
+
+                                        #[wrap(Some)]
+                                        set_child = &gtk::Box {
+                                            set_orientation: gtk::Orientation::Horizontal,
+
+                                            gtk::Image {
+                                                add_css_class: "materialicon",
+                                                #[watch]
+                                                set_icon_name: Some(material_icon::icon_name(model.bluetooth.keyboard.icon.as_str()).as_str()),
+                                            },
+
+                                            gtk::Overlay {
+                                                set_css_classes: &bluetooth::battery_root_classes(),
+                                                #[watch]
+                                                set_visible: model.bluetooth.keyboard.battery.is_some(),
+
+                                                add_overlay = &gtk::DrawingArea {
+                                                    set_css_classes: bluetooth::battery_track_classes(),
+                                                    set_content_width: 8,
+                                                    set_content_height: 8,
+                                                    set_draw_func: bluetooth::battery_track_draw_func(),
+                                                },
+
+                                                add_overlay = &gtk::DrawingArea {
+                                                    #[watch]
+                                                    set_css_classes: &bluetooth::battery_level_classes(&model.bluetooth.keyboard),
+                                                    set_content_width: 8,
+                                                    set_content_height: 8,
+                                                    #[watch]
+                                                    set_draw_func: bluetooth::battery_level_draw_func(&model.bluetooth.keyboard),
+                                                }
+                                            }
+                                        }
+                                    },
+
+                                    #[name = "bluetooth_audio_button"]
+                                    gtk::MenuButton {
+                                        #[watch]
+                                        set_css_classes: &bluetooth::group_classes(&model.bluetooth.audio),
+                                        #[watch]
+                                        set_visible: model.bluetooth.audio.visible,
+                                        #[watch]
+                                        set_tooltip_text: Some(model.bluetooth.audio.tooltip.as_str()),
+
+                                        #[wrap(Some)]
+                                        set_popover = &gtk::Popover {
+                                            gtk::Label {
+                                                add_css_class: "bt-device-list",
+                                                #[watch]
+                                                set_label: bluetooth::devices_label(&model.bluetooth.audio).as_str(),
+                                                set_xalign: 0.0,
+                                            }
+                                        },
+
+                                        #[wrap(Some)]
+                                        set_child = &gtk::Box {
+                                            set_orientation: gtk::Orientation::Horizontal,
+
+                                            gtk::Image {
+                                                add_css_class: "materialicon",
+                                                #[watch]
+                                                set_icon_name: Some(material_icon::icon_name(model.bluetooth.audio.icon.as_str()).as_str()),
+                                            },
+
+                                            gtk::Overlay {
+                                                set_css_classes: &bluetooth::battery_root_classes(),
+                                                #[watch]
+                                                set_visible: model.bluetooth.audio.battery.is_some(),
+
+                                                add_overlay = &gtk::DrawingArea {
+                                                    set_css_classes: bluetooth::battery_track_classes(),
+                                                    set_content_width: 8,
+                                                    set_content_height: 8,
+                                                    set_draw_func: bluetooth::battery_track_draw_func(),
+                                                },
+
+                                                add_overlay = &gtk::DrawingArea {
+                                                    #[watch]
+                                                    set_css_classes: &bluetooth::battery_level_classes(&model.bluetooth.audio),
+                                                    set_content_width: 8,
+                                                    set_content_height: 8,
+                                                    #[watch]
+                                                    set_draw_func: bluetooth::battery_level_draw_func(&model.bluetooth.audio),
+                                                }
+                                            }
+                                        }
+                                    },
+
+                                    #[name = "bluetooth_pointer_button"]
+                                    gtk::MenuButton {
+                                        #[watch]
+                                        set_css_classes: &bluetooth::group_classes(&model.bluetooth.pointer),
+                                        #[watch]
+                                        set_visible: model.bluetooth.pointer.visible,
+                                        #[watch]
+                                        set_tooltip_text: Some(model.bluetooth.pointer.tooltip.as_str()),
+
+                                        #[wrap(Some)]
+                                        set_popover = &gtk::Popover {
+                                            gtk::Label {
+                                                add_css_class: "bt-device-list",
+                                                #[watch]
+                                                set_label: bluetooth::devices_label(&model.bluetooth.pointer).as_str(),
+                                                set_xalign: 0.0,
+                                            }
+                                        },
+
+                                        #[wrap(Some)]
+                                        set_child = &gtk::Box {
+                                            set_orientation: gtk::Orientation::Horizontal,
+
+                                            gtk::Image {
+                                                add_css_class: "materialicon",
+                                                #[watch]
+                                                set_icon_name: Some(material_icon::icon_name(model.bluetooth.pointer.icon.as_str()).as_str()),
+                                            },
+
+                                            gtk::Overlay {
+                                                set_css_classes: &bluetooth::battery_root_classes(),
+                                                #[watch]
+                                                set_visible: model.bluetooth.pointer.battery.is_some(),
+
+                                                add_overlay = &gtk::DrawingArea {
+                                                    set_css_classes: bluetooth::battery_track_classes(),
+                                                    set_content_width: 8,
+                                                    set_content_height: 8,
+                                                    set_draw_func: bluetooth::battery_track_draw_func(),
+                                                },
+
+                                                add_overlay = &gtk::DrawingArea {
+                                                    #[watch]
+                                                    set_css_classes: &bluetooth::battery_level_classes(&model.bluetooth.pointer),
+                                                    set_content_width: 8,
+                                                    set_content_height: 8,
+                                                    #[watch]
+                                                    set_draw_func: bluetooth::battery_level_draw_func(&model.bluetooth.pointer),
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+
+                            #[name = "bluetooth_power_button"]
+                            gtk::Button {
+                                add_css_class: "flat",
+                                add_css_class: "circular",
+                                add_css_class: "panel-widget",
+                                add_css_class: "button-subgroup-main",
+                                #[watch]
+                                set_tooltip_text: Some(bluetooth::status_tooltip(&model.bluetooth.status).as_str()),
+
+                                gtk::Overlay {
+                                    gtk::Image {
+                                        add_css_class: "materialicon",
+                                        #[watch]
+                                        set_icon_name: Some(material_icon::icon_name(model.bluetooth.status.icon.as_str()).as_str()),
+                                    },
+
+                                    add_overlay = &gtk::Label {
+                                        add_css_class: "bt-count",
+                                        #[watch]
+                                        set_label: bluetooth::status_count(&model.bluetooth.status).as_str(),
+                                    }
+                                }
+                            }
+                        },
+
+                        gtk::Image {
+                            add_css_class: "panel-widget",
+                            add_css_class: "audio-icon",
+                            #[watch]
+                            set_visible: model.audio.visible,
+                            #[watch]
+                            set_tooltip_text: Some(model.audio.tooltip.as_str()),
+                            #[watch]
+                            set_icon_name: Some(model.audio.icon.as_str()),
+                        },
 
                         gtk::Image {
                             add_css_class: "panel-widget",
@@ -124,17 +426,6 @@ impl SimpleComponent for MainBar {
                             set_tooltip_text: Some(model.network.wifi.tooltip.as_str()),
                             #[watch]
                             set_icon_name: Some(model.network.wifi.icon.as_str()),
-                        },
-
-                        gtk::Image {
-                            add_css_class: "panel-widget",
-                            add_css_class: "audio-icon",
-                            #[watch]
-                            set_visible: model.audio.visible,
-                            #[watch]
-                            set_tooltip_text: Some(model.audio.tooltip.as_str()),
-                            #[watch]
-                            set_icon_name: Some(model.audio.icon.as_str()),
                         },
 
                         gtk::Image {
@@ -170,23 +461,91 @@ impl SimpleComponent for MainBar {
         }
     }
 
-    fn init(
+    async fn init(
         init: Self::Init,
         root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
+        sender: AsyncComponentSender<Self>,
+    ) -> AsyncComponentParts<Self> {
         window::apply_layer_shell_config(&root, bar_window_config());
         root.set_title(Some(init.title));
 
-        let model = MainBar::new();
+        let osd_builder = OsdWindow::builder();
+        relm4::main_application().add_window(&osd_builder.root);
+        let osd = osd_builder
+            .launch(OsdInit {
+                title: "Rsynapse OSD",
+            })
+            .detach();
+
+        let model = MainBar::new(osd);
         let widgets = view_output!();
         widgets.clock_button.connect_clicked(|_| {
             thread::spawn(|| {
                 let _ = Command::new("swaync-client").arg("-t").status();
             });
         });
+        widgets.bluetooth_power_button.connect_clicked(|_| {
+            thread::spawn(|| {
+                let _ = Command::new("bluetoothctl").arg("mgmt.power").status();
+            });
+        });
 
-        ComponentParts { model, widgets }
+        let keyboard_popover = widgets
+            .bluetooth_keyboard_button
+            .popover()
+            .expect("Bluetooth keyboard menu button should have a popover");
+        let audio_popover = widgets
+            .bluetooth_audio_button
+            .popover()
+            .expect("Bluetooth audio menu button should have a popover");
+        let pointer_popover = widgets
+            .bluetooth_pointer_button
+            .popover()
+            .expect("Bluetooth pointer menu button should have a popover");
+
+        let bluetooth_hovered = Rc::new(Cell::new(false));
+        let update_bluetooth_revealed = Rc::new({
+            let bluetooth_hovered = bluetooth_hovered.clone();
+            let bluetooth_revealer = widgets.bluetooth_revealer.clone();
+            let bluetooth_power_button = widgets.bluetooth_power_button.clone();
+            let keyboard_popover = keyboard_popover.clone();
+            let audio_popover = audio_popover.clone();
+            let pointer_popover = pointer_popover.clone();
+
+            move || {
+                let revealed = bluetooth_hovered.get()
+                    || keyboard_popover.is_visible()
+                    || audio_popover.is_visible()
+                    || pointer_popover.is_visible();
+                bluetooth_revealer.set_reveal_child(revealed);
+                if revealed {
+                    bluetooth_power_button.add_css_class("opened");
+                } else {
+                    bluetooth_power_button.remove_css_class("opened");
+                }
+            }
+        });
+
+        let bluetooth_motion = gtk::EventControllerMotion::new();
+        let update_revealed = update_bluetooth_revealed.clone();
+        let hovered = bluetooth_hovered.clone();
+        bluetooth_motion.connect_enter(move |_, _, _| {
+            hovered.set(true);
+            update_revealed();
+        });
+        let update_revealed = update_bluetooth_revealed.clone();
+        let hovered = bluetooth_hovered.clone();
+        bluetooth_motion.connect_leave(move |_| {
+            hovered.set(false);
+            update_revealed();
+        });
+        widgets.bluetooth_group.add_controller(bluetooth_motion);
+        for popover in [keyboard_popover, audio_popover, pointer_popover] {
+            let update_revealed = update_bluetooth_revealed.clone();
+            popover.connect_visible_notify(move |_| update_revealed());
+        }
+
+        AsyncComponentParts { model, widgets }
     }
 }
 

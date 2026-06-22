@@ -372,6 +372,50 @@ pub(super) fn expand_model_impl(
             }
         }
     });
+    let async_watchers = bindings.iter().map(|binding| {
+        let variant = &binding.variant;
+        let source = &binding.source;
+        let ty = &binding.ty;
+        let source_locals = source_local_fields.iter().map(|field| {
+            quote! {
+                #[allow(unused_variables)]
+                let #field = &self.#field;
+            }
+        });
+
+        quote! {
+            {
+                let update_sender = sender.clone();
+                let error_sender = sender.clone();
+                #(#source_locals)*
+                let source: ::shell_core::source::Observable<#ty, _> = #source;
+                let subscription = {
+                    use ::shell_core::source::rx::{
+                        IntoBoxedSubscription as _, Observable as _, Subscription as _,
+                    };
+
+                    let subscription: ::shell_core::source::rxrust::prelude::BoxedSubscriptionSend =
+                        source
+                            .on_error(move |error| {
+                                let result = ::std::result::Result::Err(error.to_string());
+                                let input: <Component as ::relm4::component::AsyncComponent>::Input =
+                                    #module_ident::Msg::#variant(result).into();
+                                error_sender.input(input);
+                            })
+                            .subscribe(move |value| {
+                        let result = ::std::result::Result::Ok(value);
+                        let input: <Component as ::relm4::component::AsyncComponent>::Input =
+                            #module_ident::Msg::#variant(result).into();
+                        update_sender.input(input);
+                            })
+                            .into_boxed();
+
+                    subscription.unsubscribe_when_dropped()
+                };
+                subscriptions.push(subscription);
+            }
+        }
+    });
     let nested_watchers = nested_models.iter().map(|nested| {
         let variant = &nested.variant;
         let source = &nested.source;
@@ -575,6 +619,22 @@ pub(super) fn expand_model_impl(
                 let mut subscriptions = <#subscriptions_ty>::new();
                 #(#watchers)*
                 #(#nested_watchers)*
+                subscriptions
+            }
+
+            pub fn start_async<Component>(
+                &self,
+                sender: ::relm4::AsyncComponentSender<Component>,
+            ) -> #subscriptions_ty
+            where
+                Component: ::relm4::component::AsyncComponent + 'static,
+                <Component as ::relm4::component::AsyncComponent>::Input:
+                    ::std::convert::From<#module_ident::Msg> + Send,
+                <Component as ::relm4::component::AsyncComponent>::Output: Send,
+                <Component as ::relm4::component::AsyncComponent>::CommandOutput: Send,
+            {
+                let mut subscriptions = <#subscriptions_ty>::new();
+                #(#async_watchers)*
                 subscriptions
             }
         }

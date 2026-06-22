@@ -1,21 +1,16 @@
 use std::{
     convert::Infallible,
-    future::Future,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
 };
 
 use crate::locus_path::LocusPath;
-use rxrust::observer::{BoxedObserverSend, Observer as _};
 use rxrust::prelude::{
     Observable as RxObservable, ObservableFactory as _, Shared, SharedBoxedObservable,
 };
 
-mod async_loop;
 mod children;
 mod children_events;
 mod conversion;
-mod legacy;
 mod node;
 mod property;
 mod relation;
@@ -28,77 +23,135 @@ pub use rxrust::prelude as rx;
 
 pub type Observable<T, E = String> = SharedBoxedObservable<'static, T, E>;
 
-pub fn once<T>(value: T) -> Observable<T, Infallible>
+const ROOT_ENV: &str = "LOCUSFS_ROOT";
+const DEFAULT_ROOT: &str = "/tmp/rsynapse";
+
+/// Returns the configured locusfs mount root.
+///
+/// This is a path-construction helper for observable source functions.
+pub fn root() -> LocusPath {
+    LocusPath::from_env_or(ROOT_ENV, DEFAULT_ROOT)
+}
+
+impl LocusPath {
+    /// Creates an observable for raw watch events on this path.
+    pub fn as_watch(&self) -> Observable<WatchEvent> {
+        watch(self)
+    }
+
+    /// Creates an observable for this path as a typed locusfs property.
+    pub fn as_property<T>(&self) -> Observable<Option<T>>
+    where
+        T: FromLocusValue,
+    {
+        property(self)
+    }
+
+    /// Creates an observable for this path as a typed locusfs property,
+    /// substituting `default` while the property is absent/unset.
+    pub fn as_property_or<T>(&self, default: T) -> Observable<T>
+    where
+        T: FromLocusValue,
+    {
+        self.as_property()
+            .map(move |value| value.unwrap_or(default.clone()))
+            .box_it()
+    }
+
+    /// Creates an observable for a typed property under this path.
+    pub fn observe_prop<T>(&self, property: impl AsRef<Path>) -> Observable<Option<T>>
+    where
+        T: FromLocusValue,
+    {
+        self.prop(property).as_property()
+    }
+
+    /// Creates an observable for a typed property under this path,
+    /// substituting `default` while the property is absent/unset.
+    pub fn observe_prop_or<T>(&self, property: impl AsRef<Path>, default: T) -> Observable<T>
+    where
+        T: FromLocusValue,
+    {
+        self.prop(property).as_property_or(default)
+    }
+
+    /// Creates an observable for this path as a locusfs relation/symlink.
+    pub fn as_relation(&self) -> Observable<Option<LocusPath>> {
+        relation(self)
+    }
+
+    /// Creates an observable for this path as a locusfs relation/symlink,
+    /// substituting `default` while the relation is unset.
+    pub fn as_relation_or(&self, default: LocusPath) -> Observable<LocusPath> {
+        self.as_relation()
+            .map(move |value| value.unwrap_or_else(|| default.clone()))
+            .box_it()
+    }
+
+    /// Creates an observable for a relation under this path.
+    pub fn observe_rel(&self, relation: impl AsRef<Path>) -> Observable<Option<LocusPath>> {
+        self.rel(relation).as_relation()
+    }
+
+    /// Creates an observable for a relation under this path, substituting
+    /// `default` while the relation is unset.
+    pub fn observe_rel_or(
+        &self,
+        relation: impl AsRef<Path>,
+        default: LocusPath,
+    ) -> Observable<LocusPath> {
+        self.rel(relation).as_relation_or(default)
+    }
+
+    /// Creates an observable for this path as a locusfs node.
+    pub fn as_node(&self) -> Observable<NodeState> {
+        node(self)
+    }
+
+    /// Creates an observable for this path's current children.
+    pub fn as_children(&self) -> Observable<Vec<LocusPath>> {
+        children(self)
+    }
+
+    /// Creates an observable for this path's child update events.
+    pub fn as_children_events(&self) -> Observable<ChildrenEvent> {
+        children_events(self)
+    }
+}
+
+pub fn once<T>(value: T) -> Observable<T>
 where
     T: Send + 'static,
 {
-    Shared::<()>::of(value).box_it()
+    Shared::<()>::of(value)
+        .map_err(|error: Infallible| match error {})
+        .box_it()
 }
 
-/// Legacy async bridge for handwritten emitter loops.
+/// Combines a dynamic list of observables into one latest-value vector.
 ///
-/// New source primitives should use RxRust-native factories such as
-/// `Shared::from_stream_result` or `Shared::from_future_result` near the
-/// backend implementation.
-#[deprecated(note = "legacy async-loop bridge; prefer RxRust-native stream/future factories")]
-pub fn from_async_loop<T, Run, RunFuture>(run: Run) -> Observable<T>
+/// RxRust currently exposes binary `combine_latest`; this keeps the fold in one
+/// place while preserving normal Observable composition at call sites.
+pub fn combine_latest_vec<T>(observables: Vec<Observable<T>>) -> Observable<Vec<T>>
 where
-    T: Send + 'static,
-    Run: FnOnce(AsyncEmitter<T>) -> RunFuture + Send + 'static,
-    RunFuture: Future<Output = ()> + Send + 'static,
+    T: Clone + Send + 'static,
 {
-    async_loop::from_async_loop(run)
-}
+    let mut observables = observables.into_iter();
+    let Some(first) = observables.next() else {
+        return once(Vec::new());
+    };
 
-/// Legacy emitter used by [`from_async_loop`].
-///
-/// New source code should model event production as a stream/future and convert
-/// it with RxRust factories near the backend implementation.
-pub struct AsyncEmitter<T, E = String> {
-    observer: Arc<Mutex<Option<BoxedObserverSend<'static, T, E>>>>,
-}
-
-impl<T, E> Clone for AsyncEmitter<T, E> {
-    fn clone(&self) -> Self {
-        Self {
-            observer: self.observer.clone(),
-        }
-    }
-}
-
-impl<T, E> AsyncEmitter<T, E> {
-    fn new(observer: BoxedObserverSend<'static, T, E>) -> Self {
-        Self {
-            observer: Arc::new(Mutex::new(Some(observer))),
-        }
-    }
-
-    pub fn next(&self, value: T) {
-        let Ok(mut observer) = self.observer.lock() else {
-            return;
-        };
-        if let Some(observer) = observer.as_mut() {
-            observer.next(value);
-        }
-    }
-
-    pub fn error(&self, error: E) {
-        let Ok(mut observer) = self.observer.lock() else {
-            return;
-        };
-        if let Some(observer) = observer.take() {
-            observer.error(error);
-        }
-    }
-
-    pub fn complete(&self) {
-        let Ok(mut observer) = self.observer.lock() else {
-            return;
-        };
-        if let Some(observer) = observer.take() {
-            observer.complete();
-        }
-    }
+    observables.fold(
+        first.map(|value| vec![value]).box_it(),
+        |combined, observable| {
+            combined
+                .combine_latest(observable, |mut values, value| {
+                    values.push(value);
+                    values
+                })
+                .box_it()
+        },
+    )
 }
 
 /// State of a locusfs node path.
@@ -127,105 +180,6 @@ pub enum ChildrenEvent {
 /// Conversion from locusfs property text into a typed Rust value.
 pub trait FromLocusValue: Clone + PartialEq + Send + 'static {
     fn from_locus_value(value: &str) -> Result<Self, String>;
-}
-
-/// Legacy watch event used by the temporary multi-watch helper APIs.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LegacyWatchEvent {
-    path: Option<PathBuf>,
-    message: String,
-}
-
-impl LegacyWatchEvent {
-    fn initial() -> Self {
-        Self {
-            path: None,
-            message: "initial".to_owned(),
-        }
-    }
-
-    fn new(path: PathBuf, message: String) -> Self {
-        Self {
-            path: Some(path),
-            message,
-        }
-    }
-
-    pub fn is_initial(&self) -> bool {
-        self.path.is_none()
-    }
-
-    pub fn is_unset(&self) -> bool {
-        self.event_name() == Some("unset")
-    }
-
-    pub fn is_set(&self) -> bool {
-        self.event_name() == Some("set")
-    }
-
-    pub fn resolved_path(&self) -> Option<&Path> {
-        let path = self
-            .message
-            .strip_prefix("set ")
-            .filter(|path| !path.is_empty())?;
-        Some(Path::new(path))
-    }
-
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
-    }
-
-    fn event_name(&self) -> Option<&str> {
-        self.message.split_whitespace().next()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum WatchTarget {
-    Value,
-    Directory,
-}
-
-/// Legacy watch descriptor used by the temporary multi-watch helper APIs.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WatchSpec {
-    path: PathBuf,
-    target: WatchTarget,
-    required: bool,
-}
-
-impl WatchSpec {
-    pub fn value(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            target: WatchTarget::Value,
-            required: true,
-        }
-    }
-
-    pub fn directory(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            target: WatchTarget::Directory,
-            required: true,
-        }
-    }
-
-    pub fn optional_value(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            target: WatchTarget::Value,
-            required: false,
-        }
-    }
-
-    pub fn optional_directory(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            target: WatchTarget::Directory,
-            required: false,
-        }
-    }
 }
 
 /// Emits typed events for one locusfs watch path.
@@ -282,47 +236,4 @@ pub fn children(path: impl Into<PathBuf>) -> Observable<Vec<LocusPath>> {
 /// full snapshot.
 pub fn children_events(path: impl Into<PathBuf>) -> Observable<ChildrenEvent> {
     children_events::children_events(path)
-}
-
-/// Legacy multi-watch event stream.
-///
-/// Prefer the path-specific Rx helpers above for new source implementations.
-pub fn change_events_async<Open, OpenFuture>(open_watches: Open) -> Observable<LegacyWatchEvent>
-where
-    Open: FnMut() -> OpenFuture + Send + 'static,
-    OpenFuture: Future<Output = Result<Vec<WatchSpec>, String>> + Send,
-{
-    legacy::change_events_async_impl(open_watches)
-}
-
-/// Legacy read-on-change helper for one watch descriptor.
-///
-/// Prefer the path-specific Rx helpers above for new source implementations.
-pub fn read_on_change_async<Value, Read, ReadFuture>(
-    watch: WatchSpec,
-    read: Read,
-) -> Observable<Value>
-where
-    Value: Send + 'static,
-    Read: FnMut() -> ReadFuture + Send + 'static,
-    ReadFuture: Future<Output = Result<Value, String>> + Send,
-{
-    legacy::read_on_change_async_impl(watch, read)
-}
-
-/// Legacy read-on-any-change helper for a dynamic watch set.
-///
-/// Prefer the path-specific Rx helpers above for new source implementations.
-pub fn read_on_any_change_async<Value, Open, OpenFuture, Read, ReadFuture>(
-    open_watches: Open,
-    read: Read,
-) -> Observable<Value>
-where
-    Value: Send + 'static,
-    Open: FnMut() -> OpenFuture + Send + 'static,
-    OpenFuture: Future<Output = Result<Vec<WatchSpec>, String>> + Send,
-    Read: FnMut() -> ReadFuture + Send + 'static,
-    ReadFuture: Future<Output = Result<Value, String>> + Send,
-{
-    legacy::read_on_any_change_async_impl(open_watches, read)
 }

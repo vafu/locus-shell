@@ -12,12 +12,17 @@
 
 ## Native Structure
 
-Implement this as an external consumer binary, for example `rsynapse-osd`, not inside `shell/core`. The binary owns the OSD role, placement, event policy, and CSS. `shell-core` should only provide the GTK app, stylesheet registration, source runtime, and layer-shell window creation primitives described in `PLAN.md`.
+Implement this inside the active `rsynapse-shell` consumer process as a separate
+layer-shell window owned by the main shell binary, not inside `shell/core`. The
+consumer owns the OSD role, placement, event policy, and CSS. `shell-core`
+should only provide the GTK app, stylesheet registration, source runtime, and
+layer-shell window creation primitives described in `PLAN.md`.
 
 Initial component tree:
 
 ```text
-OsdApp
+RsynapseShell process
+├── MainBar
 └── OsdWindow
     └── gtk::Revealer
         └── gtk::Box.osd-shell

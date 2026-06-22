@@ -39,19 +39,28 @@ Suggested component tree:
 
 Initial implementation status:
 
-- `rsynapse-shell` now creates a bottom layer-shell bar and binds selected-output
-  project labels through `#[source(project_labels_for_selected_output())]` and
-  `#[bind_list(project_labels, row = ProjectLabel)]`.
-- The current provider watches selected output, selected workspace, and the
-  output workspace list. It snapshots workspace/project properties for row DTO
-  hydration. Property-level live updates inside existing rows should move to
-  typed collection hydration instead of adding view-side watchers.
+- `rsynapse-shell` now creates a bottom layer-shell bar using `shell-core`
+  layer-window and stylesheet primitives.
+- The workspace/project strip is implemented with widget-local observable
+  sources, project labels, selected/urgent state, and agent
+  attention/working/complete styling.
+- The selected-workspace window strip is implemented with sorted window tiles,
+  desktop icon lookup, active/urgent state, agent tile state, context meter, and
+  subagent badge.
+- The right-side essentials currently implemented are clock/date, CPU/RAM,
+  battery, NetworkManager wired/Wi-Fi, PipeWire default sink, and Bluetooth
+  device groups.
+- Still missing from the AGS bar shape: per-output/per-monitor lifecycle,
+  PowerProfiles, StatusNotifier tray, MPRIS, build/BzBus, full audio route
+  popover/actions, and exact visual parity polish.
 
-## Initial Models
+## Target Models
 
-Start with derived DTO providers for list-heavy regions. Bind those DTOs through
-one field per component rather than wiring every graph property directly into
-the view.
+Use derived DTO providers for list-heavy regions. Bind those DTOs through one
+field per component rather than wiring every graph property directly into the
+view. The current handwritten implementation already follows this direction by
+exposing widget-local `ViewModel` structs from observable source functions; the
+macro sketch below is the target authoring shape once source macros are ready.
 
 ```rust
 #[shell_macros::model]
@@ -98,8 +107,8 @@ pub struct AgentButtonModel {
     #[source(agent_providers::subagent_count(session_id.clone()))]
     pub subagent_count: u32,
 
-    #[source(paths::SELECTED_AGENT_SESSION.node())]
-    pub selected_agent_session: Option<NodeRef<AgentSession>>,
+    #[source(selected_agent_session())]
+    pub selected_agent_session: Option<LocusPath>,
 }
 ```
 
@@ -114,23 +123,28 @@ Before the full AGS bar is complete, port the right-side essentials as a focused
 system cluster phase. The concrete plan lives in
 [System Indicators Migration Plan](system-indicators.md).
 
-Initial scope:
+Completed in the Rust bar:
 
 - clock/date button, including the `swaync-client -t` click action.
-- CPU/memory dual level bar, matching the AGS `DualIndicator` thresholds and
+- CPU/memory dual level bar, matching the AGS `DualIndicator` shape and
   `memory` Material icon.
-- battery indicator through locusfs UPower BAT1, including the AGS-equivalent
-  UPower `IconName`/`battery_icon_name` symbolic icons instead of a single
-  placeholder icon.
-- Wi-Fi indicator with SSID tooltip and NetworkManager icon-name equivalent.
-- ALSA/PipeWire default output indicator with default volume icon and output
+- battery indicator through locusfs UPower BAT1, including AGS-compatible
+  symbolic icons derived from status and percentage.
+- NetworkManager Wi-Fi indicator with SSID tooltip and wired Ethernet
+  indicator.
+- PipeWire default output indicator with volume/mute icon and output
   description tooltip.
-- power profile button with active profile tooltip/icon and profile cycling
-  once a method/command path is available.
+- Bluetooth status and grouped keyboard/audio/pointer device indicators through
+  locusfs BlueZ/UPower data.
 
-Explicitly skip Bluetooth in this phase. The Bluetooth widget can be migrated
-after the simpler D-Bus/locusfs indicators are stable because it adds device
-classification and per-device battery fallback behavior.
+Remaining right-side bar work:
+
+- PowerProfiles active profile indicator and profile cycling once the
+  method/command path is available.
+- StatusNotifier tray and DBusMenu.
+- MPRIS.
+- full audio route popover/actions.
+- final AGS sizing/spacing parity.
 
 ## Providers And Stream Composition
 
@@ -154,6 +168,11 @@ Create consumer-owned provider modules rather than adding bar policy to
   UPower battery, BlueZ/Bluetooth battery, WirePlumber/PipeWire, and clock.
 - `process_providers`: narrow command providers for `scripts/sysstats.sh`,
   `pw-dump`, `swaync-client -t`, and any future shell commands.
+
+The current implementation keeps these providers as widget-local source modules
+under `rsynapse-shell/src/widgets/bar`. New bar work should continue that shape:
+public files define view models and observable source functions, while GTK
+components consume already-shaped values.
 
 Use Observable source functions for composition such as selected workspace plus
 monitor workspace list, status plus project branch, and default speaker plus

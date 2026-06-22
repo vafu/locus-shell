@@ -12,19 +12,25 @@
 
 ## Scope
 
-Port the essential right-side panel cluster into `rsynapse-shell`:
+Port the essential right-side panel cluster into `rsynapse-shell`.
+
+Currently implemented:
 
 - clock/date button
-- Wi-Fi indicator
 - battery indicator
-- ALSA/PipeWire default output indicator
-- power profile button
+- NetworkManager Wi-Fi indicator
+- NetworkManager wired Ethernet indicator
+- PipeWire default output indicator
 - CPU/memory dual level bar
+- Bluetooth status and grouped device indicators
 
-Skip Bluetooth for this pass. It has the same broad D-Bus shape, but the AGS
-widget includes device classification, hover-revealed per-device batteries, and
-multiple fallback battery sources. Keep it out of the first system cluster
-migration.
+Still pending:
+
+- PowerProfiles indicator and profile cycling.
+- StatusNotifier tray.
+- MPRIS.
+- full audio route popover/actions.
+- exact AGS sizing, spacing, and hover behavior parity.
 
 ## AGS Shape To Match
 
@@ -34,10 +40,10 @@ Right side order in AGS:
 MPRIS, SysStats, [Tray, PowerProfiles, Bluetooth, Audio, Eth, Wifi, Battery], Clock
 ```
 
-For this pass:
+Current Rust bar order:
 
 ```text
-SysStats, [PowerProfiles, Audio, Wifi, Battery], Clock
+SysStats, [Bluetooth, Audio, Eth, Wifi, Battery], Clock
 ```
 
 Use the existing Rust bar's `system-cluster` region. Keep indicators compact:
@@ -94,8 +100,9 @@ pub struct PowerProfileView {
 
 ## Source Contracts
 
-All sources should return `shell_core::source::Observable<T>` and stay in
-`rsynapse-shell/src/sources`, not `shell/core`.
+All sources should return `shell_core::source::Observable<T>` and live beside
+the widget that consumes them, not in a top-level `rsynapse-shell/src/sources`
+module or in `shell/core`.
 
 ### Clock
 
@@ -145,16 +152,15 @@ All sources should return `shell_core::source::Observable<T>` and stay in
 
 ### Wi-Fi
 
-- Preferred source: locusfs D-Bus object projection for NetworkManager once it
-  exposes the active wireless device and properties.
-- Minimum model fields:
+- Source: locusfs D-Bus object projection for NetworkManager.
+- Model fields:
   - SSID for tooltip.
   - icon name equivalent to Astal `wifi.iconName`.
   - visible/enabled state if there is no Wi-Fi device.
-- If locusfs does not yet expose a shaped Wi-Fi node, add the source as a
-  focused placeholder module with the expected DTO and keep the widget hidden
-  until data is available. Do not add a separate NetworkManager D-Bus runtime to
-  `rsynapse-shell`; D-Bus should come through locusfs for this migration.
+- Wired Ethernet is displayed separately from the same NetworkManager-backed
+  source family.
+- Do not add a separate NetworkManager D-Bus runtime to `rsynapse-shell`; D-Bus
+  should continue to come through locusfs for this migration.
 
 ### Audio
 
@@ -202,48 +208,40 @@ profiles[(current_index + 1) % profiles.len()]
 
 ## Implementation Steps
 
-1. Factor shared indicator primitives in `rsynapse-shell/src/widgets/bar`:
-   `IconIndicator`, `PanelButton`, and `DualIndicator` equivalents using the
-   existing class names.
-2. Add or extend sources:
-   - `sources/time.rs` for `clock()`.
-   - `sources/system.rs` or `sources/sysstats.rs` for `sys_stats()`.
-   - extend `sources/battery.rs` with `IconName` and tooltip.
-   - add `sources/network.rs` with `wifi_status()` DTO, hidden/fallback until
-     locusfs NetworkManager nodes are confirmed.
-   - add `sources/audio.rs` with `audio_status()` DTO, initially default icon
-     and tooltip if no PipeWire source exists.
-   - add `sources/power_profiles.rs` with `power_profile()` DTO.
-3. Add row/cluster widgets:
-   - `ClockButton`
-   - `SysStatsIndicator`
-   - `WifiIndicator`
-   - `AudioIndicator`
-   - `PowerProfilesIndicator`
-   - keep existing `BatteryIndicator`, but make it consume the richer battery
-     view.
-4. Update `widgets/bar/mod.rs` right cluster order to:
+Completed:
+
+1. Added widget-local source modules for clock, sysstats, battery, network,
+   audio, and Bluetooth.
+2. Added compact right-side widgets for clock, sysstats, battery, wired,
+   Wi-Fi, audio, and Bluetooth.
+3. Updated `widgets/bar/mod.rs` right cluster order to:
 
 ```text
-SysStats, [PowerProfiles, Audio, Wifi, Battery], Clock
+SysStats, [Bluetooth, Audio, Eth, Wifi, Battery], Clock
 ```
 
-5. Port CSS class usage, not hardcoded dimensions or colors in Rust.
-6. Verify with `cargo fmt --check`, `cargo check -p rsynapse-shell`, and the
-   existing shell test set.
+Remaining:
+
+1. Add `power_profiles.rs` with `power_profile()` DTO and click/action wiring
+   once method support exists.
+2. Add StatusNotifier tray and MPRIS indicators.
+3. Add full audio route popover/actions.
+4. Continue visual parity checks against AGS screenshots.
+5. Verify code changes with `cargo fmt --check`, `cargo check -p
+   rsynapse-shell`, and the existing shell test set.
 
 ## Dependencies To Confirm Before Coding
 
-- locusfs paths for NetworkManager Wi-Fi state and icon equivalent.
 - locusfs paths for power profiles active profile and available profiles.
-- Whether PipeWire/WirePlumber should be surfaced through locusfs or a small
-  local source for this migration.
+- locusfs method/action path for cycling PowerProfiles.
+- locusfs or command action path for PipeWire default sink changes.
+- StatusNotifier/AppIndicator and DBusMenu source shape.
+- MPRIS source shape.
 - Whether `swaync-client -t` is acceptable as a direct click command in
   `rsynapse-shell` or should go through a command action helper first.
 
 ## Deferred
 
-- Bluetooth status and per-device battery indicators.
-- Wired Ethernet indicator, unless needed alongside Wi-Fi.
-- Tray, MPRIS, and audio route popover.
+- PowerProfiles.
+- Tray, MPRIS, and audio route popover/actions.
 - Notification center state beyond the clock button toggle.

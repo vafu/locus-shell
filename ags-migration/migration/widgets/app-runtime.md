@@ -25,28 +25,48 @@ It is not a `shell/core` mandate. `shell/core` should continue to expose generic
 GTK, Relm4, layer-shell, CSS registration, source runtime, and window
 primitives. `rsynapse-shell` owns product-specific surfaces and policies.
 
+## Current Implementation Status
+
+Implemented:
+
+- `rsynapse-shell` has a bar surface using `shell-core` layer-window and
+  stylesheet primitives.
+- `rsynapse-shell` owns an initial OSD layer-shell window in the main shell
+  process, with PipeWire volume events and a local backlight bridge.
+- Static AGS-derived bar SCSS is present in `rsynapse-shell`.
+- Bar widget sources use widget-local Observable source modules rather than the
+  old top-level source layer.
+
+Not implemented yet:
+
+- Typed request service and `rsynapsectl` replacement for `ags request`.
+- Theme switching requests and related GNOME/niri/accent side effects.
+- Hints mode request handling and triggerhappy bridge.
+- OSD active-monitor rebinding and normalized brightness source.
+- Agent approval overlay and approval auto-open runtime policy.
+- Per-monitor/per-output bar lifecycle.
+- Pomodoro provider and DND/AutoRemote side effects.
+- Dynamic CSS generation/reload for runtime state such as Pomodoro.
+
 ## Proposed Process Layout
 
-Prefer multiple Rust binaries instead of recreating one all-owning AGS process:
+Use one `rsynapse-shell` process for the active migration target. It owns
+multiple layer-shell windows such as the bar and OSD while keeping widget
+modules internally separated.
 
-- `rsynapse-bar`: per-monitor top bar windows.
-- `rsynapse-osd`: active-monitor OSD overlay.
-- `rsynapse-agent-approvals`: active-monitor approval overlay plus approval UI
-  request handling.
-- `rsynapse-runtime`: optional small coordinator for commands, theme side
-  effects, hints mode, Pomodoro/DND side effects, and agent approval auto-open.
+- Main `rsynapse-shell` process: bar windows and active-monitor OSD overlay.
+- Future request/runtime code may live in the same process unless a concrete
+  isolation or lifecycle need appears.
 
-If startup simplicity matters more than isolation for the first migration
-phase, `rsynapse-shell` can start as one binary with internal modules matching
-the split above. The target shape should still preserve the process boundaries
-from `PROJECT.md`: major widgets can fail independently, and product policy
-does not move into `shell/core`.
+This is a consumer policy choice. `shell-core` still only provides generic GTK
+application, stylesheet, source, and layer-shell primitives; product-specific
+window roles stay in `rsynapse-shell`.
 
 ## Runtime Ownership
 
 `rsynapse-shell` should own:
 
-- Which widget binaries exist and how they are supervised.
+- Which surfaces/processes exist and how they are supervised.
 - Per-monitor versus singleton surface policy.
 - App-specific command names and request payloads.
 - Theme and niri side effects.
@@ -58,7 +78,7 @@ does not move into `shell/core`.
 `shell/core` should only provide:
 
 - Generic app startup.
-- Provider task runtime installation.
+- Observable source/runtime primitives.
 - CSS registration and optional development file watching.
 - Generic layer-shell window creation.
 - Generic lifecycle primitives needed by consumers.
@@ -288,6 +308,14 @@ example, OSD and agent approvals consume `active_monitor`; bar consumes one
 `MonitorInfo`; hints-rendering widgets consume `hints_active`.
 
 ## Migration Order
+
+Completed:
+
+1. Ported static AGS-derived bar SCSS into `rsynapse-shell`.
+2. Built the first bar surface and right-side source modules on top of
+   `shell-core` Observable helpers.
+
+Next:
 
 1. Add `rsynapsectl` and a minimal request service for `scheme-toggle` and
    `hints`.

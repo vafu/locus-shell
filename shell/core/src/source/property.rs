@@ -7,16 +7,18 @@ use crate::source::Observable;
 
 use super::{
     FromLocusValue, WatchEvent, WatchState, WatchValue,
-    support::{is_missing, watch_error},
+    support::{WatchEvents, is_missing, log_errors, open_target_or_parent, watch_error},
 };
 
 pub(super) fn property<T>(path: impl Into<PathBuf>) -> Observable<Option<T>>
 where
     T: FromLocusValue,
 {
-    Shared::<()>::from_stream_result(property_stream(path.into()))
+    let path = path.into();
+    let observable = Shared::<()>::from_stream_result(property_stream::<T>(path.clone()))
         .distinct_until_changed()
-        .box_it()
+        .box_it();
+    log_errors("property", path, observable)
 }
 
 enum PropertyStreamPhase {
@@ -29,6 +31,8 @@ enum PropertyStreamPhase {
 struct PropertyStreamState {
     path: PathBuf,
     watch: Option<locusfs_watch::Watch>,
+    events: WatchEvents,
+    watching_target: bool,
     phase: PropertyStreamPhase,
 }
 
@@ -40,24 +44,25 @@ where
         PropertyStreamState {
             path,
             watch: None,
+            events: WatchEvents::new(),
+            watching_target: false,
             phase: PropertyStreamPhase::Open,
         },
         |mut state| async move {
             loop {
                 match state.phase {
-                    PropertyStreamPhase::Open => {
-                        match locusfs_watch::Watch::open(&state.path).await {
-                            Ok(watch) => {
-                                state.watch = Some(watch);
-                                state.phase = PropertyStreamPhase::InitialRead;
-                            }
-                            Err(error) => {
-                                state.phase = PropertyStreamPhase::Done;
-                                let error = watch_error("open property watch", &state.path, error);
-                                return Some((Err(error), state));
-                            }
+                    PropertyStreamPhase::Open => match open_target_or_parent(&state.path).await {
+                        Ok(opened) => {
+                            let (watch, watching_target) = opened.into_parts();
+                            state.watch = Some(watch);
+                            state.watching_target = watching_target;
+                            state.phase = PropertyStreamPhase::InitialRead;
                         }
-                    }
+                        Err(error) => {
+                            state.phase = PropertyStreamPhase::Done;
+                            return Some((Err(error), state));
+                        }
+                    },
                     PropertyStreamPhase::InitialRead => {
                         state.phase = PropertyStreamPhase::WatchEvents;
                         let result = read_property::<T>(&state.path).await;
@@ -65,13 +70,30 @@ where
                     }
                     PropertyStreamPhase::WatchEvents => {
                         let result = match state
-                            .watch
-                            .as_mut()
-                            .expect("watch initialized")
-                            .next_event()
+                            .events
+                            .next(state.watch.as_mut().expect("watch initialized"))
                             .await
                         {
-                            Ok(event) => property_event_value(&state.path, event).await,
+                            Ok(event) => {
+                                if !state.watching_target {
+                                    if let Ok(opened) = open_target_or_parent(&state.path).await {
+                                        let (watch, watching_target) = opened.into_parts();
+                                        state.watch = Some(watch);
+                                        state.watching_target = watching_target;
+                                    }
+                                    read_property(&state.path).await
+                                } else {
+                                    let unset =
+                                        matches!(event, WatchEvent::State(WatchState::Unset));
+                                    let result = property_event_value(&state.path, event).await;
+                                    if unset {
+                                        state.watch = None;
+                                        state.watching_target = false;
+                                        state.phase = PropertyStreamPhase::Open;
+                                    }
+                                    result
+                                }
+                            }
                             Err(error) => {
                                 Err(watch_error("read property watch event", &state.path, error))
                             }

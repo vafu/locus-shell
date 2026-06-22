@@ -1,4 +1,4 @@
-mod sources;
+mod desktop_icon;
 mod theme;
 mod widgets;
 
@@ -7,6 +7,8 @@ use shell_core::ShellApp;
 use widgets::{MainBar, MainBarInit};
 
 fn main() {
+    let _ = relm4::RELM_THREADS.set(4);
+
     ShellApp::new("io.github.Locus.RsynapseShell")
         .with_scss(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -14,7 +16,7 @@ fn main() {
         ))
         .watch_stylesheets(true)
         .on_startup(|_| theme::prepare_theme())
-        .run::<MainBar>(MainBarInit {
+        .run_async::<MainBar>(MainBarInit {
             title: "Rsynapse Shell",
         });
 }

@@ -1,7 +1,11 @@
+mod source;
+
 use relm4::prelude::*;
 use shell_core::gtk::{self, prelude::*};
 
-use crate::sources::WorkspaceNode;
+use self::source::{ProjectLabelVm, project_label_vm};
+
+use super::WorkspaceNode;
 use crate::widgets::material_icon;
 
 #[derive(Debug)]
@@ -9,26 +13,8 @@ use crate::widgets::material_icon;
 pub(super) struct ProjectLabel {
     pub workspace: WorkspaceNode,
 
-    #[source(crate::sources::workspace_index(workspace.clone()))]
-    pub index: u32,
-
-    #[source(crate::sources::workspace_name(workspace.clone()))]
-    pub workspace_name: String,
-
-    #[source(crate::sources::workspace_urgent(workspace.clone()))]
-    pub urgent: bool,
-
-    #[source(crate::sources::workspace_active(workspace.clone()))]
-    pub active: bool,
-
-    #[source(crate::sources::workspace_project_name(workspace.clone()))]
-    pub project_name: Option<String>,
-
-    #[source(crate::sources::workspace_project_branch(workspace.clone()))]
-    pub project_branch: Option<String>,
-
-    #[source(crate::sources::workspace_project_icon(workspace.clone()))]
-    pub project_icon: Option<String>,
+    #[source(project_label_vm(workspace.clone()))]
+    pub vm: ProjectLabelVm,
 }
 
 #[shell_macros::component(
@@ -49,7 +35,7 @@ impl SimpleComponent for ProjectLabel {
             #[name = "group"]
             gtk::Box {
                 #[watch]
-                set_css_classes: project_group_classes(model.active, model.urgent),
+                set_css_classes: &project_group_classes(&model.vm),
 
                 set_halign: gtk::Align::Start,
                 set_hexpand: false,
@@ -58,10 +44,10 @@ impl SimpleComponent for ProjectLabel {
                 #[name = "root_button"]
                 gtk::Button {
                     #[watch]
-                    set_css_classes: root_button_classes(model.active),
+                    set_css_classes: root_button_classes(model.vm.active),
 
                     #[watch]
-                    set_tooltip_text: Some(project_tooltip(&model).as_str()),
+                    set_tooltip_text: Some(project_tooltip(&model.vm, &model.workspace).as_str()),
 
                     set_halign: gtk::Align::Start,
                     set_hexpand: false,
@@ -76,7 +62,7 @@ impl SimpleComponent for ProjectLabel {
                         icon -> gtk::Image {
 
                             #[watch]
-                            set_icon_name: Some(material_icon::icon_name(project_icon(&model).as_str()).as_str()),
+                            set_icon_name: Some(material_icon::icon_name(project_icon(&model.vm).as_str()).as_str()),
                         }
                     }
                 },
@@ -84,7 +70,7 @@ impl SimpleComponent for ProjectLabel {
                 #[name = "title_revealer"]
                 gtk::Revealer {
                     #[watch]
-                    set_reveal_child: model.active,
+                    set_reveal_child: model.vm.active,
 
                     set_halign: gtk::Align::Start,
                     set_hexpand: false,
@@ -110,7 +96,7 @@ impl SimpleComponent for ProjectLabel {
                                 set_ellipsize: gtk::pango::EllipsizeMode::End,
 
                                 #[watch]
-                                set_label: project_primary(&model).as_str(),
+                                set_label: project_primary(&model.vm, &model.workspace).as_str(),
 
                                 set_max_width_chars: 18,
                                 set_xalign: 0.0,
@@ -121,7 +107,7 @@ impl SimpleComponent for ProjectLabel {
                                 add_css_class: "workspaces-delimiter",
 
                                 #[watch]
-                                set_visible: project_secondary(&model).is_some(),
+                                set_visible: project_secondary(&model.vm).is_some(),
 
                                 set_label: "·",
                                 set_xalign: 0.0,
@@ -133,10 +119,10 @@ impl SimpleComponent for ProjectLabel {
                                 set_ellipsize: gtk::pango::EllipsizeMode::End,
 
                                 #[watch]
-                                set_label: project_secondary(&model).unwrap_or_default().as_str(),
+                                set_label: project_secondary(&model.vm).unwrap_or_default().as_str(),
 
                                 #[watch]
-                                set_visible: project_secondary(&model).is_some(),
+                                set_visible: project_secondary(&model.vm).is_some(),
 
                                 set_max_width_chars: 18,
                                 set_xalign: 0.0,
@@ -154,39 +140,14 @@ impl SimpleComponent for ProjectLabel {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = ProjectLabel::new(init);
-        let icon = material_icon::image(&project_icon(&model));
+        let icon = material_icon::image(&project_icon(&model.vm));
         let widgets = view_output!();
 
-        root.add_overlay(&workspace_badge(model.index));
+        root.add_overlay(&workspace_badge(model.vm.index));
 
         ComponentParts { model, widgets }
     }
 }
-
-const PROJECT_GROUP_CLASSES: &[&str] = &[
-    "projects-project",
-    "workspaces-workspace",
-    "button-subgroup-expand-right",
-];
-const PROJECT_GROUP_ACTIVE_CLASSES: &[&str] = &[
-    "projects-project",
-    "workspaces-workspace",
-    "button-subgroup-expand-right",
-    "current-workspace",
-];
-const PROJECT_GROUP_URGENT_CLASSES: &[&str] = &[
-    "projects-project",
-    "workspaces-workspace",
-    "button-subgroup-expand-right",
-    "has-attention",
-];
-const PROJECT_GROUP_ACTIVE_URGENT_CLASSES: &[&str] = &[
-    "projects-project",
-    "workspaces-workspace",
-    "button-subgroup-expand-right",
-    "current-workspace",
-    "has-attention",
-];
 
 const ROOT_BUTTON_CLASSES: &[&str] = &[
     "projects-root-button",
@@ -206,13 +167,30 @@ const ROOT_BUTTON_OPEN_CLASSES: &[&str] = &[
     "opened",
 ];
 
-fn project_group_classes(active: bool, urgent: bool) -> &'static [&'static str] {
-    match (active, urgent) {
-        (true, true) => PROJECT_GROUP_ACTIVE_URGENT_CLASSES,
-        (true, false) => PROJECT_GROUP_ACTIVE_CLASSES,
-        (false, true) => PROJECT_GROUP_URGENT_CLASSES,
-        (false, false) => PROJECT_GROUP_CLASSES,
+fn project_group_classes(vm: &ProjectLabelVm) -> Vec<&'static str> {
+    let mut classes = vec![
+        "projects-project",
+        "workspaces-workspace",
+        "button-subgroup-expand-right",
+    ];
+
+    if vm.active {
+        classes.push("current-workspace");
     }
+    if vm.urgent || vm.has_attention {
+        classes.push("has-attention");
+    }
+    if vm.all_idle {
+        classes.push("all-idle");
+    }
+    if vm.has_working {
+        classes.push("has-working");
+    }
+    if vm.has_complete {
+        classes.push("has-complete");
+    }
+
+    classes
 }
 
 fn root_button_classes(active: bool) -> &'static [&'static str] {
@@ -223,7 +201,7 @@ fn root_button_classes(active: bool) -> &'static [&'static str] {
     }
 }
 
-fn project_icon(model: &ProjectLabel) -> String {
+fn project_icon(model: &ProjectLabelVm) -> String {
     model
         .project_icon
         .as_deref()
@@ -232,16 +210,16 @@ fn project_icon(model: &ProjectLabel) -> String {
         .to_owned()
 }
 
-fn project_primary(model: &ProjectLabel) -> String {
+fn project_primary(model: &ProjectLabelVm, workspace: &WorkspaceNode) -> String {
     model
         .project_name
         .as_deref()
         .and_then(non_empty_text)
         .map(str::to_owned)
-        .unwrap_or_else(|| workspace_title(&model.workspace_name, &model.workspace, model.index))
+        .unwrap_or_else(|| workspace_title(&model.workspace_name, workspace, model.index))
 }
 
-fn project_secondary(model: &ProjectLabel) -> Option<String> {
+fn project_secondary(model: &ProjectLabelVm) -> Option<String> {
     model
         .project_branch
         .as_deref()
@@ -249,23 +227,21 @@ fn project_secondary(model: &ProjectLabel) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn project_tooltip(model: &ProjectLabel) -> String {
-    let primary = project_primary(model);
+fn project_tooltip(model: &ProjectLabelVm, workspace: &WorkspaceNode) -> String {
+    let primary = project_primary(model, workspace);
     match project_secondary(model) {
         Some(secondary) => format!("{primary} · {secondary}"),
         None => primary,
     }
 }
 
-fn workspace_title(workspace_name: &str, workspace_id: &str, index: u32) -> String {
+fn workspace_title(workspace_name: &str, workspace: &WorkspaceNode, index: u32) -> String {
     optional_text(Some(workspace_name))
         .map(str::to_owned)
         .unwrap_or_else(|| {
-            if workspace_id.is_empty() {
-                format!("Workspace {}", index + 1)
-            } else {
-                workspace_id.to_owned()
-            }
+            workspace
+                .node_id()
+                .unwrap_or_else(|_| format!("Workspace {}", index + 1))
         })
 }
 

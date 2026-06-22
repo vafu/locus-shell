@@ -1,0 +1,21 @@
+# Migration Log
+
+- Removed `dev-widgets`; `rsynapse-shell` is now the active in-repository consumer.
+- Removed legacy shell-core source APIs: async-loop bridge, `WatchSpec`, and read-on-change helpers.
+- `rsynapse-shell` sources now depend on shell-core observable primitives and no longer use the `locusfs-watch` client API.
+- Moved bar source providers under `rsynapse-shell/src/widgets/bar`; `rsynapse-shell/src/sources` is removed.
+- Agent project icons now use the shell-core relation snapshot observable instead of a local relation-to-property switch helper.
+- Fixed post-refactor workspace-window and pipewire regressions by composing selected workspace/default sink relations with child observables.
+- Removed `child_snapshots`; dynamic child view models now use `children()` plus per-child property/relation observables composed through Rx.
+- Consolidated widget/source guidance in `rsynapse-shell/src/widgets/AGENTS.md`; `cargo check --package rsynapse-shell` passes.
+- Added the AGS-style CPU/RAM bar indicator as a local Rx-polled sysstats source plus custom GTK `DrawingArea` arc widget.
+- Restored AGS right-side layout by making sysstats its own `barblock`; added a locusfs-backed Bluetooth subgroup with keyboard/audio/pointer indicators.
+- Added `org.bluez` to the local locusfs D-Bus service config as `dbus-service/bluez`.
+- Follow-up: `rsynapse-shell/src/widgets/bar/mod.rs` is temporarily over the 300-line widget guidance because Bluetooth is inline to keep source macro ownership simple.
+- Visual pass: sysstats arcs now match AGS by drawing only the level arc on an 8px canvas, and Bluetooth now filters BlueZ children to adapter/device objects instead of GATT services.
+- Updated AGS migration docs to mark the current Rust bar implementation done and prioritize request service, OSD, per-output lifecycle, approvals, and remaining right-side bar clusters.
+- Added a reusable Rust `level_indicator` primitive that mirrors the AGS track/level overlay widget, then reused it for sysstats arcs and agent context meters.
+- Follow-up: move Bluetooth dual-battery discovery into the locusfs BlueZ projection. AGS currently combines UPower HID batteries with GATT Battery Service characteristics; the Rust bar should consume a normalized none/single/dual battery model rather than parsing GATT details itself.
+- Follow-up: investigate locusfs watch-event escaping/framing for property values that contain URL-like text. `raw_title` updates can currently be reported as `invalid watch event` when the property value is ordinary text such as `here's the bom: https://...`.
+- Added initial OSD as a second layer-shell window owned by the main `rsynapse-shell` process, with AGS-style bottom overlay, Rx-derived level events, PipeWire default sink volume events from locusfs, and a local backlight file-watch bridge until locusfs exposes brightness.
+- Increased the Relm/Tokio source runtime to 4 worker threads and converted the main bar plus OSD surfaces to async Relm components; row components remain sync until the list helper grows async component support.

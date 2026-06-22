@@ -7,13 +7,15 @@ use crate::{locus_path::LocusPath, source::Observable};
 
 use super::{
     WatchEvent, WatchState, WatchValue,
-    support::{is_missing, watch_error},
+    support::{WatchEvents, is_missing, log_errors, watch_error},
 };
 
 pub(super) fn relation(path: impl Into<PathBuf>) -> Observable<Option<LocusPath>> {
-    Shared::<()>::from_stream_result(relation_stream(path.into()))
+    let path = path.into();
+    let observable = Shared::<()>::from_stream_result(relation_stream(path.clone()))
         .distinct_until_changed()
-        .box_it()
+        .box_it();
+    log_errors("relation", path, observable)
 }
 
 enum RelationStreamPhase {
@@ -26,6 +28,8 @@ enum RelationStreamPhase {
 struct RelationStreamState {
     path: PathBuf,
     watch: Option<locusfs_watch::Watch>,
+    events: WatchEvents,
+    mount_root: Option<PathBuf>,
     phase: RelationStreamPhase,
 }
 
@@ -36,6 +40,8 @@ fn relation_stream(
         RelationStreamState {
             path,
             watch: None,
+            events: WatchEvents::new(),
+            mount_root: None,
             phase: RelationStreamPhase::Open,
         },
         |mut state| async move {
@@ -44,12 +50,13 @@ fn relation_stream(
                     RelationStreamPhase::Open => {
                         match locusfs_watch::Watch::open(&state.path).await {
                             Ok(watch) => {
+                                state.mount_root = Some(watch.mount_root().to_owned());
                                 state.watch = Some(watch);
                                 state.phase = RelationStreamPhase::InitialRead;
                             }
                             Err(error) => {
-                                state.phase = RelationStreamPhase::Done;
                                 let error = watch_error("open relation watch", &state.path, error);
+                                state.phase = RelationStreamPhase::Done;
                                 return Some((Err(error), state));
                             }
                         }
@@ -61,13 +68,18 @@ fn relation_stream(
                     }
                     RelationStreamPhase::WatchEvents => {
                         let result = match state
-                            .watch
-                            .as_mut()
-                            .expect("watch initialized")
-                            .next_event()
+                            .events
+                            .next(state.watch.as_mut().expect("watch initialized"))
                             .await
                         {
-                            Ok(event) => relation_event_value(&state.path, event).await,
+                            Ok(event) => {
+                                relation_event_value(
+                                    &state.path,
+                                    state.mount_root.as_ref().expect("mount root initialized"),
+                                    event,
+                                )
+                                .await
+                            }
                             Err(error) => {
                                 Err(watch_error("read relation watch event", &state.path, error))
                             }
@@ -86,16 +98,29 @@ fn relation_stream(
     )
 }
 
-async fn relation_event_value(path: &Path, event: WatchEvent) -> Result<Option<LocusPath>, String> {
+async fn relation_event_value(
+    path: &Path,
+    mount_root: &Path,
+    event: WatchEvent,
+) -> Result<Option<LocusPath>, String> {
     match event {
         WatchEvent::State(WatchState::Unset) => Ok(None),
-        WatchEvent::State(WatchState::Set(WatchValue::Path(value))) => {
-            Ok(Some(LocusPath::new(value)))
+        WatchEvent::State(WatchState::Set(WatchValue::Path(path))) => {
+            Ok(Some(watch_value_path(mount_root, &path)))
         }
         WatchEvent::State(WatchState::Set(WatchValue::Property(_))) | WatchEvent::Change(_) => {
             read_relation(path).await
         }
     }
+}
+
+fn watch_value_path(mount_root: &Path, value: &str) -> LocusPath {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        return LocusPath::new(mount_root.join(path.strip_prefix("/").unwrap_or(path)));
+    }
+
+    LocusPath::new(mount_root.join(path))
 }
 
 async fn read_relation(path: &Path) -> Result<Option<LocusPath>, String> {

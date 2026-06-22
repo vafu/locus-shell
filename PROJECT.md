@@ -10,11 +10,15 @@ The shell should provide a concise authoring model for widgets while preserving 
 
 - No JavaScript engine or embedded interpreter. Reactive source composition, if
   used, must be compiled Rust owned by the shell framework.
-- Each major widget is a standalone binary, for example `locus-bar` and `locus-osd`.
-- Widget failures must be isolated to their own process.
-- Locus graph-derived UI state is driven by locusfs file reads and watches.
+- Consumer shells decide their process grouping. A production shell may split
+  major surfaces into binaries, but `rsynapse-shell` currently runs the bar and
+  OSD in one process with multiple layer-shell windows.
+- Widget process isolation is a consumer policy choice, not a `shell-core`
+  responsibility.
+- Locus graph-derived UI state is driven by locusfs observable source helpers.
 - Locus graph sources are Observable values produced from source functions over
-  locusfs node path strings and `locusfs-client`.
+  `LocusPath`; consumer crates compose shell-core observables rather than using
+  the locusfs client directly.
 - Non-Locus sources such as UPower, time, weather, media, and custom user logic
   enter the UI through typed source expressions. The public source API is
   Observable-first; the old `ObservableSource<T>` contract is being removed rather than
@@ -30,8 +34,8 @@ locus/
 ├── Cargo.toml
 ├── shell/
 │   ├── core/        # package: shell-core
-│   └── macros/      # package: shell-macros
-├── dev-widgets/
+│   ├── macros/      # package: shell-macros
+│   └── rx-macros/   # package: shell-rx-macros
 ├── rsynapse-shell/  # package: rsynapse-shell, AGS migration playground
 ```
 
@@ -189,34 +193,34 @@ consumer sources.
 
 Responsibilities:
 
-- Re-export `rxrust` and the shell-owned `Observable<T, E = SourceError>` alias.
-- Provide `IntoObservable<T>` as the macro-facing source contract.
-- Store generated RxRust subscription handles in `Subscriptions`.
-- Keep source errors displayable and framework-owned through `SourceError`.
+- Re-export `rxrust` and the shell-owned `Observable<T, E = String>` alias.
+- Expose reusable Observable source primitives such as `property`, `relation`,
+  `children`, and `watch`.
+- Keep direct locusfs client usage inside private source implementation files.
 
-Locusfs graph binding is owned by consumer source functions. Nodes are passed
-around as locusfs node path strings such as `window:1` or `workspace:2`; the
-framework does not expose schema descriptors or node wrapper types.
+Locusfs graph binding is owned by Observable source helpers. Consumer crates
+compose `LocusPath` values with shell-core source primitives; the framework does
+not expose schema descriptors or node wrapper types.
 
-### `dev-widgets`
+### `shell-rx-macros`
 
-Internal development crate for primitive widgets used to exercise framework APIs.
+Small declarative macros for RxRust composition ergonomics.
 
 Responsibilities:
 
-- Depend on `shell-core` as a consumer.
-- Define role-specific window configs for development widgets, such as a test panel or OSD-like primitive.
-- Keep dev widgets out of the framework API and out of later user-facing shell implementations.
-- Keep styling in external CSS files.
+- Expand to normal RxRust operator chains without introducing a runtime layer.
+- Keep heterogeneous source composition concise where RxRust exposes only
+  binary operators, for example `combine_latest!`.
+- Stay independent from product-specific widgets and backend transports.
 
 ### Future user-facing widget crates
 
-Standalone shell widget binaries such as bars, OSDs, and notifications.
+User-facing shell crates or binaries such as bars, OSDs, and notifications.
 
 Responsibilities:
 
 - Live outside the core framework boundary.
-- Start their own Relm4 applications.
+- Decide whether to run one or more Relm4 applications/processes.
 - Load their own CSS.
 - Decide their own shell roles, placement, exclusive zones, and behavior.
 - Use `shell-core` only for generic layer-shell setup.
@@ -227,9 +231,10 @@ Responsibilities:
 
 - `shell/core` for app startup, CSS/SCSS loading, and generic layer-shell windows.
 - `shell/macros` for Relm4 source/model bindings.
+- `shell/rx-macros` for lightweight RxRust composition macros.
 - `shell/core::source` for the current Observable binding facade.
 - `SOURCE_API.md` for the Observable-first source API.
-- `dev-widgets` as a framework ergonomics target, not a user-facing shell.
+- `rsynapse-shell` as the active AGS migration target and framework stress test.
 
 Future user-facing widgets such as bars and OSDs should be created outside this framework workspace and consume these crates.
 

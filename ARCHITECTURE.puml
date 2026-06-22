@@ -46,15 +46,6 @@ package "consumer source modules" {
   OtherSource --> Observable
 }
 
-package "dev-widgets\ncrate: dev_widgets" {
-  class Bar
-  class WindowTitle
-
-  Bar --> WindowTitle
-  Bar --> LocusSource
-  WindowTitle --> LocusSource
-}
-
 package "rsynapse-shell\ncrate: rsynapse_shell" {
   class MainBar
   class ProjectLabel
@@ -68,7 +59,7 @@ package "rsynapse-shell\ncrate: rsynapse_shell" {
 
 database "locusfs" as Locusfs
 
-LocusSource --> Locusfs : read/watch node path strings
+LocusSource --> Locusfs : observable LocusPath sources
 ModelMacro --> ComponentMacro
 
 @enduml

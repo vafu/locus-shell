@@ -5,12 +5,17 @@ use rxrust::prelude::{Observable as _, ObservableFactory as _, Shared};
 
 use crate::source::Observable;
 
-use super::{NodeState, WatchAction, WatchChange, WatchEvent, WatchState, support::watch_error};
+use super::{
+    NodeState, WatchAction, WatchChange, WatchEvent, WatchState,
+    support::{WatchEvents, log_errors, open_target_or_parent, watch_error},
+};
 
 pub(super) fn node(path: impl Into<PathBuf>) -> Observable<NodeState> {
-    Shared::<()>::from_stream_result(node_stream(path.into()))
+    let path = path.into();
+    let observable = Shared::<()>::from_stream_result(node_stream(path.clone()))
         .distinct_until_changed()
-        .box_it()
+        .box_it();
+    log_errors("node", path, observable)
 }
 
 enum NodeStreamPhase {
@@ -23,6 +28,8 @@ enum NodeStreamPhase {
 struct NodeStreamState {
     path: PathBuf,
     watch: Option<locusfs_watch::Watch>,
+    events: WatchEvents,
+    watching_target: bool,
     phase: NodeStreamPhase,
 }
 
@@ -31,19 +38,22 @@ fn node_stream(path: PathBuf) -> impl futures_util::Stream<Item = Result<NodeSta
         NodeStreamState {
             path,
             watch: None,
+            events: WatchEvents::new(),
+            watching_target: false,
             phase: NodeStreamPhase::Open,
         },
         |mut state| async move {
             loop {
                 match state.phase {
-                    NodeStreamPhase::Open => match locusfs_watch::Watch::open(&state.path).await {
-                        Ok(watch) => {
+                    NodeStreamPhase::Open => match open_target_or_parent(&state.path).await {
+                        Ok(opened) => {
+                            let (watch, watching_target) = opened.into_parts();
                             state.watch = Some(watch);
+                            state.watching_target = watching_target;
                             state.phase = NodeStreamPhase::InitialRead;
                         }
                         Err(error) => {
                             state.phase = NodeStreamPhase::Done;
-                            let error = watch_error("open node watch", &state.path, error);
                             return Some((Err(error), state));
                         }
                     },
@@ -54,13 +64,36 @@ fn node_stream(path: PathBuf) -> impl futures_util::Stream<Item = Result<NodeSta
                     }
                     NodeStreamPhase::WatchEvents => {
                         let result = match state
-                            .watch
-                            .as_mut()
-                            .expect("watch initialized")
-                            .next_event()
+                            .events
+                            .next(state.watch.as_mut().expect("watch initialized"))
                             .await
                         {
-                            Ok(event) => Ok(node_event_state(&state.path, event).await),
+                            Ok(event) => {
+                                if !state.watching_target {
+                                    if let Ok(opened) = open_target_or_parent(&state.path).await {
+                                        let (watch, watching_target) = opened.into_parts();
+                                        state.watch = Some(watch);
+                                        state.watching_target = watching_target;
+                                    }
+                                    Ok(read_node_state(&state.path).await)
+                                } else {
+                                    let missing = matches!(
+                                        event,
+                                        WatchEvent::State(WatchState::Unset)
+                                            | WatchEvent::Change(WatchChange::Node {
+                                                action: WatchAction::Removed,
+                                                ..
+                                            })
+                                    );
+                                    let result = Ok(node_event_state(&state.path, event).await);
+                                    if missing {
+                                        state.watch = None;
+                                        state.watching_target = false;
+                                        state.phase = NodeStreamPhase::Open;
+                                    }
+                                    result
+                                }
+                            }
                             Err(error) => {
                                 Err(watch_error("read node watch event", &state.path, error))
                             }

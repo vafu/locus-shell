@@ -93,46 +93,18 @@ $outline-offset: $label-margin * 0.5;
   }
 
   &.workspace-window-agent {
+    &.attention {
+      background-color: color-mix(in srgb, #{$sys_danger} 16%, #{$bg});
+      outline: 1px solid color-mix(in srgb, #{$sys_danger} 50%, transparent);
+      opacity: 1;
+    }
+
     .workspace-window-content {
       min-height: 28px;
     }
 
     .agent-inner {
       padding: 0;
-    }
-
-    .agent-context-indicator {
-      min-width: 8px;
-      min-height: 24px;
-      padding: 0;
-
-      trough {
-        min-width: 3px;
-        border-radius: 999px;
-        background-color: #{$bat_track};
-      }
-
-      progress {
-        min-width: 3px;
-        border-radius: 999px;
-        background-color: #{$fg};
-      }
-
-      &.warn progress {
-        background-color: #{$sys_warn};
-      }
-
-      &.high progress {
-        background-color: #{$sys_high};
-      }
-
-      &.danger progress {
-        background-color: #{$sys_danger};
-      }
-
-      &.critical progress {
-        background-color: #{$sys_critical};
-      }
     }
 
     &.thinking materialicon:first-child,
@@ -169,6 +141,89 @@ $outline-offset: $label-margin * 0.5;
 .audio-icon,
 .battery-icon {
   opacity: 0.78;
+}
+
+.levelindicator {
+  min-height: 8px;
+  min-width: 8px;
+
+  >.track {
+    color: #{$bat_track};
+  }
+
+  &.line {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  &.arc {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  >.level {
+    &.normal {
+      color: #{$fg};
+    }
+
+    &.warn {
+      color: #{$sys_warn};
+    }
+
+    &.high {
+      color: #{$sys_high};
+    }
+
+    &.danger {
+      color: #{$sys_danger};
+    }
+
+    &.critical {
+      color: #{$sys_critical};
+    }
+  }
+
+  &.battery {
+    >.level {
+      &.default {
+        color: #{$bat_low};
+      }
+
+      &.ok {
+        color: #{$bat_normal};
+      }
+    }
+  }
+}
+
+.bt-widget {
+  .button-subgroup {
+    min-height: 28px;
+  }
+
+  .button-subgroup-main.opened {
+    background-color: #{$secondary_sidebar_fg_color};
+  }
+}
+
+.bt-count {
+  font-size: 8pt;
+  margin-left: 18px;
+  margin-top: -14px;
+}
+
+.bt-device-button {
+  &.tinted {
+    opacity: 0.58;
+  }
+}
+
+.bt-device-list {
+  padding: 8px 10px;
+}
+
+.bt-battery-indicator {
+  margin-left: 2px;
 }
 
 .clock-widget {
@@ -264,13 +319,13 @@ $outline-offset: $label-margin * 0.5;
     opacity: 0.58;
   }
 
-  &.has-working:not(.has-attention) .button-subgroup-main:not(.opened) .projects-collapsed-icon materialicon,
-  &.has-working:not(.has-attention) .button-subgroup-main:not(.opened) .projects-collapsed-icon .materialicon {
+  &.has-working:not(.has-attention) .projects-collapsed-icon materialicon,
+  &.has-working:not(.has-attention) .projects-collapsed-icon .materialicon {
     animation: agent-thinking-pulse 0.5s ease-in-out infinite;
   }
 
-  &.has-attention .button-subgroup-main:not(.opened) .projects-collapsed-icon materialicon,
-  &.has-attention .button-subgroup-main:not(.opened) .projects-collapsed-icon .materialicon {
+  &.has-attention .projects-collapsed-icon materialicon,
+  &.has-attention .projects-collapsed-icon .materialicon {
     animation: agent-attention-shake 0.4s ease-in-out infinite;
   }
 }

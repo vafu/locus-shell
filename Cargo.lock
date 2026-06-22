@@ -117,17 +117,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
-name = "dev-widgets"
-version = "0.1.0"
-dependencies = [
- "futures",
- "locusfs-watch",
- "relm4",
- "shell-core",
- "shell-macros",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -917,10 +906,13 @@ dependencies = [
 name = "rsynapse-shell"
 version = "0.1.0"
 dependencies = [
- "locusfs-watch",
+ "async-channel",
+ "futures-util",
+ "notify",
  "relm4",
  "shell-core",
  "shell-macros",
+ "shell-rx-macros",
  "tokio",
 ]
 
@@ -1027,6 +1019,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "shell-rx-macros"
+version = "0.1.0"
+dependencies = [
+ "rxrust",
 ]
 
 [[package]]

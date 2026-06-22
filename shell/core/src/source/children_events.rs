@@ -7,11 +7,13 @@ use crate::{locus_path::LocusPath, source::Observable};
 
 use super::{
     ChildrenEvent, WatchAction, WatchChange, WatchEvent, WatchState,
-    support::{is_missing, watch_error},
+    support::{WatchEvents, is_missing, log_errors, open_target_or_parent, watch_error},
 };
 
 pub(super) fn children_events(path: impl Into<PathBuf>) -> Observable<ChildrenEvent> {
-    Shared::<()>::from_stream_result(children_event_stream(path.into())).box_it()
+    let path = path.into();
+    let observable = Shared::<()>::from_stream_result(children_event_stream(path.clone())).box_it();
+    log_errors("children_events", path, observable)
 }
 
 enum ChildrenEventStreamPhase {
@@ -24,6 +26,8 @@ enum ChildrenEventStreamPhase {
 struct ChildrenEventStreamState {
     path: PathBuf,
     watch: Option<locusfs_watch::Watch>,
+    events: WatchEvents,
+    watching_target: bool,
     phase: ChildrenEventStreamPhase,
 }
 
@@ -34,21 +38,23 @@ fn children_event_stream(
         ChildrenEventStreamState {
             path,
             watch: None,
+            events: WatchEvents::new(),
+            watching_target: false,
             phase: ChildrenEventStreamPhase::Open,
         },
         |mut state| async move {
             loop {
                 match state.phase {
                     ChildrenEventStreamPhase::Open => {
-                        match locusfs_watch::Watch::open(&state.path).await {
-                            Ok(watch) => {
+                        match open_target_or_parent(&state.path).await {
+                            Ok(opened) => {
+                                let (watch, watching_target) = opened.into_parts();
                                 state.watch = Some(watch);
+                                state.watching_target = watching_target;
                                 state.phase = ChildrenEventStreamPhase::InitialRead;
                             }
                             Err(error) => {
                                 state.phase = ChildrenEventStreamPhase::Done;
-                                let error =
-                                    watch_error("open children event watch", &state.path, error);
                                 return Some((Err(error), state));
                             }
                         }
@@ -62,13 +68,32 @@ fn children_event_stream(
                     }
                     ChildrenEventStreamPhase::WatchEvents => {
                         let result = match state
-                            .watch
-                            .as_mut()
-                            .expect("watch initialized")
-                            .next_event()
+                            .events
+                            .next(state.watch.as_mut().expect("watch initialized"))
                             .await
                         {
-                            Ok(event) => children_watch_event(&state.path, event).await,
+                            Ok(event) => {
+                                if !state.watching_target {
+                                    if let Ok(opened) = open_target_or_parent(&state.path).await {
+                                        let (watch, watching_target) = opened.into_parts();
+                                        state.watch = Some(watch);
+                                        state.watching_target = watching_target;
+                                    }
+                                    read_children_snapshot(&state.path)
+                                        .await
+                                        .map(ChildrenEvent::Snapshot)
+                                } else {
+                                    let unset =
+                                        matches!(event, WatchEvent::State(WatchState::Unset));
+                                    let result = children_watch_event(&state.path, event).await;
+                                    if unset {
+                                        state.watch = None;
+                                        state.watching_target = false;
+                                        state.phase = ChildrenEventStreamPhase::Open;
+                                    }
+                                    result
+                                }
+                            }
                             Err(error) => Err(watch_error(
                                 "read children event watch event",
                                 &state.path,

@@ -140,7 +140,9 @@ Useful operators for shell authors:
 - `map`
 - `filter_map`
 - `distinct_until_changed`
-- `combine_latest2` and `combine_latest3`
+- RxRust's binary `combine_latest`, plus `shell_rx_macros::combine_latest!`
+  when fixed-arity heterogeneous composition would otherwise require repeated
+  tuple mapper functions
 - `switch_map` or equivalent dynamic dependency support
 - `debounce` and throttling where widget behavior needs transient timing
 - `Observable::create` for low-level custom sources
@@ -183,12 +185,21 @@ Locusfs source helpers should return observables directly in the target API:
 workspace_name(workspace.clone()) -> Observable<String>
 workspace_project(workspace.clone()) -> Observable<Option<String>>
 project_display_main(project.clone()) -> Observable<Option<String>>
-selected_workspace_windows() -> Observable<Vec<String>>
+selected_workspace_windows() -> Observable<Vec<LocusPath>>
 ```
 
-Consumer source modules own locusfs reads, watches, parsing, semantic collection
-helpers, and any sharing keys. Nodes are passed as locusfs node path strings such
-as `window:1`; this workspace no longer exposes schema descriptors or `NodeRef`.
+Path-local observable creation is also supported for primitive graph reads:
+
+```rust
+source::root()
+    .child("context/selected/workspace")
+    .as_relation()
+```
+
+Consumer source modules own semantic collection helpers and UI view-model
+composition. Direct locusfs reads and watches stay behind shell-core Observable
+primitives. Nodes and relation targets are represented as `LocusPath`; this
+workspace no longer exposes schema descriptors or `NodeRef`.
 
 ## Migration Notes
 

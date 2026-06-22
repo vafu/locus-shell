@@ -516,6 +516,51 @@ fn expands_self_model_component_impl() {
 }
 
 #[test]
+fn expands_async_model_component_impl() {
+    let model = quote! {
+        pub struct Bar {
+            #[source(selected_window_title())]
+            pub selected_window_title: String,
+        }
+    };
+    let component = quote! {
+        impl SimpleAsyncComponent for Bar {
+            type Init = ();
+            type Input = sources::Msg;
+            type Output = ();
+
+            view! {
+                gtk::Window {}
+            }
+
+            async fn init(
+                init: Self::Init,
+                root: Self::Root,
+                sender: AsyncComponentSender<Self>,
+            ) -> AsyncComponentParts<Self> {
+                let model = Bar::new();
+                let widgets = view_output!();
+                AsyncComponentParts { model, widgets }
+            }
+        }
+    };
+
+    let expanded_model = expand_model(TokenStream::new(), model).unwrap();
+    let expanded_component = expand_component(quote!(model = Bar), component).unwrap();
+    let source = quote! {
+        #expanded_model
+        #expanded_component
+    }
+    .to_string();
+
+    assert!(source.contains("pub fn start_async < Component > (& self"));
+    assert!(source.contains(":: relm4 :: AsyncComponentSender < Component >"));
+    assert!(source.contains("Component : :: relm4 :: component :: AsyncComponent"));
+    assert!(source.contains("model . start_async (sender . clone ())"));
+    assert!(source.contains("async fn update"));
+}
+
+#[test]
 fn expands_model_component_with_wrapped_input() {
     let attr = quote! {
         model = BarLocus,

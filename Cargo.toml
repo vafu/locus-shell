@@ -1,9 +1,9 @@
 [workspace]
 members = [
     "shell/core",
-    "dev-widgets",
     "rsynapse-shell",
     "shell/macros",
+    "shell/rx-macros",
 ]
 resolver = "3"
 
@@ -19,3 +19,4 @@ relm4 = "0.11.0"
 rxrust = "1.0.0-rc.5"
 shell-core = { path = "shell/core" }
 shell-macros = { path = "shell/macros" }
+shell-rx-macros = { path = "shell/rx-macros" }
