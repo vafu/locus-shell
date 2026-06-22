@@ -182,14 +182,18 @@ module or in `shell/core`.
   - tooltip is default output description plus volume/mute state, fallback
     `Audio Output`.
 - The indicator stays hidden until `/pipewire/default/sink` can be resolved.
-- Full route popover is second step:
+- Full route popover:
   - list current speakers
-  - group by PipeWire device id
-  - pick highest `priority.session`
+  - group by PipeWire device id once locusfs exposes device id and
+    `priority.session`
   - default output first
   - selecting a row sets that sink default
-- Keep the route popover optional in the first pass; the bar should show the
-  default output icon first.
+- Implemented in `rsynapse-shell` against the current locusfs PipeWire sink
+  nodes. It currently lists sinks directly because the projection does not yet
+  expose AGS' `pw-dump` route grouping metadata.
+- Known backend issue: the locusfs PipeWire plugin debounces `pactl subscribe`
+  bursts and then publishes one full snapshot, so rapid volume changes collapse
+  before the shell observes them.
 
 ### Power Profiles
 
@@ -224,8 +228,9 @@ Remaining:
 
 1. Add `power_profiles.rs` with `power_profile()` DTO and click/action wiring
    once method support exists.
-2. Add StatusNotifier tray and MPRIS indicators.
-3. Add full audio route popover/actions.
+2. Add StatusNotifier tray.
+3. Add live locusfs MPRIS projection; the bar-side consumer is present and
+   expects `/mpris/player/*` player nodes with metadata/playback properties.
 4. Continue visual parity checks against AGS screenshots.
 5. Verify code changes with `cargo fmt --check`, `cargo check -p
    rsynapse-shell`, and the existing shell test set.

@@ -143,6 +143,50 @@ $outline-offset: $label-margin * 0.5;
   opacity: 0.78;
 }
 
+.mpris-widget {
+  min-height: 28px;
+
+  &.paused,
+  &.stopped {
+    opacity: 0.72;
+  }
+
+  .mpris-label {
+    font-weight: 600;
+  }
+}
+
+.audio-route-button {
+  min-height: 28px;
+  min-width: 0;
+}
+
+.audio-route-popover {
+  .audio-route {
+    min-width: 260px;
+    padding: 8px;
+  }
+
+  .audio-route-heading {
+    margin: 0 0 6px 2px;
+    font-weight: 700;
+  }
+
+  .audio-route-row {
+    padding: 6px 8px;
+    border-radius: 8px;
+  }
+
+  .audio-route-title {
+    font-weight: 600;
+  }
+
+  .audio-route-subtitle {
+    opacity: 0.62;
+    font-size: 0.86em;
+  }
+}
+
 .levelindicator {
   min-height: 8px;
   min-width: 8px;

@@ -18,6 +18,19 @@ Track concrete follow-up work that is not yet ready to become a committed roadma
   those backends mandatory `shell-core` dependencies.
 - Observable source API design is now tracked in `SOURCE_API.md`. Avoid adding
   new custom source composition APIs unless they are Observable migration work.
+- Move PipeWire volume changes away from debounce-style burst collapse in
+  `../locusfs/plugins/pipewire`. The current plugin waits for a pactl
+  subscription burst to settle, then publishes one full snapshot, so rapid
+  volume changes lose intermediate states before `rsynapse-shell` can observe
+  them.
+- Add a live locusfs MPRIS projection. The Rust bar now consumes the intended
+  `/mpris/player/*` observable shape, but the generic locusfs D-Bus projection
+  only snapshots service objects on owner changes and is not enough for MPRIS
+  metadata/playback property updates.
+- Extend the locusfs PipeWire projection with route grouping metadata such as
+  device id and session priority, or expose a normalized route list. The Rust
+  audio selector currently lists sinks directly because the plugin does not yet
+  expose the data AGS used to deduplicate routes by physical device.
 
 # Optional
 

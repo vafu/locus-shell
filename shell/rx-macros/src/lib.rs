@@ -62,6 +62,12 @@ macro_rules! combine_latest {
                 (a, b, c, d, e, f, g, h)
             })
     };
+    ($a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr, $h:expr, $i:expr $(,)?) => {
+        $crate::combine_latest!($a, $b, $c, $d, $e, $f, $g, $h)
+            .combine_latest($i, |(a, b, c, d, e, f, g, h), i| {
+                (a, b, c, d, e, f, g, h, i)
+            })
+    };
 }
 
 #[cfg(test)]
@@ -94,5 +100,25 @@ mod tests {
         .subscribe(|next| value = Some(next));
 
         assert_eq!(value, Some(6));
+    }
+
+    #[test]
+    fn supports_nine_sources() {
+        let mut value = None;
+
+        crate::combine_latest!(
+            Shared::<()>::of(1),
+            Shared::<()>::of(2),
+            Shared::<()>::of(3),
+            Shared::<()>::of(4),
+            Shared::<()>::of(5),
+            Shared::<()>::of(6),
+            Shared::<()>::of(7),
+            Shared::<()>::of(8),
+            Shared::<()>::of(9) => |values| values,
+        )
+        .subscribe(|next| value = Some(next));
+
+        assert_eq!(value, Some((1, 2, 3, 4, 5, 6, 7, 8, 9)));
     }
 }

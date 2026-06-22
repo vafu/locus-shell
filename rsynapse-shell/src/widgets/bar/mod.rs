@@ -1,6 +1,7 @@
 mod audio;
 mod battery;
 mod bluetooth;
+mod mpris;
 mod network;
 mod project_label;
 mod system_stats;
@@ -20,10 +21,11 @@ use shell_core::{
 
 use crate::widgets::{level_indicator, material_icon};
 
-use self::audio::{AudioView, audio_status};
+use self::audio::{AudioRouteRow, AudioRouteView, AudioView, audio_routes, audio_status};
 use self::battery::BatteryView;
 use self::battery::battery_status;
 use self::bluetooth::{BluetoothView, bluetooth_status};
+use self::mpris::{MprisView, mpris_status};
 use self::network::{NetworkView, network_status};
 use self::project_label::ProjectLabel;
 use self::system_stats::{ArcSide, SysStatsView, sys_stats};
@@ -58,6 +60,12 @@ pub struct MainBar {
 
     #[source(audio_status())]
     audio: AudioView,
+
+    #[source(audio_routes())]
+    audio_routes: Vec<AudioRouteView>,
+
+    #[source(mpris_status())]
+    mpris: MprisView,
 
     #[source(bluetooth_status())]
     bluetooth: BluetoothView,
@@ -124,6 +132,25 @@ impl SimpleAsyncComponent for MainBar {
                     add_css_class: "system-cluster",
                     set_halign: gtk::Align::End,
                     set_orientation: gtk::Orientation::Horizontal,
+
+                    gtk::Box {
+                        #[watch]
+                        set_css_classes: &mpris_classes(&model.mpris),
+                        #[watch]
+                        set_visible: model.mpris.visible,
+                        #[watch]
+                        set_tooltip_text: Some(model.mpris.tooltip.as_str()),
+                        set_halign: gtk::Align::End,
+                        set_orientation: gtk::Orientation::Horizontal,
+
+                        gtk::Label {
+                            add_css_class: "mpris-label",
+                            set_ellipsize: gtk::pango::EllipsizeMode::End,
+                            set_max_width_chars: 30,
+                            #[watch]
+                            set_label: model.mpris.metadata.as_str(),
+                        }
+                    },
 
                     gtk::Box {
                         add_css_class: "barblock",
@@ -393,15 +420,45 @@ impl SimpleAsyncComponent for MainBar {
                             }
                         },
 
-                        gtk::Image {
+                        gtk::MenuButton {
+                            add_css_class: "flat",
+                            add_css_class: "circular",
                             add_css_class: "panel-widget",
-                            add_css_class: "audio-icon",
+                            add_css_class: "button-subgroup-main",
+                            add_css_class: "audio-route-button",
                             #[watch]
                             set_visible: model.audio.visible,
                             #[watch]
-                            set_tooltip_text: Some(model.audio.tooltip.as_str()),
-                            #[watch]
-                            set_icon_name: Some(model.audio.icon.as_str()),
+                            set_tooltip_text: Some(audio::route_popover_tooltip(&model.audio)),
+
+                            #[wrap(Some)]
+                            set_popover = &gtk::Popover {
+                                add_css_class: "menu",
+                                add_css_class: "audio-route-popover",
+
+                                gtk::Box {
+                                    add_css_class: "audio-route",
+                                    set_orientation: gtk::Orientation::Vertical,
+
+                                    gtk::Label {
+                                        add_css_class: "audio-route-heading",
+                                        set_halign: gtk::Align::Start,
+                                        set_label: "Audio Output",
+                                    },
+
+                                    #[bind_list(audio_routes, row = AudioRouteRow)]
+                                    audio_routes -> gtk::Box {
+                                        set_orientation: gtk::Orientation::Vertical,
+                                    }
+                                }
+                            },
+
+                            #[wrap(Some)]
+                            set_child = &gtk::Image {
+                                add_css_class: "audio-icon",
+                                #[watch]
+                                set_icon_name: Some(model.audio.icon.as_str()),
+                            }
                         },
 
                         gtk::Image {
@@ -580,4 +637,12 @@ fn battery_icon_name(battery: &BatteryView) -> String {
     let state = if charging { "-charging" } else { "" };
 
     format!("battery-level-{level}{state}-symbolic")
+}
+
+fn mpris_classes(mpris: &MprisView) -> Vec<&'static str> {
+    let mut classes = vec!["barblock", "mpris-widget"];
+    if !mpris.state_class.is_empty() {
+        classes.push(mpris.state_class);
+    }
+    classes
 }
