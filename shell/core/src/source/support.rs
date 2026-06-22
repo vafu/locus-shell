@@ -1,12 +1,114 @@
 use std::{
     collections::VecDeque,
     io::{self, ErrorKind},
+    marker::PhantomData,
     path::{Path, PathBuf},
 };
 
-use rxrust::prelude::Observable as _;
+use futures_util::{Stream, StreamExt};
+use rxrust::{
+    context::Context,
+    observer::Observer,
+    prelude::{CoreObservable, Observable as _, ObservableType, Shared, Subscription},
+};
+use tokio::task::JoinHandle;
 
 use super::{Observable, WatchEvent};
+
+pub fn from_stream_result<T, S>(stream: S) -> Observable<T>
+where
+    T: Send + 'static,
+    S: Stream<Item = Result<T, String>> + Send + 'static,
+{
+    Shared::<()>::lift(AbortableStream::new(stream)).box_it()
+}
+
+struct AbortableStream<T, S> {
+    stream: S,
+    _item: PhantomData<fn() -> T>,
+}
+
+impl<T, S> AbortableStream<T, S> {
+    fn new(stream: S) -> Self {
+        Self {
+            stream,
+            _item: PhantomData,
+        }
+    }
+}
+
+impl<T, S> ObservableType for AbortableStream<T, S>
+where
+    S: Stream<Item = Result<T, String>>,
+{
+    type Item<'a>
+        = T
+    where
+        Self: 'a;
+    type Err = String;
+}
+
+impl<T, S, C> CoreObservable<C> for AbortableStream<T, S>
+where
+    T: Send + 'static,
+    S: Stream<Item = Result<T, String>> + Send + 'static,
+    C: Context,
+    C::Inner: Observer<T, String> + Send + 'static,
+{
+    type Unsub = AbortOnUnsubscribe;
+
+    fn subscribe(self, context: C) -> Self::Unsub {
+        AbortOnUnsubscribe(tokio::spawn(drive_stream(
+            self.stream,
+            context.into_inner(),
+        )))
+    }
+}
+
+async fn drive_stream<T, S, O>(stream: S, observer: O)
+where
+    S: Stream<Item = Result<T, String>>,
+    O: Observer<T, String>,
+{
+    let mut stream = Box::pin(stream);
+    let mut observer = Some(observer);
+
+    while let Some(result) = stream.next().await {
+        if observer.as_ref().is_none_or(Observer::is_closed) {
+            return;
+        }
+
+        match result {
+            Ok(value) => {
+                if let Some(observer) = observer.as_mut() {
+                    observer.next(value);
+                }
+            }
+            Err(error) => {
+                if let Some(observer) = observer.take() {
+                    observer.error(error);
+                }
+                return;
+            }
+        }
+    }
+
+    if let Some(observer) = observer {
+        observer.complete();
+    }
+}
+
+struct AbortOnUnsubscribe(JoinHandle<()>);
+
+impl Subscription for AbortOnUnsubscribe {
+    fn unsubscribe(self) {
+        self.0.abort();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.0.is_finished()
+    }
+}
 
 pub fn is_missing(error: &io::Error) -> bool {
     matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)

@@ -14,3 +14,4 @@ locusfs-watch = { path = "../../../locusfs/watch", default-features = false, fea
 notify = "6.1.1"
 relm4.workspace = true
 rxrust.workspace = true
+tokio = { version = "1.52.3", features = ["rt"] }

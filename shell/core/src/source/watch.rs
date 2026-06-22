@@ -1,18 +1,17 @@
 use std::path::PathBuf;
 
 use futures_util::stream;
-use rxrust::prelude::{Observable as _, ObservableFactory as _, Shared};
 
 use crate::source::Observable;
 
 use super::{
     WatchEvent,
-    support::{WatchEvents, log_errors, watch_error},
+    support::{WatchEvents, from_stream_result, log_errors, watch_error},
 };
 
 pub(super) fn watch(path: impl Into<PathBuf>) -> Observable<locusfs_watch::WatchEvent> {
     let path = path.into();
-    let observable = Shared::<()>::from_stream_result(watch_event_stream(path.clone())).box_it();
+    let observable = from_stream_result(watch_event_stream(path.clone()));
     log_errors("watch", path, observable)
 }
 

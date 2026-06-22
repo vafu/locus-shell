@@ -286,7 +286,11 @@ $outline-offset: $label-margin * 0.5;
 }
 
 .bt-device-list {
-  padding: 8px 10px;
+  min-width: 320px;
+
+  .bt-device-row {
+    padding: 2px 4px;
+  }
 }
 
 .bt-battery-indicator {
@@ -327,6 +331,10 @@ $outline-offset: $label-margin * 0.5;
     .projects-title {
       background-color: transparent;
     }
+  }
+
+  &.is-empty:not(.current-workspace) {
+    opacity: 0.42;
   }
 
   .projects-collapsed-icon {

@@ -152,6 +152,7 @@ impl SimpleAsyncComponent for MainBar {
                     set_halign: gtk::Align::End,
                     set_orientation: gtk::Orientation::Horizontal,
 
+                    #[name = "mpris_group"]
                     gtk::Box {
                         #[watch]
                         set_css_classes: &mpris_classes(&model.mpris),
@@ -173,12 +174,18 @@ impl SimpleAsyncComponent for MainBar {
                             set_file: mpris_art_file(&model.mpris).as_ref(),
                         },
 
-                        gtk::Label {
-                            add_css_class: "mpris-label",
-                            set_ellipsize: gtk::pango::EllipsizeMode::End,
-                            set_max_width_chars: 30,
-                            #[watch]
-                            set_label: model.mpris.metadata.as_str(),
+                        #[name = "mpris_details_revealer"]
+                        gtk::Revealer {
+                            set_reveal_child: false,
+                            set_transition_type: gtk::RevealerTransitionType::SlideRight,
+
+                            gtk::Label {
+                                add_css_class: "mpris-label",
+                                set_ellipsize: gtk::pango::EllipsizeMode::End,
+                                set_max_width_chars: 30,
+                                #[watch]
+                                set_label: model.mpris.metadata.as_str(),
+                            }
                         },
 
                         #[name = "mpris_previous_button"]
@@ -318,12 +325,10 @@ impl SimpleAsyncComponent for MainBar {
 
                                         #[wrap(Some)]
                                         set_popover = &gtk::Popover {
-                                            gtk::Label {
-                                                add_css_class: "bt-device-list",
-                                                #[watch]
-                                                set_label: bluetooth::devices_label(&model.bluetooth.keyboard).as_str(),
-                                                set_xalign: 0.0,
-                                            }
+                                            add_css_class: "menu",
+
+                                            #[watch]
+                                            set_child: Some(&bluetooth::device_list(&model.bluetooth.keyboard)),
                                         },
 
                                         #[wrap(Some)]
@@ -371,12 +376,10 @@ impl SimpleAsyncComponent for MainBar {
 
                                         #[wrap(Some)]
                                         set_popover = &gtk::Popover {
-                                            gtk::Label {
-                                                add_css_class: "bt-device-list",
-                                                #[watch]
-                                                set_label: bluetooth::devices_label(&model.bluetooth.audio).as_str(),
-                                                set_xalign: 0.0,
-                                            }
+                                            add_css_class: "menu",
+
+                                            #[watch]
+                                            set_child: Some(&bluetooth::device_list(&model.bluetooth.audio)),
                                         },
 
                                         #[wrap(Some)]
@@ -424,12 +427,10 @@ impl SimpleAsyncComponent for MainBar {
 
                                         #[wrap(Some)]
                                         set_popover = &gtk::Popover {
-                                            gtk::Label {
-                                                add_css_class: "bt-device-list",
-                                                #[watch]
-                                                set_label: bluetooth::devices_label(&model.bluetooth.pointer).as_str(),
-                                                set_xalign: 0.0,
-                                            }
+                                            add_css_class: "menu",
+
+                                            #[watch]
+                                            set_child: Some(&bluetooth::device_list(&model.bluetooth.pointer)),
                                         },
 
                                         #[wrap(Some)]
@@ -486,6 +487,8 @@ impl SimpleAsyncComponent for MainBar {
 
                                     add_overlay = &gtk::Label {
                                         add_css_class: "bt-count",
+                                        #[watch]
+                                        set_visible: model.bluetooth.status.connected_count > 0,
                                         #[watch]
                                         set_label: bluetooth::status_count(&model.bluetooth.status).as_str(),
                                     }
@@ -626,6 +629,16 @@ impl SimpleAsyncComponent for MainBar {
         widgets.mpris_next_button.connect_clicked(move |_| {
             input_sender.emit(MainBarInput::Media(MediaAction::Next));
         });
+        let mpris_motion = gtk::EventControllerMotion::new();
+        let mpris_revealer = widgets.mpris_details_revealer.clone();
+        mpris_motion.connect_enter(move |_, _, _| {
+            mpris_revealer.set_reveal_child(true);
+        });
+        let mpris_revealer = widgets.mpris_details_revealer.clone();
+        mpris_motion.connect_leave(move |_| {
+            mpris_revealer.set_reveal_child(false);
+        });
+        widgets.mpris_group.add_controller(mpris_motion);
         widgets.bluetooth_power_button.connect_clicked(|_| {
             thread::spawn(|| {
                 let _ = Command::new("bluetoothctl").arg("mgmt.power").status();

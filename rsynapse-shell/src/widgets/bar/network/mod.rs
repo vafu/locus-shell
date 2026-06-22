@@ -66,30 +66,65 @@ impl Default for EthernetView {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct NetworkObject {
-    path: LocusPath,
     device_type: Option<u32>,
     state: u32,
     interface: Option<String>,
     active_access_point: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AccessPoint {
+    path: LocusPath,
     ssid: Option<String>,
     strength: u32,
 }
 
 pub(super) fn network_status() -> Observable<NetworkView> {
     let network = source::root().child(NETWORK_OBJECT_PATH);
+    let devices = network.clone().as_children().switch_map(|objects| {
+        source::combine_latest_vec(
+            objects
+                .into_iter()
+                .filter(is_network_device)
+                .map(network_object)
+                .collect(),
+        )
+    });
+    let access_points = network.clone().as_children().switch_map(|objects| {
+        source::combine_latest_vec(
+            objects
+                .into_iter()
+                .filter(is_access_point)
+                .map(access_point_view)
+                .collect(),
+        )
+    });
 
-    network
-        .clone()
-        .as_children()
-        .switch_map(|objects| {
-            source::combine_latest_vec(objects.into_iter().map(network_object).collect())
-        })
-        .map(move |objects| NetworkView {
-            wifi: wifi_view(&objects, &network),
-            ethernet: ethernet_view(&objects),
-        })
-        .distinct_until_changed()
-        .box_it()
+    combine_latest!(
+        devices,
+        access_points => move |(devices, access_points)| NetworkView {
+            wifi: wifi_view(&devices, &access_points, &network),
+            ethernet: ethernet_view(&devices),
+        },
+    )
+    .distinct_until_changed()
+    .box_it()
+}
+
+fn is_network_device(path: &LocusPath) -> bool {
+    path.as_path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.starts_with("Devices%2F"))
+        .unwrap_or(false)
+}
+
+fn is_access_point(path: &LocusPath) -> bool {
+    path.as_path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.starts_with("AccessPoint%2F"))
+        .unwrap_or(false)
 }
 
 fn network_object(object: LocusPath) -> Observable<NetworkObject> {
@@ -97,22 +132,29 @@ fn network_object(object: LocusPath) -> Observable<NetworkObject> {
         object.observe_prop::<u32>("DeviceType"),
         object.observe_prop_or::<u32>("State", 0),
         object.observe_prop::<String>("Interface"),
-        object.observe_prop::<String>("ActiveAccessPoint"),
-        object.observe_prop::<String>("Ssid"),
-        object.observe_prop_or::<u32>("Strength", 0)
+        object.observe_prop::<String>("ActiveAccessPoint")
             => move |(
                 device_type,
                 state,
                 interface,
                 active_access_point,
-                ssid,
-                strength,
             )| NetworkObject {
-                path: object.clone(),
                 device_type,
                 state,
                 interface,
                 active_access_point,
+            },
+    )
+    .distinct_until_changed()
+    .box_it()
+}
+
+fn access_point_view(access_point: LocusPath) -> Observable<AccessPoint> {
+    combine_latest!(
+        access_point.observe_prop::<String>("Ssid"),
+        access_point.observe_prop_or::<u32>("Strength", 0)
+            => move |(ssid, strength)| AccessPoint {
+                path: access_point.clone(),
                 ssid,
                 strength,
             },
@@ -121,7 +163,11 @@ fn network_object(object: LocusPath) -> Observable<NetworkObject> {
     .box_it()
 }
 
-fn wifi_view(objects: &[NetworkObject], network: &LocusPath) -> WifiView {
+fn wifi_view(
+    objects: &[NetworkObject],
+    access_points: &[AccessPoint],
+    network: &LocusPath,
+) -> WifiView {
     let Some(device) = objects
         .iter()
         .find(|object| object.device_type == Some(DEVICE_TYPE_WIFI))
@@ -133,7 +179,7 @@ fn wifi_view(objects: &[NetworkObject], network: &LocusPath) -> WifiView {
     let access_point = device
         .active_access_point
         .as_deref()
-        .and_then(|path| find_dbus_object(objects, network, path));
+        .and_then(|path| find_access_point(access_points, network, path));
     let ssid = access_point
         .and_then(|ap| ap.ssid.as_deref())
         .and_then(|ssid| parse_ssid(ssid).ok())
@@ -236,23 +282,12 @@ fn dbus_path_to_object_path(network: &LocusPath, path: &str) -> Option<LocusPath
     Some(network.child(local))
 }
 
-fn find_dbus_object<'a>(
-    objects: &'a [NetworkObject],
+fn find_access_point<'a>(
+    access_points: &'a [AccessPoint],
     network: &LocusPath,
     dbus_path: &str,
-) -> Option<&'a NetworkObject> {
+) -> Option<&'a AccessPoint> {
     dbus_path_to_object_path(network, dbus_path)
         .as_ref()
-        .and_then(|path| objects.iter().find(|object| &object.path == path))
-        .or_else(|| {
-            let local = dbus_path.rsplit('/').next()?;
-            objects.iter().find(|object| {
-                object
-                    .path
-                    .as_path()
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    == Some(local)
-            })
-        })
+        .and_then(|path| access_points.iter().find(|object| &object.path == path))
 }

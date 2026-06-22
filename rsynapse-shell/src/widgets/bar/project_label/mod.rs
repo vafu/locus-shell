@@ -60,9 +60,11 @@ impl SimpleComponent for ProjectLabel {
 
                         #[local_ref]
                         icon -> gtk::Image {
+                            #[watch]
+                            set_css_classes: project_icon_classes(&model.vm),
 
                             #[watch]
-                            set_icon_name: Some(material_icon::icon_name(project_icon(&model.vm).as_str()).as_str()),
+                            set_icon_name: Some(project_icon_name(&model.vm).as_str()),
                         }
                     }
                 },
@@ -140,7 +142,9 @@ impl SimpleComponent for ProjectLabel {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = ProjectLabel::new(init);
-        let icon = material_icon::image(&project_icon(&model.vm));
+        let icon = gtk::Image::new();
+        icon.set_css_classes(project_icon_classes(&model.vm));
+        icon.set_icon_name(Some(project_icon_name(&model.vm).as_str()));
         let widgets = view_output!();
 
         root.add_overlay(&workspace_badge(model.vm.index));
@@ -189,6 +193,9 @@ fn project_group_classes(vm: &ProjectLabelVm) -> Vec<&'static str> {
     if vm.has_complete {
         classes.push("has-complete");
     }
+    if vm.empty {
+        classes.push("is-empty");
+    }
 
     classes
 }
@@ -208,6 +215,23 @@ fn project_icon(model: &ProjectLabelVm) -> String {
         .and_then(non_empty_text)
         .unwrap_or("view_quilt")
         .to_owned()
+}
+
+fn project_icon_name(model: &ProjectLabelVm) -> String {
+    let icon = project_icon(model);
+    if model.project_icon_is_app {
+        icon
+    } else {
+        material_icon::icon_name(&icon)
+    }
+}
+
+fn project_icon_classes(model: &ProjectLabelVm) -> &'static [&'static str] {
+    if model.project_icon_is_app {
+        &["workspace-app-icon"]
+    } else {
+        &["materialicon"]
+    }
 }
 
 fn project_primary(model: &ProjectLabelVm, workspace: &WorkspaceNode) -> String {

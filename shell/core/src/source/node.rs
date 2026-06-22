@@ -1,18 +1,18 @@
 use std::path::{Path, PathBuf};
 
 use futures_util::stream;
-use rxrust::prelude::{Observable as _, ObservableFactory as _, Shared};
+use rxrust::prelude::Observable as _;
 
 use crate::source::Observable;
 
 use super::{
     NodeState, WatchAction, WatchChange, WatchEvent, WatchState,
-    support::{WatchEvents, log_errors, open_target_or_parent, watch_error},
+    support::{WatchEvents, from_stream_result, log_errors, open_target_or_parent, watch_error},
 };
 
 pub(super) fn node(path: impl Into<PathBuf>) -> Observable<NodeState> {
     let path = path.into();
-    let observable = Shared::<()>::from_stream_result(node_stream(path.clone()))
+    let observable = from_stream_result(node_stream(path.clone()))
         .distinct_until_changed()
         .box_it();
     log_errors("node", path, observable)

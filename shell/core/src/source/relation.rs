@@ -1,18 +1,18 @@
 use std::path::{Path, PathBuf};
 
 use futures_util::stream;
-use rxrust::prelude::{Observable as _, ObservableFactory as _, Shared};
+use rxrust::prelude::Observable as _;
 
 use crate::{locus_path::LocusPath, source::Observable};
 
 use super::{
     WatchEvent, WatchState, WatchValue,
-    support::{WatchEvents, is_missing, log_errors, watch_error},
+    support::{WatchEvents, from_stream_result, is_missing, log_errors, watch_error},
 };
 
 pub(super) fn relation(path: impl Into<PathBuf>) -> Observable<Option<LocusPath>> {
     let path = path.into();
-    let observable = Shared::<()>::from_stream_result(relation_stream(path.clone()))
+    let observable = from_stream_result(relation_stream(path.clone()))
         .distinct_until_changed()
         .box_it();
     log_errors("relation", path, observable)

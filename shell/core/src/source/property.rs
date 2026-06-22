@@ -1,13 +1,15 @@
 use std::path::{Path, PathBuf};
 
 use futures_util::stream;
-use rxrust::prelude::{Observable as _, ObservableFactory as _, Shared};
+use rxrust::prelude::Observable as _;
 
 use crate::source::Observable;
 
 use super::{
     FromLocusValue, WatchEvent, WatchState, WatchValue,
-    support::{WatchEvents, is_missing, log_errors, open_target_or_parent, watch_error},
+    support::{
+        WatchEvents, from_stream_result, is_missing, log_errors, open_target_or_parent, watch_error,
+    },
 };
 
 pub(super) fn property<T>(path: impl Into<PathBuf>) -> Observable<Option<T>>
@@ -15,7 +17,7 @@ where
     T: FromLocusValue,
 {
     let path = path.into();
-    let observable = Shared::<()>::from_stream_result(property_stream::<T>(path.clone()))
+    let observable = from_stream_result(property_stream::<T>(path.clone()))
         .distinct_until_changed()
         .box_it();
     log_errors("property", path, observable)

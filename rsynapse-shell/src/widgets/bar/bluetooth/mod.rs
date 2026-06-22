@@ -1,11 +1,15 @@
 mod device_type;
 mod source;
 
+use std::{process::Command, thread};
+
+use adw::prelude::*;
 use shell_core::{gtk, source::Observable};
 
 use crate::widgets::level_indicator::{
     self, LevelRenderStyle, LevelStage, LineStyle, TRACK_CLASSES,
 };
+use crate::widgets::material_icon;
 
 const BATTERY_STAGES: &[LevelStage] = &[LevelStage {
     level: 5.0,
@@ -128,31 +132,74 @@ pub(super) fn battery_level_draw_func(
     )
 }
 
-pub(super) fn devices_label(group: &DeviceGroupView) -> String {
+pub(super) fn device_list(group: &DeviceGroupView) -> gtk::ListBox {
+    let list = gtk::ListBox::new();
+    list.add_css_class("bt-device-list");
+    list.set_selection_mode(gtk::SelectionMode::None);
+
     if group.devices.is_empty() {
-        return "No devices".to_owned();
+        let row = adw::ActionRow::builder()
+            .title("No devices")
+            .activatable(false)
+            .sensitive(false)
+            .build();
+        list.append(&row);
+        return list;
     }
 
-    group
-        .devices
-        .iter()
-        .map(device_label)
-        .collect::<Vec<_>>()
-        .join("\n")
+    for device in &group.devices {
+        let row = adw::ActionRow::builder()
+            .title(device.name.as_str())
+            .subtitle(device_subtitle(device))
+            .activatable(true)
+            .build();
+        row.add_css_class("bt-device-row");
+        row.add_prefix(
+            &gtk::Image::builder()
+                .css_classes(["materialicon"])
+                .icon_name(material_icon::icon_name(device.icon.as_str()))
+                .build(),
+        );
+
+        let address = device.address.clone();
+        let connected = device.connected;
+        row.connect_activated(move |row| {
+            if let Some(popover) = row
+                .ancestor(gtk::Popover::static_type())
+                .and_then(|widget| widget.downcast::<gtk::Popover>().ok())
+            {
+                popover.popdown();
+            }
+
+            let address = address.clone();
+            thread::spawn(move || {
+                let action = if connected { "disconnect" } else { "connect" };
+                let _ = Command::new("bluetoothctl")
+                    .arg(action)
+                    .arg(address)
+                    .status();
+            });
+        });
+
+        list.append(&row);
+    }
+
+    list
 }
 
-fn device_label(device: &BluetoothDeviceView) -> String {
-    let status = if device.connected {
+fn device_subtitle(device: &BluetoothDeviceView) -> String {
+    let mut subtitle = if device.connected {
         "Connected"
     } else if device.connecting {
         "Connecting..."
     } else {
         "Disconnected"
-    };
-    let battery = device
-        .battery
-        .map(|battery| format!(" - {battery}%"))
-        .unwrap_or_default();
+    }
+    .to_owned();
 
-    format!("{} - {status}{battery}", device.name)
+    if let Some(battery) = device.battery {
+        subtitle.push_str(&format!(" - {battery}%"));
+    }
+
+    subtitle
 }

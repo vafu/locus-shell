@@ -1,18 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use futures_util::stream;
-use rxrust::prelude::{Observable as _, ObservableFactory as _, Shared};
 
 use crate::{locus_path::LocusPath, source::Observable};
 
 use super::{
     ChildrenEvent, WatchAction, WatchChange, WatchEvent, WatchState,
-    support::{WatchEvents, is_missing, log_errors, open_target_or_parent, watch_error},
+    support::{
+        WatchEvents, from_stream_result, is_missing, log_errors, open_target_or_parent, watch_error,
+    },
 };
 
 pub(super) fn children_events(path: impl Into<PathBuf>) -> Observable<ChildrenEvent> {
     let path = path.into();
-    let observable = Shared::<()>::from_stream_result(children_event_stream(path.clone())).box_it();
+    let observable = from_stream_result(children_event_stream(path.clone()));
     log_errors("children_events", path, observable)
 }
 

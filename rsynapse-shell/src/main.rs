@@ -15,7 +15,10 @@ fn main() {
             "/stylesheets/rsynapse-shell.scss"
         ))
         .watch_stylesheets(true)
-        .on_startup(|_| theme::prepare_theme())
+        .on_startup(|_| {
+            adw::init().expect("failed to initialize libadwaita");
+            theme::prepare_theme();
+        })
         .run_async::<MainBar>(MainBarInit {
             title: "Rsynapse Shell",
         });
