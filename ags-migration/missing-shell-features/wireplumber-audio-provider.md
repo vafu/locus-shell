@@ -20,6 +20,3 @@ Remaining provider work:
   `priority.session` data.
 - expose a write/action path for setting the default sink so
   `rsynapse-shell` can stop calling `pactl set-default-sink` directly.
-- remove the plugin-side debounce-style burst collapse for rapid volume
-  changes, or emit intermediate/default-sink property updates without waiting
-  for a settled full snapshot.

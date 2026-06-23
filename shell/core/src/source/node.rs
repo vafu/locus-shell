@@ -7,15 +7,20 @@ use crate::source::Observable;
 
 use super::{
     NodeState, WatchAction, WatchChange, WatchEvent, WatchState,
-    support::{WatchEvents, from_stream_result, log_errors, open_target_or_parent, watch_error},
+    support::{
+        WatchEvents, from_stream_result, log_errors, open_target_or_parent, shared_source,
+        watch_error,
+    },
 };
 
 pub(super) fn node(path: impl Into<PathBuf>) -> Observable<NodeState> {
     let path = path.into();
-    let observable = from_stream_result(node_stream(path.clone()))
-        .distinct_until_changed()
-        .box_it();
-    log_errors("node", path, observable)
+    shared_source("node", path, |path| {
+        let observable = from_stream_result(node_stream(path.clone()))
+            .distinct_until_changed()
+            .box_it();
+        log_errors("node", path, observable)
+    })
 }
 
 enum NodeStreamPhase {
@@ -86,7 +91,7 @@ fn node_stream(path: PathBuf) -> impl futures_util::Stream<Item = Result<NodeSta
                                             })
                                     );
                                     let result = Ok(node_event_state(&state.path, event).await);
-                                    if missing {
+                                    if node_watch_should_reopen(missing, &result) {
                                         state.watch = None;
                                         state.watching_target = false;
                                         state.phase = NodeStreamPhase::Open;
@@ -132,5 +137,30 @@ async fn read_node_state(path: &Path) -> NodeState {
         NodeState::Present
     } else {
         NodeState::Missing
+    }
+}
+
+fn node_watch_should_reopen(missing_event: bool, result: &Result<NodeState, String>) -> bool {
+    missing_event || matches!(result, Ok(NodeState::Missing))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::node_watch_should_reopen;
+    use crate::source::NodeState;
+
+    #[test]
+    fn node_watch_reopens_on_explicit_missing_event() {
+        assert!(node_watch_should_reopen(true, &Ok(NodeState::Present)));
+    }
+
+    #[test]
+    fn node_watch_reopens_when_event_read_finds_missing_node() {
+        assert!(node_watch_should_reopen(false, &Ok(NodeState::Missing)));
+    }
+
+    #[test]
+    fn node_watch_stays_on_target_when_event_reads_present_node() {
+        assert!(!node_watch_should_reopen(false, &Ok(NodeState::Present)));
     }
 }

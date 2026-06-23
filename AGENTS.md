@@ -32,4 +32,11 @@ Source implementation rule:
   inherently noisy external systems such as filesystem stylesheet reloads, and
   must be named as such.
 
+UI layout rule:
+
+- Do not hardcode widget heights in shell UI, including `min-height`,
+  `height-request`, or fixed-height CSS/GTK setters. The bar height itself is
+  the only place allowed to define vertical size; child widgets must fit that
+  height through padding, alignment, or natural sizing.
+
 When proposing or changing architecture, cross-reference `PLAN.md` and keep it updated if the roadmap changes.

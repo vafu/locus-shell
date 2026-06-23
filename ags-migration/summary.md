@@ -16,12 +16,21 @@
   - plain/agent/neovim window tile states.
   - clock, battery, NetworkManager wired/Wi-Fi, PipeWire default sink,
     CPU/RAM sysstats, and BlueZ/UPower Bluetooth groups.
+  - PipeWire audio route popover with route selection through a temporary
+    `pactl set-default-sink` bridge.
+  - MPRIS player controls, metadata, and album art through locusfs
+    `/mpris/player/*` nodes.
+  - PowerProfiles display and cycling through the locusfs D-Bus projection.
+  - StatusNotifier tray icons and DBusMenu popovers through locusfs plugins.
   - source modules live beside their widgets and compose
     `shell_core::source::Observable` values.
 - The current bar is not yet the final AGS shape:
   - no per-monitor/per-output window lifecycle.
-  - no MPRIS, StatusNotifier tray, PowerProfiles, build/BzBus widget, or audio
-    route popover/actions.
+  - no build/BzBus widget.
+  - audio route selection still shells out to `pactl` instead of writing a
+    locusfs action/property node.
+  - Bluetooth dual battery data is still a shell-side approximation; locusfs
+    should expose a normalized device battery model.
   - some visual parity work remains for exact AGS sizing/spacing.
 
 ## Expected Locus-Shell Update Areas
@@ -75,14 +84,17 @@
   - UPower BAT1 battery state and AGS-compatible icon mapping.
   - NetworkManager wired and Wi-Fi indicators.
   - PipeWire default sink display state.
+  - PipeWire sink list and route popover.
+  - PowerProfiles active profile and cycling through a writable D-Bus property.
+  - MPRIS metadata, album art, playback state, and playback commands.
+  - StatusNotifier tray item discovery plus DBusMenu menu rendering and item
+    activation.
   - BlueZ/UPower Bluetooth status and device groups.
   - CPU/RAM sysstats from local system data.
 - Still pending:
-  - D-Bus method/action paths for Bluetooth, PowerProfiles, audio routing, and
-    other interactive indicators.
-  - StatusNotifier/AppIndicator tray plus DBusMenu.
-  - PowerProfiles display and cycling.
-  - full PipeWire/WirePlumber route list and default-sink actions.
+  - locusfs write/action path for PipeWire default-sink changes.
+  - full PipeWire/WirePlumber route grouping metadata.
+  - normalized Bluetooth HID/GATT dual battery projection.
   - Pomodoro.
   - brightness/backlight.
 - Keep service-specific display policy in `rsynapse-shell`; promote only stable
@@ -103,11 +115,11 @@
 
 - AGS SCSS has been copied into `rsynapse-shell` stylesheets and the bar is
   partially implemented.
-- Still implement binaries or modules for:
-  - OSD.
+- Still implement modules for:
   - agent approvals.
   - optional runtime/request coordinator.
   - per-monitor/per-output bar lifecycle.
+  - build/BzBus status.
 - Replace `ags request` with `rsynapsectl` over a typed session D-Bus request
   service.
 - Keep scripts where low risk, then replace stats and side-effect scripts with
@@ -122,6 +134,9 @@ Completed:
 2. Ported CSS files into `rsynapse-shell` and verified stylesheet loading.
 3. Built the first bar pass: workspace/project strip, selected-window strip,
    clock, battery, NetworkManager, PipeWire, CPU/RAM, and Bluetooth.
+4. Added OSD in the main shell process.
+5. Added MPRIS, audio route popover, PowerProfiles, StatusNotifier tray, and
+   DBusMenu activation through locusfs-backed sources/plugins.
 
 Next:
 
@@ -129,9 +144,9 @@ Next:
    theme commands depend on it.
 2. Port monitor source/lifecycle helpers for per-monitor bars and
    active-monitor overlays.
-3. Port the OSD: small UI surface, clear source gaps, good test of
-   transient streams.
-4. Port agent approvals: exercises ObjectManager, Locus joins, dynamic lists,
+3. Port agent approvals: exercises ObjectManager, Locus joins, dynamic lists,
    keyboard mode, and GtkSourceView.
-5. Finish the bar clusters: PowerProfiles, tray, MPRIS, build/BzBus, audio
-   route actions, and exact visual parity.
+4. Finish the remaining bar gaps: build/BzBus, locusfs-native audio route
+   actions, normalized Bluetooth batteries, and exact visual parity.
+5. Replace local brightness/backlight and remaining side-effect bridges with
+   locusfs or typed request/action sources where appropriate.

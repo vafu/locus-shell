@@ -48,11 +48,12 @@ Initial implementation status:
   desktop icon lookup, active/urgent state, agent tile state, context meter, and
   subagent badge.
 - The right-side essentials currently implemented are clock/date, CPU/RAM,
-  battery, NetworkManager wired/Wi-Fi, PipeWire default sink, and Bluetooth
-  device groups.
+  battery, NetworkManager wired/Wi-Fi, PipeWire default sink, PipeWire route
+  popover, MPRIS, PowerProfiles, StatusNotifier tray, DBusMenu popovers, and
+  Bluetooth device groups.
 - Still missing from the AGS bar shape: per-output/per-monitor lifecycle,
-  PowerProfiles, StatusNotifier tray, MPRIS, build/BzBus, full audio route
-  popover/actions, and exact visual parity polish.
+  build/BzBus, locusfs-native audio route actions, normalized Bluetooth
+  dual-battery data, and exact visual parity polish.
 
 ## Target Models
 
@@ -141,13 +142,17 @@ Completed in the Rust bar:
   controls through live `/mpris/player/*` locusfs player nodes.
 - Bluetooth status and grouped keyboard/audio/pointer device indicators through
   locusfs BlueZ/UPower data.
+- PowerProfiles indicator and profile cycling through the locusfs D-Bus
+  `powerprofiles` projection.
+- StatusNotifier tray item discovery through locusfs StatusNotifier nodes, with
+  DBusMenu popovers and activation writes through the locusfs DBusMenu plugin.
 
 Remaining right-side bar work:
 
-- PowerProfiles active profile indicator and profile cycling once the
-  method/command path is available.
-- StatusNotifier tray and DBusMenu.
 - PipeWire route grouping metadata and locusfs-backed default-sink action.
+- normalized Bluetooth dual-battery model from locusfs instead of shell-side
+  UPower/GATT matching.
+- build/BzBus status widget.
 - final AGS sizing/spacing parity.
 
 ## Providers And Stream Composition
@@ -221,8 +226,10 @@ D-Bus/provider dependencies:
 - `org.freedesktop.UPower`, BlueZ, and Bluetooth GATT battery paths.
 - NetworkManager or equivalent for wired and Wi-Fi state.
 - PowerProfiles daemon for active profile and cycling.
-- MPRIS players for artist/title/playback state.
-- StatusNotifier/AppIndicator tray with DBusMenu support.
+- MPRIS players for artist/title/playback state, album art, and playback
+  commands.
+- StatusNotifier/AppIndicator tray with DBusMenu support and activation
+  command writes.
 - WirePlumber/PipeWire for default output, volume icon, route list, and setting
   default sink.
 - Local process commands for sysstats, PipeWire dump fallback, and

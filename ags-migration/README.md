@@ -68,6 +68,16 @@ Current `rsynapse-shell` implementation:
 - Initial OSD window is in place in the main `rsynapse-shell` process; it
   handles PipeWire default sink volume events and local backlight brightness
   changes.
+- MPRIS playback controls and album art are backed by
+  `../locusfs/plugins/mpris` and `/mpris/player/*` nodes.
+- PipeWire audio route selection is available from the volume popover; route
+  selection still uses a narrow `pactl set-default-sink` bridge until locusfs
+  exposes a write/action node for the default sink.
+- PowerProfiles is backed by the locusfs D-Bus projection and a writable
+  `ActiveProfile` property; the control is integrated into the CPU/RAM block.
+- StatusNotifier tray items are backed by locusfs StatusNotifier and DBusMenu
+  plugins; tray menus open in GTK popovers and item activation writes the
+  DBusMenu `activate` node.
 
 Known current gaps:
 
@@ -79,6 +89,6 @@ Known current gaps:
   `rsynapsectl` is needed for theme switching, hints mode, approval opening,
   and other cross-widget actions.
 - Agent approval overlay is not implemented.
-- StatusNotifier tray, PowerProfiles, build/BzBus widget, locusfs-backed audio
-  route actions, Pomodoro/DND side effects, brightness actions/provider, and
-  triggerhappy hints bridge remain to port.
+- Build/BzBus widget, locusfs-backed audio route actions, normalized Bluetooth
+  dual-battery data, Pomodoro/DND side effects, brightness actions/provider,
+  and triggerhappy hints bridge remain to port or normalize.

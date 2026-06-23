@@ -6,13 +6,15 @@ use crate::source::Observable;
 
 use super::{
     WatchEvent,
-    support::{WatchEvents, from_stream_result, log_errors, watch_error},
+    support::{WatchEvents, from_stream_result, log_errors, shared_source, watch_error},
 };
 
 pub(super) fn watch(path: impl Into<PathBuf>) -> Observable<locusfs_watch::WatchEvent> {
     let path = path.into();
-    let observable = from_stream_result(watch_event_stream(path.clone()));
-    log_errors("watch", path, observable)
+    shared_source("watch", path, |path| {
+        let observable = from_stream_result(watch_event_stream(path.clone()));
+        log_errors("watch", path, observable)
+    })
 }
 
 struct WatchEventStreamState {

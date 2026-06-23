@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    io::ErrorKind,
+    path::{Path, PathBuf},
+};
 
 use futures_util::stream;
 use rxrust::prelude::Observable as _;
@@ -7,15 +10,18 @@ use crate::{locus_path::LocusPath, source::Observable};
 
 use super::{
     WatchEvent, WatchState, WatchValue,
+    support::shared_source,
     support::{WatchEvents, from_stream_result, is_missing, log_errors, watch_error},
 };
 
 pub(super) fn relation(path: impl Into<PathBuf>) -> Observable<Option<LocusPath>> {
     let path = path.into();
-    let observable = from_stream_result(relation_stream(path.clone()))
-        .distinct_until_changed()
-        .box_it();
-    log_errors("relation", path, observable)
+    shared_source("relation", path, |path| {
+        let observable = from_stream_result(relation_stream(path.clone()))
+            .distinct_until_changed()
+            .box_it();
+        log_errors("relation", path, observable)
+    })
 }
 
 enum RelationStreamPhase {
@@ -63,7 +69,11 @@ fn relation_stream(
                     }
                     RelationStreamPhase::InitialRead => {
                         state.phase = RelationStreamPhase::WatchEvents;
-                        let result = read_relation(&state.path).await;
+                        let result = read_relation(
+                            state.mount_root.as_ref().expect("mount root initialized"),
+                            &state.path,
+                        )
+                        .await;
                         return Some((result, state));
                     }
                     RelationStreamPhase::WatchEvents => {
@@ -106,27 +116,84 @@ async fn relation_event_value(
     match event {
         WatchEvent::State(WatchState::Unset) => Ok(None),
         WatchEvent::State(WatchState::Set(WatchValue::Path(path))) => {
-            Ok(Some(watch_value_path(mount_root, &path)))
+            Ok(Some(watch_value_path(mount_root, None, &path)))
         }
         WatchEvent::State(WatchState::Set(WatchValue::Property(_))) | WatchEvent::Change(_) => {
-            read_relation(path).await
+            read_relation(mount_root, path).await
         }
     }
 }
 
-fn watch_value_path(mount_root: &Path, value: &str) -> LocusPath {
+fn watch_value_path(mount_root: &Path, source_path: Option<&Path>, value: &str) -> LocusPath {
     let path = Path::new(value);
     if path.is_absolute() {
+        if path.starts_with(mount_root) {
+            return LocusPath::new(path);
+        }
+
         return LocusPath::new(mount_root.join(path.strip_prefix("/").unwrap_or(path)));
     }
 
-    LocusPath::new(mount_root.join(path))
+    let base = source_path.and_then(Path::parent).unwrap_or(mount_root);
+    LocusPath::new(base.join(path))
 }
 
-async fn read_relation(path: &Path) -> Result<Option<LocusPath>, String> {
+async fn read_relation(mount_root: &Path, path: &Path) -> Result<Option<LocusPath>, String> {
     match locusfs_watch::read_link(path).await {
-        Ok(value) => Ok(Some(LocusPath::new(value))),
-        Err(error) if is_missing(&error) => Ok(None),
+        Ok(value) => {
+            let value = value.to_string_lossy();
+            Ok(Some(watch_value_path(mount_root, Some(path), &value)))
+        }
+        Err(error) if is_missing(&error) || error.kind() == ErrorKind::InvalidInput => Ok(None),
         Err(error) => Err(watch_error("read relation target", path, error)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::watch_value_path;
+
+    #[test]
+    fn normalizes_absolute_data_path_relation_targets() {
+        let target = watch_value_path(
+            Path::new("/run/user/1000/locusfs"),
+            Some(Path::new(
+                "/run/user/1000/locusfs/context/selected/workspace",
+            )),
+            "/run/user/1000/locusfs/context/selected/../../workspace/3",
+        );
+
+        assert_eq!(
+            target.as_path(),
+            Path::new("/run/user/1000/locusfs/workspace/3")
+        );
+    }
+
+    #[test]
+    fn maps_logical_absolute_watch_targets_to_mount_root() {
+        let target = watch_value_path(Path::new("/run/user/1000/locusfs"), None, "/workspace/3");
+
+        assert_eq!(
+            target.as_path(),
+            Path::new("/run/user/1000/locusfs/workspace/3")
+        );
+    }
+
+    #[test]
+    fn resolves_relative_relation_targets_from_relation_parent() {
+        let target = watch_value_path(
+            Path::new("/run/user/1000/locusfs"),
+            Some(Path::new(
+                "/run/user/1000/locusfs/context/selected/workspace",
+            )),
+            "../../workspace/3",
+        );
+
+        assert_eq!(
+            target.as_path(),
+            Path::new("/run/user/1000/locusfs/workspace/3")
+        );
     }
 }

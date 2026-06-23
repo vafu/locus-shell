@@ -4,14 +4,17 @@
 
 - [Bar](../migration/widgets/bar.md)
 
-## Gap
+## Status
 
-Bluetooth device status and battery data currently come from Astal plus custom
-UPower/BlueZ probing.
+The Rust bar now shows Bluetooth status and grouped keyboard/audio/pointer
+device indicators through locusfs BlueZ/UPower data.
 
 ## Direction
 
-Create typed providers for BlueZ devices, UPower HID battery paths, and GATT
-battery reads. Keep device-type classification in `rsynapse-shell` unless it
-becomes generally reusable.
+Remaining provider work:
 
+- Move AGS' dual-battery behavior into the locusfs BlueZ projection. AGS merged
+  UPower HID batteries with GATT Battery Service data; the shell should consume
+  a normalized none/single/dual battery model instead of matching that itself.
+- Keep device-type classification in `rsynapse-shell` unless it becomes
+  generally reusable.

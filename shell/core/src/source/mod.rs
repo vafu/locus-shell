@@ -23,14 +23,25 @@ pub use rxrust::prelude as rx;
 
 pub type Observable<T, E = String> = SharedBoxedObservable<'static, T, E>;
 
-const ROOT_ENV: &str = "LOCUSFS_ROOT";
+const ROOT_ENV: &str = "LOCUS_ROOT";
+const LEGACY_ROOT_ENV: &str = "LOCUSFS_ROOT";
 const DEFAULT_ROOT: &str = "/tmp/rsynapse";
 
 /// Returns the configured locusfs mount root.
 ///
 /// This is a path-construction helper for observable source functions.
 pub fn root() -> LocusPath {
-    LocusPath::from_env_or(ROOT_ENV, DEFAULT_ROOT)
+    std::env::var_os(ROOT_ENV)
+        .or_else(|| std::env::var_os(LEGACY_ROOT_ENV))
+        .map(PathBuf::from)
+        .or_else(runtime_locusfs_root)
+        .map(LocusPath::new)
+        .unwrap_or_else(|| LocusPath::new(DEFAULT_ROOT))
+}
+
+fn runtime_locusfs_root() -> Option<PathBuf> {
+    let root = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join("locusfs");
+    root.exists().then_some(root)
 }
 
 impl LocusPath {
@@ -136,22 +147,32 @@ pub fn combine_latest_vec<T>(observables: Vec<Observable<T>>) -> Observable<Vec<
 where
     T: Clone + Send + 'static,
 {
-    let mut observables = observables.into_iter();
-    let Some(first) = observables.next() else {
+    let len = observables.len();
+    let mut observables = observables.into_iter().enumerate();
+    let Some((first_index, first)) = observables.next() else {
         return once(Vec::new());
     };
 
-    observables.fold(
-        first.map(|value| vec![value]).box_it(),
-        |combined, observable| {
-            combined
-                .combine_latest(observable, |mut values, value| {
-                    values.push(value);
+    observables
+        .fold(
+            first
+                .map(move |value| {
+                    let mut values = vec![None; len];
+                    values[first_index] = Some(value);
                     values
                 })
-                .box_it()
-        },
-    )
+                .box_it(),
+            |combined, (index, observable)| {
+                combined
+                    .combine_latest(observable, move |mut values, value| {
+                        values[index] = Some(value);
+                        values
+                    })
+                    .box_it()
+            },
+        )
+        .filter_map(|values| values.into_iter().collect::<Option<Vec<_>>>())
+        .box_it()
 }
 
 /// State of a locusfs node path.
@@ -183,9 +204,6 @@ pub trait FromLocusValue: Clone + PartialEq + Send + 'static {
 }
 
 /// Emits typed events for one locusfs watch path.
-///
-/// TODO: add descriptor-keyed share/replay so multiple subscribers do not open
-/// duplicate `/watch` file descriptors.
 pub fn watch(path: impl Into<PathBuf>) -> Observable<WatchEvent> {
     watch::watch(path)
 }
@@ -194,8 +212,6 @@ pub fn watch(path: impl Into<PathBuf>) -> Observable<WatchEvent> {
 ///
 /// `None` means the property is currently absent/unset.
 /// Consecutive duplicate values are suppressed.
-///
-/// TODO: add descriptor-keyed share/replay by `(path, T)`.
 pub fn property<T>(path: impl Into<PathBuf>) -> Observable<Option<T>>
 where
     T: FromLocusValue,
@@ -207,15 +223,11 @@ where
 ///
 /// `None` means the relation is currently unset.
 /// Consecutive duplicate targets are suppressed.
-///
-/// TODO: add descriptor-keyed share/replay by path.
 pub fn relation(path: impl Into<PathBuf>) -> Observable<Option<LocusPath>> {
     relation::relation(path)
 }
 
 /// Emits the current node state and future updates for one node path.
-///
-/// TODO: add descriptor-keyed share/replay by path.
 pub fn node(path: impl Into<PathBuf>) -> Observable<NodeState> {
     node::node(path)
 }
@@ -236,4 +248,54 @@ pub fn children(path: impl Into<PathBuf>) -> Observable<Vec<LocusPath>> {
 /// full snapshot.
 pub fn children_events(path: impl Into<PathBuf>) -> Observable<ChildrenEvent> {
     children_events::children_events(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use rxrust::prelude::{Observable as _, ObservableFactory as _, Observer};
+
+    use super::{Shared, combine_latest_vec};
+
+    #[test]
+    fn combine_latest_vec_replaces_values_by_source_index() {
+        let mut first = Shared::subject::<i32, String>();
+        let mut second = Shared::subject::<i32, String>();
+        let emitted = Arc::new(Mutex::new(Vec::new()));
+
+        let _subscription =
+            combine_latest_vec(vec![first.clone().box_it(), second.clone().box_it()])
+                .subscribe_with(CollectValues(emitted.clone()));
+
+        first.next(1);
+        assert!(emitted.lock().unwrap().is_empty());
+
+        second.next(10);
+        second.next(20);
+        first.next(2);
+
+        assert_eq!(
+            emitted.lock().unwrap().as_slice(),
+            &[vec![1, 10], vec![1, 20], vec![2, 20]]
+        );
+    }
+
+    struct CollectValues(Arc<Mutex<Vec<Vec<i32>>>>);
+
+    impl Observer<Vec<i32>, String> for CollectValues {
+        fn next(&mut self, value: Vec<i32>) {
+            self.0.lock().unwrap().push(value);
+        }
+
+        fn error(self, error: String) {
+            panic!("unexpected observable error: {error}");
+        }
+
+        fn complete(self) {}
+
+        fn is_closed(&self) -> bool {
+            false
+        }
+    }
 }

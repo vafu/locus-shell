@@ -21,15 +21,19 @@ Currently implemented:
 - NetworkManager Wi-Fi indicator
 - NetworkManager wired Ethernet indicator
 - PipeWire default output indicator
+- PipeWire audio route popover and route selection
 - CPU/memory dual level bar
 - Bluetooth status and grouped device indicators
+- PowerProfiles indicator and profile cycling
+- StatusNotifier tray and DBusMenu popovers/actions
+- MPRIS metadata, album art, and playback controls
 
-Still pending:
+Still pending or incomplete:
 
-- PowerProfiles indicator and profile cycling.
-- StatusNotifier tray.
-- MPRIS.
-- full audio route popover/actions.
+- locusfs-native PipeWire default-sink action, replacing the temporary `pactl`
+  bridge.
+- PipeWire route grouping metadata equivalent to AGS' `pw-dump` device grouping.
+- normalized Bluetooth dual-battery data from locusfs.
 - exact AGS sizing, spacing, and hover behavior parity.
 
 ## AGS Shape To Match
@@ -43,7 +47,7 @@ MPRIS, SysStats, [Tray, PowerProfiles, Bluetooth, Audio, Eth, Wifi, Battery], Cl
 Current Rust bar order:
 
 ```text
-SysStats, [Bluetooth, Audio, Eth, Wifi, Battery], Clock
+MPRIS, SysStats/PowerProfiles, [Tray, Bluetooth, Audio, Eth, Wifi, Battery], Clock
 ```
 
 Use the existing Rust bar's `system-cluster` region. Keep indicators compact:
@@ -191,9 +195,8 @@ module or in `shell/core`.
 - Implemented in `rsynapse-shell` against the current locusfs PipeWire sink
   nodes. It currently lists sinks directly because the projection does not yet
   expose AGS' `pw-dump` route grouping metadata.
-- Known backend issue: the locusfs PipeWire plugin debounces `pactl subscribe`
-  bursts and then publishes one full snapshot, so rapid volume changes collapse
-  before the shell observes them.
+- The previous plugin-side `pactl subscribe` debounce was removed; follow-up
+  work is the locusfs write/action node for selecting the default sink.
 
 ### Power Profiles
 
@@ -206,9 +209,9 @@ module or in `shell/core`.
 profiles[(current_index + 1) % profiles.len()]
 ```
 
-- Keep the source read-only first if locusfs does not expose method calls yet.
-  Add the UI button and model, then wire the click action when a command/method
-  path exists.
+- Implemented through the locusfs D-Bus `powerprofiles` service. The current UI
+  lives in the center of the CPU/RAM block and uses Material icons:
+  `eco` for power saver, `speed` for balanced, and `bolt` for performance.
 
 ## Implementation Steps
 
@@ -218,32 +221,34 @@ Completed:
    audio, and Bluetooth.
 2. Added compact right-side widgets for clock, sysstats, battery, wired,
    Wi-Fi, audio, and Bluetooth.
-3. Updated `widgets/bar/mod.rs` right cluster order to:
+3. Added MPRIS, PowerProfiles, StatusNotifier tray, and DBusMenu-backed tray
+   popovers.
+4. Updated `widgets/bar/mod.rs` right cluster order to:
 
 ```text
-SysStats, [Bluetooth, Audio, Eth, Wifi, Battery], Clock
+MPRIS, SysStats/PowerProfiles, [Tray, Bluetooth, Audio, Eth, Wifi, Battery], Clock
 ```
 
 Remaining:
 
-1. Add `power_profiles.rs` with `power_profile()` DTO and click/action wiring
-   once method support exists.
-2. Add StatusNotifier tray.
-3. Continue visual parity checks against AGS screenshots.
-4. Verify code changes with `cargo fmt --check`, `cargo check -p
+1. Replace the temporary `pactl set-default-sink` action with a locusfs
+   write/action node.
+2. Add PipeWire route grouping metadata when locusfs exposes it.
+3. Move Bluetooth dual-battery matching into locusfs.
+4. Continue visual parity checks against AGS screenshots.
+5. Verify code changes with `cargo fmt --check`, `cargo check -p
    rsynapse-shell`, and the existing shell test set.
 
 ## Dependencies To Confirm Before Coding
 
-- locusfs paths for power profiles active profile and available profiles.
-- locusfs method/action path for cycling PowerProfiles.
 - locusfs or command action path for PipeWire default sink changes.
-- StatusNotifier/AppIndicator and DBusMenu source shape.
+- locusfs model for normalized Bluetooth HID/GATT battery data.
 - Whether `swaync-client -t` is acceptable as a direct click command in
   `rsynapse-shell` or should go through a command action helper first.
 
 ## Deferred
 
-- PowerProfiles.
-- Tray and locusfs-backed audio route actions.
+- locusfs-native audio route actions.
+- PipeWire route grouping metadata.
+- normalized Bluetooth HID/GATT battery data.
 - Notification center state beyond the clock button toggle.

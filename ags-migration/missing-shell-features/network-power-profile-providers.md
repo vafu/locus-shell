@@ -4,13 +4,15 @@
 
 - [Bar](../migration/widgets/bar.md)
 
-## Gap
+## Status
 
-Bar indicators need wired/wireless state and active power profile with cycling
-actions.
+Implemented through locusfs-backed sources:
+
+- NetworkManager wired and Wi-Fi indicators.
+- PowerProfiles active profile display and cycling through the locusfs D-Bus
+  `powerprofiles` projection and writable `ActiveProfile` property.
 
 ## Direction
 
-Add typed provider/client modules for NetworkManager and PowerProfiles daemon.
-Keep action policy in `rsynapse-shell`.
-
+Keep display and cycling policy in `rsynapse-shell`. Promote only stable
+service contracts if another consumer needs the same view model.

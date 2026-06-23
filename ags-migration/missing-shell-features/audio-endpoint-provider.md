@@ -5,13 +5,17 @@
 - [OSD](../migration/widgets/osd.md)
 - [Bar](../migration/widgets/bar.md)
 
-## Gap
+## Status
 
-The shell needs default output volume, mute state, symbolic icon, endpoint list,
-and route selection without depending on AGS/Astal.
+Default output volume, mute state, symbolic icon, endpoint list, and route
+selection are available through the locusfs PipeWire projection and Rust bar
+sources.
 
 ## Direction
 
-Add a consumer/provider module for WirePlumber/PipeWire first. Promote reusable
-typed definitions later if they stabilize.
+Remaining follow-up:
 
+- expose a locusfs write/action node for default-sink changes so the Rust bar
+  no longer shells out to `pactl set-default-sink`.
+- expose route grouping metadata if the AGS grouped route layout should be
+  matched exactly.

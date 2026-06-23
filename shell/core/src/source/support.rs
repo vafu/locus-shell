@@ -1,17 +1,21 @@
 use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
     collections::VecDeque,
     io::{self, ErrorKind},
-    marker::PhantomData,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock},
 };
 
-use futures_util::{Stream, StreamExt};
+use futures_util::Stream;
 use rxrust::{
     context::Context,
     observer::Observer,
-    prelude::{CoreObservable, Observable as _, ObservableType, Shared, Subscription},
+    prelude::{
+        BoxedSubscriptionSend, CoreObservable, IntoBoxedSubscription, Observable as _,
+        ObservableFactory as _, ObservableType, Shared, SharedSubject, Subscription,
+    },
 };
-use tokio::task::JoinHandle;
 
 use super::{Observable, WatchEvent};
 
@@ -20,26 +24,101 @@ where
     T: Send + 'static,
     S: Stream<Item = Result<T, String>> + Send + 'static,
 {
-    Shared::<()>::lift(AbortableStream::new(stream)).box_it()
+    Shared::from_stream_result(stream).box_it()
 }
 
-struct AbortableStream<T, S> {
-    stream: S,
-    _item: PhantomData<fn() -> T>,
+pub fn shared_source<T>(
+    kind: &'static str,
+    path: PathBuf,
+    create: impl Fn(PathBuf) -> Observable<T> + Send + Sync + 'static,
+) -> Observable<T>
+where
+    T: Clone + Send + 'static,
+{
+    let key = SourceKey {
+        kind,
+        type_id: TypeId::of::<T>(),
+        path,
+    };
+
+    let mut cache = source_cache().lock().expect("source cache lock poisoned");
+    if let Some(hub) = cache
+        .get(&key)
+        .and_then(|value| value.downcast_ref::<Arc<ShareReplayHub<T>>>())
+    {
+        return share_replay_latest(hub.clone());
+    }
+
+    let label = format!("{}:{}", key.kind, key.path.display());
+    let path = key.path.clone();
+    let hub = Arc::new(ShareReplayHub::new(label, move || create(path.clone())));
+    cache.insert(key, Box::new(hub.clone()));
+    share_replay_latest(hub)
 }
 
-impl<T, S> AbortableStream<T, S> {
-    fn new(stream: S) -> Self {
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct SourceKey {
+    kind: &'static str,
+    type_id: TypeId,
+    path: PathBuf,
+}
+
+fn source_cache() -> &'static Mutex<HashMap<SourceKey, Box<dyn Any + Send>>> {
+    static SOURCE_CACHE: OnceLock<Mutex<HashMap<SourceKey, Box<dyn Any + Send>>>> = OnceLock::new();
+    SOURCE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn share_replay_latest<T>(hub: Arc<ShareReplayHub<T>>) -> Observable<T>
+where
+    T: Clone + Send + 'static,
+{
+    Shared::<()>::lift(ShareReplayLatest { hub }).box_it()
+}
+
+#[derive(Clone)]
+struct ShareReplayLatest<T> {
+    hub: Arc<ShareReplayHub<T>>,
+}
+
+struct ShareReplayHub<T> {
+    label: String,
+    create: Box<dyn Fn() -> Observable<T> + Send + Sync>,
+    state: Arc<Mutex<ShareReplayState<T>>>,
+}
+
+impl<T> ShareReplayHub<T> {
+    fn new(label: String, create: impl Fn() -> Observable<T> + Send + Sync + 'static) -> Self {
         Self {
-            stream,
-            _item: PhantomData,
+            label,
+            create: Box::new(create),
+            state: Arc::new(Mutex::new(ShareReplayState::default())),
         }
     }
 }
 
-impl<T, S> ObservableType for AbortableStream<T, S>
+struct ShareReplayState<T> {
+    subject: SharedSubject<'static, T, String>,
+    latest: Option<T>,
+    subscribers: usize,
+    connecting: bool,
+    connection: Option<BoxedSubscriptionSend>,
+}
+
+impl<T> Default for ShareReplayState<T> {
+    fn default() -> Self {
+        Self {
+            subject: Shared::subject(),
+            latest: None,
+            subscribers: 0,
+            connecting: false,
+            connection: None,
+        }
+    }
+}
+
+impl<T> ObservableType for ShareReplayLatest<T>
 where
-    S: Stream<Item = Result<T, String>>,
+    T: Clone + Send + 'static,
 {
     type Item<'a>
         = T
@@ -48,65 +127,160 @@ where
     type Err = String;
 }
 
-impl<T, S, C> CoreObservable<C> for AbortableStream<T, S>
+impl<T, C> CoreObservable<C> for ShareReplayLatest<T>
 where
-    T: Send + 'static,
-    S: Stream<Item = Result<T, String>> + Send + 'static,
+    T: Clone + Send + 'static,
     C: Context,
     C::Inner: Observer<T, String> + Send + 'static,
 {
-    type Unsub = AbortOnUnsubscribe;
+    type Unsub = ShareReplaySubscription<T>;
 
     fn subscribe(self, context: C) -> Self::Unsub {
-        AbortOnUnsubscribe(tokio::spawn(drive_stream(
-            self.stream,
-            context.into_inner(),
-        )))
+        let mut observer = context.into_inner();
+        let (latest, subject, should_connect) = {
+            let mut state = self
+                .hub
+                .state
+                .lock()
+                .expect("share replay state lock poisoned");
+            if state.subject.is_closed() {
+                state.subject = Shared::subject();
+                state.latest = None;
+                state.connecting = false;
+                state.connection = None;
+            }
+            state.subscribers += 1;
+            let should_connect = state.connection.is_none() && !state.connecting;
+            if should_connect {
+                state.connecting = true;
+            }
+            trace_source_lifecycle(
+                &format!("subscribe subscribers={}", state.subscribers),
+                &self.hub.label,
+            );
+            (state.latest.clone(), state.subject.clone(), should_connect)
+        };
+
+        if let Some(latest) = latest {
+            observer.next(latest);
+        }
+
+        let subject_subscription = subject.clone().subscribe_with(observer).into_boxed();
+        if should_connect {
+            trace_source_lifecycle("connect", &self.hub.label);
+            let observer = ShareReplayObserver {
+                subject,
+                state: self.hub.state.clone(),
+            };
+            let connection: BoxedSubscriptionSend =
+                (self.hub.create)().subscribe_with(observer).into_boxed();
+            let mut state = self
+                .hub
+                .state
+                .lock()
+                .expect("share replay state lock poisoned");
+            state.connecting = false;
+            if state.subscribers == 0 {
+                connection.unsubscribe();
+            } else {
+                state.connection = Some(connection);
+            }
+        }
+
+        ShareReplaySubscription {
+            label: self.hub.label.clone(),
+            state: self.hub.state.clone(),
+            subject_subscription: Some(subject_subscription),
+        }
     }
 }
 
-async fn drive_stream<T, S, O>(stream: S, observer: O)
+struct ShareReplayObserver<T> {
+    subject: SharedSubject<'static, T, String>,
+    state: Arc<Mutex<ShareReplayState<T>>>,
+}
+
+impl<T> Observer<T, String> for ShareReplayObserver<T>
 where
-    S: Stream<Item = Result<T, String>>,
-    O: Observer<T, String>,
+    T: Clone + Send + 'static,
 {
-    let mut stream = Box::pin(stream);
-    let mut observer = Some(observer);
-
-    while let Some(result) = stream.next().await {
-        if observer.as_ref().is_none_or(Observer::is_closed) {
-            return;
-        }
-
-        match result {
-            Ok(value) => {
-                if let Some(observer) = observer.as_mut() {
-                    observer.next(value);
-                }
-            }
-            Err(error) => {
-                if let Some(observer) = observer.take() {
-                    observer.error(error);
-                }
-                return;
-            }
-        }
+    fn next(&mut self, value: T) {
+        self.state
+            .lock()
+            .expect("share replay state lock poisoned")
+            .latest = Some(value.clone());
+        self.subject.next(value);
     }
 
-    if let Some(observer) = observer {
-        observer.complete();
+    fn error(self, error: String) {
+        if let Ok(mut state) = self.state.lock() {
+            state.connecting = false;
+            state.connection = None;
+        }
+        self.subject.error(error);
     }
-}
 
-struct AbortOnUnsubscribe(JoinHandle<()>);
-
-impl Subscription for AbortOnUnsubscribe {
-    fn unsubscribe(self) {
-        self.0.abort();
+    fn complete(self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.connecting = false;
+            state.connection = None;
+        }
+        self.subject.complete();
     }
 
     fn is_closed(&self) -> bool {
-        self.0.is_finished()
+        self.subject.is_closed()
+    }
+}
+
+struct ShareReplaySubscription<T> {
+    label: String,
+    state: Arc<Mutex<ShareReplayState<T>>>,
+    subject_subscription: Option<BoxedSubscriptionSend>,
+}
+
+impl<T> Subscription for ShareReplaySubscription<T> {
+    fn unsubscribe(mut self) {
+        self.unsubscribe_inner();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.subject_subscription
+            .as_ref()
+            .is_none_or(Subscription::is_closed)
+    }
+}
+
+impl<T> ShareReplaySubscription<T> {
+    fn unsubscribe_inner(&mut self) {
+        let Some(subscription) = self.subject_subscription.take() else {
+            return;
+        };
+
+        subscription.unsubscribe();
+
+        let mut state = self.state.lock().expect("share replay state lock poisoned");
+        state.subscribers = state.subscribers.saturating_sub(1);
+        trace_source_lifecycle(
+            &format!("unsubscribe subscribers={}", state.subscribers),
+            &self.label,
+        );
+        if state.subscribers == 0 {
+            state.latest = None;
+            if let Some(connection) = state.connection.take() {
+                trace_source_lifecycle("disconnect", &self.label);
+                connection.unsubscribe();
+            }
+        }
+    }
+}
+
+impl<T> Drop for ShareReplaySubscription<T> {
+    fn drop(&mut self) {
+        // This is not a guard replacement: it is the refcount cleanup for this
+        // custom shared source. Component-owned subscriptions are still guarded
+        // by shell-macros via RxRust's `unsubscribe_when_dropped`.
+        self.unsubscribe_inner();
     }
 }
 
@@ -132,6 +306,17 @@ where
             error
         })
         .box_it()
+}
+
+fn trace_source_lifecycle(action: &str, label: &str) {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    if *ENABLED.get_or_init(|| std::env::var_os("SHELL_CORE_SOURCE_TRACE").is_some()) {
+        if label.is_empty() {
+            eprintln!("[shell-core/source] {action}");
+        } else {
+            eprintln!("[shell-core/source] {action} {label}");
+        }
+    }
 }
 
 pub enum OpenedWatch {
@@ -206,4 +391,97 @@ fn nearest_watchable_ancestor(path: &Path) -> Option<PathBuf> {
         ancestor = path.parent();
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use rxrust::prelude::{
+        IntoBoxedSubscription as _, ObservableFactory as _, Shared, Subscription,
+    };
+
+    use super::{ShareReplayState, ShareReplaySubscription};
+
+    #[derive(Clone, Default)]
+    struct CountSubscription {
+        unsubscribe_count: Arc<AtomicUsize>,
+    }
+
+    impl CountSubscription {
+        fn count(&self) -> usize {
+            self.unsubscribe_count.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Subscription for CountSubscription {
+        fn unsubscribe(self) {
+            self.unsubscribe_count.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn is_closed(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn share_replay_subscription_drop_unsubscribes_subject_and_upstream() {
+        let subject_subscription = CountSubscription::default();
+        let upstream_subscription = CountSubscription::default();
+        let state = Arc::new(std::sync::Mutex::new(ShareReplayState {
+            subject: Shared::subject(),
+            latest: Some(1),
+            subscribers: 1,
+            connecting: false,
+            connection: Some(upstream_subscription.clone().into_boxed()),
+        }));
+
+        let subscription = ShareReplaySubscription {
+            label: "test:/source".to_owned(),
+            state: state.clone(),
+            subject_subscription: Some(subject_subscription.clone().into_boxed()),
+        };
+
+        drop(subscription);
+
+        assert_eq!(subject_subscription.count(), 1);
+        assert_eq!(upstream_subscription.count(), 1);
+
+        let state = state.lock().expect("state lock poisoned");
+        assert_eq!(state.subscribers, 0);
+        assert!(state.latest.is_none());
+        assert!(state.connection.is_none());
+    }
+
+    #[test]
+    fn share_replay_subscription_drop_keeps_upstream_while_other_subscribers_remain() {
+        let subject_subscription = CountSubscription::default();
+        let upstream_subscription = CountSubscription::default();
+        let state = Arc::new(std::sync::Mutex::new(ShareReplayState {
+            subject: Shared::subject(),
+            latest: Some(1),
+            subscribers: 2,
+            connecting: false,
+            connection: Some(upstream_subscription.clone().into_boxed()),
+        }));
+
+        let subscription = ShareReplaySubscription {
+            label: "test:/source".to_owned(),
+            state: state.clone(),
+            subject_subscription: Some(subject_subscription.clone().into_boxed()),
+        };
+
+        drop(subscription);
+
+        assert_eq!(subject_subscription.count(), 1);
+        assert_eq!(upstream_subscription.count(), 0);
+
+        let state = state.lock().expect("state lock poisoned");
+        assert_eq!(state.subscribers, 1);
+        assert_eq!(state.latest, Some(1));
+        assert!(state.connection.is_some());
+    }
 }

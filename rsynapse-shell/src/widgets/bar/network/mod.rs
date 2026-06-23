@@ -8,7 +8,8 @@ mod parse;
 
 use parse::parse_ssid;
 
-const NETWORK_OBJECT_PATH: &str = "dbus-service/networkmanager/object";
+const DBUS_OBJECT_PATH: &str = "dbus-object";
+const NETWORK_MANAGER_DEVICE_PREFIX: &str = "networkmanager%3ADevices%2F";
 
 const DEVICE_TYPE_ETHERNET: u32 = 1;
 const DEVICE_TYPE_WIFI: u32 = 2;
@@ -69,117 +70,107 @@ struct NetworkObject {
     device_type: Option<u32>,
     state: u32,
     interface: Option<String>,
-    active_access_point: Option<String>,
+    access_point: Option<AccessPoint>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AccessPoint {
-    path: LocusPath,
     ssid: Option<String>,
     strength: u32,
 }
 
 pub(super) fn network_status() -> Observable<NetworkView> {
-    let network = source::root().child(NETWORK_OBJECT_PATH);
-    let devices = network.clone().as_children().switch_map(|objects| {
-        source::combine_latest_vec(
-            objects
+    source::root()
+        .child(DBUS_OBJECT_PATH)
+        .as_children()
+        .switch_map(|objects| {
+            let mut devices = objects
                 .into_iter()
-                .filter(is_network_device)
-                .map(network_object)
-                .collect(),
-        )
-    });
-    let access_points = network.clone().as_children().switch_map(|objects| {
-        source::combine_latest_vec(
-            objects
-                .into_iter()
-                .filter(is_access_point)
-                .map(access_point_view)
-                .collect(),
-        )
-    });
-
-    combine_latest!(
-        devices,
-        access_points => move |(devices, access_points)| NetworkView {
-            wifi: wifi_view(&devices, &access_points, &network),
+                .filter(is_networkmanager_device_object)
+                .collect::<Vec<_>>();
+            devices.sort_by(|left, right| left.as_path().cmp(right.as_path()));
+            source::combine_latest_vec(devices.into_iter().map(network_object).collect())
+        })
+        .map(|devices| NetworkView {
+            wifi: wifi_status(&devices),
             ethernet: ethernet_view(&devices),
-        },
-    )
-    .distinct_until_changed()
-    .box_it()
+        })
+        .distinct_until_changed()
+        .box_it()
 }
 
-fn is_network_device(path: &LocusPath) -> bool {
-    path.as_path()
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.starts_with("Devices%2F"))
-        .unwrap_or(false)
-}
-
-fn is_access_point(path: &LocusPath) -> bool {
-    path.as_path()
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.starts_with("AccessPoint%2F"))
-        .unwrap_or(false)
-}
-
-fn network_object(object: LocusPath) -> Observable<NetworkObject> {
-    combine_latest!(
-        object.observe_prop::<u32>("DeviceType"),
-        object.observe_prop_or::<u32>("State", 0),
-        object.observe_prop::<String>("Interface"),
-        object.observe_prop::<String>("ActiveAccessPoint")
-            => move |(
-                device_type,
-                state,
-                interface,
-                active_access_point,
-            )| NetworkObject {
-                device_type,
-                state,
-                interface,
-                active_access_point,
-            },
-    )
-    .distinct_until_changed()
-    .box_it()
-}
-
-fn access_point_view(access_point: LocusPath) -> Observable<AccessPoint> {
-    combine_latest!(
-        access_point.observe_prop::<String>("Ssid"),
-        access_point.observe_prop_or::<u32>("Strength", 0)
-            => move |(ssid, strength)| AccessPoint {
-                path: access_point.clone(),
-                ssid,
-                strength,
-            },
-    )
-    .distinct_until_changed()
-    .box_it()
-}
-
-fn wifi_view(
-    objects: &[NetworkObject],
-    access_points: &[AccessPoint],
-    network: &LocusPath,
-) -> WifiView {
-    let Some(device) = objects
+fn wifi_status(devices: &[NetworkObject]) -> WifiView {
+    let Some(device) = devices
         .iter()
         .find(|object| object.device_type == Some(DEVICE_TYPE_WIFI))
     else {
         return WifiView::default();
     };
 
+    wifi_view(device, device.access_point.as_ref())
+}
+
+fn networkmanager_object_path(dbus_path: &str) -> Option<LocusPath> {
+    if dbus_path == "/" {
+        return None;
+    }
+
+    let local = dbus_path.strip_prefix("/org/freedesktop/NetworkManager/")?;
+    Some(
+        source::root()
+            .child(DBUS_OBJECT_PATH)
+            .encoded_child(format!("networkmanager:{local}")),
+    )
+}
+
+fn network_object(object: LocusPath) -> Observable<NetworkObject> {
+    let access_point = object
+        .observe_prop::<String>("ActiveAccessPoint")
+        .map(|access_point| {
+            access_point
+                .as_deref()
+                .and_then(networkmanager_object_path)
+                .map(access_point_view)
+                .unwrap_or_else(|| source::once(None))
+        })
+        .switch_map(|access_point| access_point);
+
+    combine_latest!(
+        object.observe_prop::<u32>("DeviceType"),
+        object.observe_prop_or::<u32>("State", 0),
+        object.observe_prop::<String>("Interface"),
+        access_point
+            => move |(
+                device_type,
+                state,
+                interface,
+                access_point,
+            )| NetworkObject {
+                device_type,
+                state,
+                interface,
+                access_point,
+            },
+    )
+    .distinct_until_changed()
+    .box_it()
+}
+
+fn access_point_view(access_point: LocusPath) -> Observable<Option<AccessPoint>> {
+    combine_latest!(
+        access_point.observe_prop::<String>("Ssid"),
+        access_point.observe_prop_or::<u32>("Strength", 0)
+            => move |(ssid, strength)| Some(AccessPoint {
+                ssid,
+                strength,
+            }),
+    )
+    .distinct_until_changed()
+    .box_it()
+}
+
+fn wifi_view(device: &NetworkObject, access_point: Option<&AccessPoint>) -> WifiView {
     let state = device.state;
-    let access_point = device
-        .active_access_point
-        .as_deref()
-        .and_then(|path| find_access_point(access_points, network, path));
     let ssid = access_point
         .and_then(|ap| ap.ssid.as_deref())
         .and_then(|ssid| parse_ssid(ssid).ok())
@@ -270,24 +261,9 @@ fn ethernet_icon_name(state: u32) -> &'static str {
     }
 }
 
-fn dbus_path_to_object_path(network: &LocusPath, path: &str) -> Option<LocusPath> {
-    if path == "/" {
-        return None;
-    }
-
-    let local = path
-        .strip_prefix("/org/freedesktop/NetworkManager/")
-        .unwrap_or(path.trim_start_matches('/'))
-        .replace('/', "%2F");
-    Some(network.child(local))
-}
-
-fn find_access_point<'a>(
-    access_points: &'a [AccessPoint],
-    network: &LocusPath,
-    dbus_path: &str,
-) -> Option<&'a AccessPoint> {
-    dbus_path_to_object_path(network, dbus_path)
-        .as_ref()
-        .and_then(|path| access_points.iter().find(|object| &object.path == path))
+fn is_networkmanager_device_object(path: &LocusPath) -> bool {
+    path.as_path()
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|name| name.starts_with(NETWORK_MANAGER_DEVICE_PREFIX))
 }

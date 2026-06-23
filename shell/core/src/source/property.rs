@@ -8,7 +8,8 @@ use crate::source::Observable;
 use super::{
     FromLocusValue, WatchEvent, WatchState, WatchValue,
     support::{
-        WatchEvents, from_stream_result, is_missing, log_errors, open_target_or_parent, watch_error,
+        WatchEvents, from_stream_result, is_missing, log_errors, open_target_or_parent,
+        shared_source, watch_error,
     },
 };
 
@@ -17,10 +18,12 @@ where
     T: FromLocusValue,
 {
     let path = path.into();
-    let observable = from_stream_result(property_stream::<T>(path.clone()))
-        .distinct_until_changed()
-        .box_it();
-    log_errors("property", path, observable)
+    shared_source("property", path, |path| {
+        let observable = from_stream_result(property_stream::<T>(path.clone()))
+            .distinct_until_changed()
+            .box_it();
+        log_errors("property", path, observable)
+    })
 }
 
 enum PropertyStreamPhase {
@@ -88,7 +91,7 @@ where
                                     let unset =
                                         matches!(event, WatchEvent::State(WatchState::Unset));
                                     let result = property_event_value(&state.path, event).await;
-                                    if unset {
+                                    if property_watch_should_reopen(unset, &result) {
                                         state.watch = None;
                                         state.watching_target = false;
                                         state.phase = PropertyStreamPhase::Open;
@@ -147,4 +150,39 @@ where
     T::from_locus_value(value.trim())
         .map(Some)
         .map_err(|error| format!("failed to decode property {}: {error}", path.display()))
+}
+
+fn property_watch_should_reopen<T>(unset_event: bool, result: &Result<Option<T>, String>) -> bool {
+    unset_event || matches!(result, Ok(None))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::property_watch_should_reopen;
+
+    #[test]
+    fn property_watch_reopens_on_explicit_unset() {
+        assert!(property_watch_should_reopen(true, &Ok(Some(1))));
+    }
+
+    #[test]
+    fn property_watch_reopens_when_event_read_finds_missing_property() {
+        assert!(property_watch_should_reopen(
+            false,
+            &Ok::<_, String>(None::<i32>)
+        ));
+    }
+
+    #[test]
+    fn property_watch_stays_on_target_when_event_reads_value() {
+        assert!(!property_watch_should_reopen(false, &Ok(Some(1))));
+    }
+
+    #[test]
+    fn property_watch_error_does_not_mask_done_state() {
+        assert!(!property_watch_should_reopen::<i32>(
+            false,
+            &Err("read failed".to_owned()),
+        ));
+    }
 }

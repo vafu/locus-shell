@@ -31,3 +31,7 @@ Widgets own their view models and source providers locally.
   watcher, cache, or adapter, document why existing Rx operators,
   `shell_core::source` primitives, `LocusPath`, or other shell services cannot
   express it cleanly.
+- Do not hardcode widget heights in widget CSS or GTK builders. Only the bar
+  height itself may define vertical size; child controls should use natural
+  sizing, alignment, and padding instead of `min-height`, `height-request`, or
+  fixed-height setters.

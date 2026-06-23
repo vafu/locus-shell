@@ -23,18 +23,20 @@ Partially addressed in the current `rsynapse-shell` bar:
 - Custom level-meter drawing for CPU/RAM.
 - Bluetooth/BlueZ battery display.
 - Network and PipeWire display state.
+- PipeWire audio route popover.
+- MPRIS player state and controls.
+- PowerProfiles display and cycling.
+- StatusNotifier tray and DBusMenu popovers/actions.
 
 Still high-priority gaps:
 
 - Consumer request service and `rsynapsectl` replacement for `ags request`.
-- OSD event stream and active-monitor overlay lifecycle.
+- OSD active-monitor overlay lifecycle.
 - Per-monitor/per-output bar lifecycle.
 - Agent approval overlay, approval response methods, and auto-open runtime
   policy.
-- StatusNotifier tray and DBusMenu.
-- MPRIS.
-- PowerProfiles display/actions.
-- Audio route popover/actions.
+- Locusfs-native audio route actions and PipeWire route grouping metadata.
+- Normalized Bluetooth HID/GATT dual battery projection.
 - Brightness provider/actions.
 - Pomodoro provider and side-effect runner.
 - Keyboard hints bridge.

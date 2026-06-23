@@ -12,10 +12,10 @@
 
 ## Native Structure
 
-Implement this inside the active `rsynapse-shell` consumer process as a separate
+Implemented inside the active `rsynapse-shell` consumer process as a separate
 layer-shell window owned by the main shell binary, not inside `shell/core`. The
 consumer owns the OSD role, placement, event policy, and CSS. `shell-core`
-should only provide the GTK app, stylesheet registration, source runtime, and
+only provides the GTK app, stylesheet registration, source runtime, and
 layer-shell window creation primitives described in `PLAN.md`.
 
 Initial component tree:
@@ -30,7 +30,12 @@ RsynapseShell process
             └── gtk::LevelBar
 ```
 
-`OsdWindow` should create one bottom-anchored overlay layer surface whose monitor follows the active Locus output. It should use `Layer::Overlay`, no exclusive zone, no focus, bottom anchor, namespace/name `OSD`, and CSS class `OSD`.
+`OsdWindow` creates one bottom-anchored overlay layer surface using
+`Layer::Overlay`, no exclusive zone, no focus, bottom anchor, namespace/name
+`OSD`, and CSS class `OSD`.
+
+Still pending: the OSD surface should follow the active Locus output once
+monitor rebinding is available.
 
 ## Initial Models
 
@@ -67,7 +72,7 @@ pub struct OsdWindowModel {
 
 If macro support for timer-derived fields is not ready, keep `window_visible` as local Relm4 state updated by explicit messages rather than a provider-bound field.
 
-The view bindings should derive:
+Implemented view bindings derive:
 
 - `revealer.reveal_child` from `payload != OsdPayload::Hidden`.
 - `image.icon_name` from the latest level payload, falling back to an empty or neutral icon while hidden.
@@ -76,12 +81,18 @@ The view bindings should derive:
 
 ## Provider And Stream Dependencies
 
-Required sources:
+Implemented sources:
 
-- `BrightnessSource`: normalized display brightness level, driven by the backlight device. Initial implementation can mirror the AGS behavior by reading `brightnessctl max/get` and watching `/sys/class/backlight/<device>/brightness`, but the provider should expose a typed `ObservableSource<f64>`.
-- `DefaultSpeakerSource`: current default audio endpoint and changes to its volume and volume icon. Prefer a WirePlumber/PipeWire-backed provider or a focused D-Bus provider instead of carrying AstalWp concepts into Rust UI code.
+- `BrightnessSource`: local backlight file-watch bridge with normalized
+  brightness values.
+- `DefaultSpeakerSource`: current default audio endpoint, volume, mute state,
+  and icon from the locusfs PipeWire projection.
+
+Remaining sources:
+
 - `ActiveMonitorSource`: maps Locus selected output connector to the GTK monitor used by the layer surface.
-- `OsdPayloadSource`: merges brightness and audio events into a single `ObservableSource<OsdPayload>` stream.
+- locusfs brightness projection/actions if brightness should stop using a local
+  file-watch bridge.
 
 Stream behavior:
 
@@ -136,7 +147,7 @@ Place OSD styling in the consumer stylesheet. Preserve the AGS visual contract:
 - [Layer window monitor rebinding](../../missing-shell-features/layer-window-monitor-rebinding.md): OSD needs one overlay surface whose `Gdk.Monitor` follows the active Locus output.
 - [Transient timer stream combinators](../../missing-shell-features/transient-timer-stream-combinators.md): OSD needs merge plus restartable delayed hide behavior.
 - [Brightness provider](../../missing-shell-features/brightness-provider.md): normalized screen brightness should be exposed as a typed provider.
-- [Audio endpoint provider](../../missing-shell-features/audio-endpoint-provider.md): default speaker volume, mute state, and symbolic icon should be exposed without depending on AGS/Astal concepts.
+- [Audio endpoint provider](../../missing-shell-features/audio-endpoint-provider.md): default speaker display state is implemented; default-sink write actions and grouped route metadata remain.
 - [Monitor list provider](../../missing-shell-features/monitor-list-provider.md): active connector-to-monitor resolution needs a typed source for current GTK monitor topology.
 
 ## Open Questions
