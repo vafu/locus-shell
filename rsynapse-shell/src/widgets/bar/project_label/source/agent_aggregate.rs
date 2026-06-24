@@ -4,7 +4,7 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
-use super::non_empty;
+use super::super::super::agent_dbus::{self, AgentSession, ProjectPath};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct AgentAggregate {
@@ -16,22 +16,16 @@ pub(super) struct AgentAggregate {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AgentSessionModel {
-    path: LocusPath,
     project: Option<LocusPath>,
     state: Option<String>,
     requires_attention: bool,
     task_complete: bool,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct AppInstanceModel {
-    path: LocusPath,
-    agent_session: Option<LocusPath>,
+    window_id: Option<u32>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct WindowModel {
-    app_instance: Option<LocusPath>,
+    id: Option<u32>,
     workspace: Option<LocusPath>,
 }
 
@@ -46,17 +40,13 @@ pub(super) fn project_agent_aggregate_source(
 }
 
 fn project_agent_aggregate(workspace: LocusPath, project: LocusPath) -> Observable<AgentAggregate> {
-    let sessions = source::root()
-        .child("agent-session")
-        .as_children()
-        .switch_map(|sessions| {
-            source::combine_latest_vec(sessions.into_iter().map(agent_session_model).collect())
-        });
-    let app_instances = source::root()
-        .child("app-instance")
-        .as_children()
-        .switch_map(|app_instances| {
-            source::combine_latest_vec(app_instances.into_iter().map(app_instance_model).collect())
+    let project_paths = agent_dbus::projects();
+    let sessions =
+        agent_dbus::agent_sessions().combine_latest(project_paths, |sessions, projects| {
+            sessions
+                .into_iter()
+                .map(|session| agent_session_model(session, &projects))
+                .collect::<Vec<_>>()
         });
     let windows = source::root()
         .child("window")
@@ -67,10 +57,9 @@ fn project_agent_aggregate(workspace: LocusPath, project: LocusPath) -> Observab
 
     combine_latest!(
         sessions,
-        app_instances,
         windows
-            => move |(sessions, app_instances, windows)| {
-                aggregate_agents(&workspace, &project, sessions, app_instances, windows)
+            => move |(sessions, windows)| {
+                aggregate_agents(&workspace, &project, sessions, windows)
             },
     )
     .distinct_until_changed()
@@ -81,7 +70,6 @@ fn aggregate_agents(
     workspace: &LocusPath,
     project: &LocusPath,
     sessions: Vec<AgentSessionModel>,
-    app_instances: Vec<AppInstanceModel>,
     windows: Vec<WindowModel>,
 ) -> AgentAggregate {
     let workspace_id = workspace.node_id().ok();
@@ -89,34 +77,12 @@ fn aggregate_agents(
     let agents = sessions
         .into_iter()
         .filter(|session| {
-            let session_id = session.path.node_id().ok();
-            let session_window_workspaces = app_instances
+            if let Some(session_workspace) = windows
                 .iter()
-                .filter(|app| {
-                    app.agent_session
-                        .as_ref()
-                        .and_then(|path| path.node_id().ok())
-                        == session_id
-                })
-                .flat_map(|app| {
-                    let app_id = app.path.node_id().ok();
-                    windows
-                        .iter()
-                        .filter(move |window| {
-                            window
-                                .app_instance
-                                .as_ref()
-                                .and_then(|path| path.node_id().ok())
-                                == app_id
-                        })
-                        .filter_map(|window| window.workspace.as_ref())
-                })
-                .collect::<Vec<_>>();
-
-            if !session_window_workspaces.is_empty() {
-                return session_window_workspaces
-                    .iter()
-                    .any(|workspace| workspace.node_id().ok() == workspace_id);
+                .find(|window| window.id.is_some() && window.id == session.window_id)
+                .and_then(|window| window.workspace.as_ref())
+            {
+                return session_workspace.node_id().ok() == workspace_id;
             }
 
             session
@@ -144,41 +110,22 @@ fn aggregate_agents(
     }
 }
 
-fn agent_session_model(session: LocusPath) -> Observable<AgentSessionModel> {
-    combine_latest!(
-        session.observe_rel("session-project"),
-        session.observe_prop::<String>("state").map(non_empty),
-        session.observe_prop_or::<bool>("requires_attention", false),
-        session.observe_prop_or::<bool>("task_complete", false)
-            => move |(project, state, requires_attention, task_complete)| AgentSessionModel {
-                path: session.clone(),
-                project,
-                state,
-                requires_attention,
-                task_complete,
-            },
-    )
-    .distinct_until_changed()
-    .box_it()
-}
-
-fn app_instance_model(app_instance: LocusPath) -> Observable<AppInstanceModel> {
-    app_instance
-        .observe_rel("agent-session")
-        .map(move |agent_session| AppInstanceModel {
-            path: app_instance.clone(),
-            agent_session,
-        })
-        .distinct_until_changed()
-        .box_it()
+fn agent_session_model(session: AgentSession, projects: &[ProjectPath]) -> AgentSessionModel {
+    AgentSessionModel {
+        project: agent_dbus::project_for_cwd(session.cwd.as_deref(), projects),
+        state: session.state,
+        requires_attention: session.requires_attention,
+        task_complete: session.task_complete,
+        window_id: session.window_id,
+    }
 }
 
 fn window_model(window: LocusPath) -> Observable<WindowModel> {
     combine_latest!(
-        window.observe_rel("app-instance"),
+        window.observe_prop::<u32>("id"),
         window.observe_rel("workspace")
-            => |(app_instance, workspace)| WindowModel {
-                app_instance,
+            => |(id, workspace)| WindowModel {
+                id,
                 workspace,
             },
     )

@@ -1,7 +1,7 @@
 use shell_core::source::{self, Observable, rx::Observable as _};
 use shell_rx_macros::combine_latest;
 
-const BATTERY_OBJECT_PATH: &str = "dbus-service/upower/object/battery_BAT1";
+const BATTERY_PROPERTIES_PATH: &str = "dbus-service/upower/object/devices/battery_BAT1/@properties";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BatteryView {
@@ -39,7 +39,7 @@ impl BatteryState {
 }
 
 pub(super) fn battery_status() -> Observable<BatteryView> {
-    let battery = source::root().child(BATTERY_OBJECT_PATH);
+    let battery = source::root().child(BATTERY_PROPERTIES_PATH);
 
     combine_latest!(
         battery

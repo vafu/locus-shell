@@ -127,6 +127,11 @@ $outline-offset: $label-margin * 0.5;
   margin: 0 4px;
 }
 
+.projects-list {
+  margin-left: 8px;
+  margin-right: 8px;
+}
+
 .bar {
   menubutton.circular > button {
     border-radius: 999px;
@@ -149,6 +154,14 @@ $outline-offset: $label-margin * 0.5;
 .tray-icon,
 .battery-icon {
   opacity: 0.78;
+}
+
+.source-error-widget {
+  color: #{$sys_danger};
+
+  .source-error-count {
+    font-weight: 700;
+  }
 }
 
 .tray-item.needs-attention image,
@@ -319,11 +332,11 @@ $outline-offset: $label-margin * 0.5;
 }
 
 .projects-project {
-  $project-layer: color-mix(in srgb, #{$fg} 10%, #{$bg});
-  $agent-layer: color-mix(in srgb, #{$fg} 5%, #{$bg});
-
   background-color: #{$bg};
-  transition: background-color 180ms, outline-color 180ms;
+  transition:
+    background-color 180ms,
+    opacity 180ms,
+    outline-color 180ms;
   border-radius: 12px;
   outline: 1px solid transparent;
   outline-offset: 0;
@@ -333,12 +346,6 @@ $outline-offset: $label-margin * 0.5;
 
   &.current-workspace {
     outline-color: color-mix(in srgb, #{$fg} 55%, transparent);
-
-    .button-subgroup-main.opened,
-    .button-subgroup,
-    .projects-title {
-      background-color: transparent;
-    }
   }
 
   &.is-empty:not(.current-workspace) {
@@ -371,12 +378,12 @@ $outline-offset: $label-margin * 0.5;
   }
 
   .button-subgroup-main.opened {
-    background-color: $project-layer;
+    background-color: transparent;
     border-radius: 12px 0 0 12px;
   }
 
   .button-subgroup {
-    background-color: $agent-layer;
+    background-color: transparent;
   }
 
   &.button-subgroup-expand-right .button-subgroup {
@@ -384,7 +391,7 @@ $outline-offset: $label-margin * 0.5;
   }
 
   .projects-title {
-    background-color: $project-layer;
+    background-color: transparent;
     border-radius: 0 12px 12px 0;
     padding: 0 8px 0 3px;
   }

@@ -9,8 +9,8 @@ use super::{
     device_type::{BluetoothDeviceKind, device_kind},
 };
 
-const BLUEZ_OBJECT_PATH: &str = "dbus-service/bluez/object";
-const UPOWER_OBJECT_PATH: &str = "dbus-service/upower/object";
+const BLUEZ_ADAPTER_PATH: &str = "dbus-service/bluez/object/org/bluez/hci0";
+const UPOWER_DEVICES_PATH: &str = "dbus-service/upower/object/devices";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BluezObject {
@@ -45,13 +45,17 @@ struct DeviceSnapshot {
 
 pub(super) fn bluetooth_status() -> Observable<BluetoothView> {
     let root = source::root();
-    let bluez = root.child(BLUEZ_OBJECT_PATH);
+    let adapter = root.child(BLUEZ_ADAPTER_PATH);
 
-    let bluez_objects = bluez.as_children().switch_map(|objects| {
+    let bluez_objects = adapter.as_children().switch_map(move |objects| {
+        let adapter = adapter.clone();
+        let devices = objects
+            .into_iter()
+            .filter(is_device)
+            .map(bluez_device_summary_object);
         source::combine_latest_vec(
-            objects
-                .into_iter()
-                .filter_map(bluez_summary_object)
+            std::iter::once(bluez_adapter_summary_object(adapter))
+                .chain(devices)
                 .collect(),
         )
     });
@@ -66,10 +70,10 @@ pub(super) fn bluetooth_group_devices(
     group: BluetoothDeviceGroup,
 ) -> Observable<Vec<BluetoothDeviceView>> {
     let root = source::root();
-    let bluez = root.child(BLUEZ_OBJECT_PATH);
-    let upower = root.child(UPOWER_OBJECT_PATH);
+    let adapter = root.child(BLUEZ_ADAPTER_PATH);
+    let upower = root.child(UPOWER_DEVICES_PATH);
 
-    let bluez_objects = bluez.as_children().switch_map(|objects| {
+    let bluez_objects = adapter.as_children().switch_map(|objects| {
         source::combine_latest_vec(
             objects
                 .into_iter()
@@ -96,20 +100,11 @@ pub(super) fn bluetooth_group_devices(
     .box_it()
 }
 
-fn bluez_summary_object(object: LocusPath) -> Option<Observable<BluezObject>> {
-    if is_adapter(&object) {
-        return Some(bluez_adapter_summary_object(object));
-    }
-    if is_device(&object) {
-        return Some(bluez_device_summary_object(object));
-    }
-    None
-}
-
 fn bluez_adapter_summary_object(object: LocusPath) -> Observable<BluezObject> {
+    let properties = properties(&object);
     combine_latest!(
-        object.observe_prop::<bool>("Powered"),
-        object.observe_prop::<bool>("Discovering")
+        properties.observe_prop::<bool>("Powered"),
+        properties.observe_prop::<bool>("Discovering")
             => move |(powered, discovering)| BluezObject {
                 path: object.clone(),
                 powered,
@@ -128,11 +123,12 @@ fn bluez_adapter_summary_object(object: LocusPath) -> Observable<BluezObject> {
 }
 
 fn bluez_device_summary_object(object: LocusPath) -> Observable<BluezObject> {
+    let properties = properties(&object);
     combine_latest!(
-        object.observe_prop::<bool>("Connected"),
-        object.observe_prop::<u32>("Class"),
-        object.observe_prop::<u32>("Appearance"),
-        object.observe_prop::<u8>("BatteryPercentage")
+        properties.observe_prop::<bool>("Connected"),
+        properties.observe_prop::<u32>("Class"),
+        properties.observe_prop::<u32>("Appearance"),
+        properties.observe_prop::<u8>("BatteryPercentage")
             => move |(connected, class, appearance, battery)| BluezObject {
                 path: object.clone(),
                 powered: None,
@@ -151,14 +147,15 @@ fn bluez_device_summary_object(object: LocusPath) -> Observable<BluezObject> {
 }
 
 fn bluez_detail_object(object: LocusPath) -> Observable<BluezObject> {
+    let properties = properties(&object);
     combine_latest!(
-        object.observe_prop::<bool>("Connected"),
-        object.observe_prop::<bool>("Connecting"),
-        object.observe_prop::<String>("Name"),
-        object.observe_prop::<String>("Address"),
-        object.observe_prop::<u32>("Class"),
-        object.observe_prop::<u32>("Appearance"),
-        object.observe_prop::<u8>("BatteryPercentage")
+        properties.observe_prop::<bool>("Connected"),
+        properties.observe_prop::<bool>("Connecting"),
+        properties.observe_prop::<String>("Name"),
+        properties.observe_prop::<String>("Address"),
+        properties.observe_prop::<u32>("Class"),
+        properties.observe_prop::<u32>("Appearance"),
+        properties.observe_prop::<u8>("BatteryPercentage")
             => move |(connected, connecting, name, address, class, appearance, battery)| BluezObject {
                 path: object.clone(),
                 powered: None,
@@ -176,14 +173,6 @@ fn bluez_detail_object(object: LocusPath) -> Observable<BluezObject> {
     .box_it()
 }
 
-fn is_adapter(path: &LocusPath) -> bool {
-    path.as_path()
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.starts_with("hci"))
-        .unwrap_or(false)
-}
-
 fn is_device(path: &LocusPath) -> bool {
     path.as_path()
         .file_name()
@@ -193,9 +182,10 @@ fn is_device(path: &LocusPath) -> bool {
 }
 
 fn upower_device(object: LocusPath) -> Observable<UpowerDevice> {
+    let properties = properties(&object);
     combine_latest!(
-        object.observe_prop::<String>("NativePath"),
-        object.observe_prop::<f64>("Percentage").map(|value| value.and_then(percent))
+        properties.observe_prop::<String>("NativePath"),
+        properties.observe_prop::<f64>("Percentage").map(|value| value.and_then(percent))
             => |(native_path, percentage)| UpowerDevice {
                 native_path,
                 percentage,
@@ -205,13 +195,17 @@ fn upower_device(object: LocusPath) -> Observable<UpowerDevice> {
     .box_it()
 }
 
+fn properties(object: &LocusPath) -> LocusPath {
+    object.child("@properties")
+}
+
 fn bluetooth_view(bluez_objects: Vec<BluezObject>) -> BluetoothView {
     let adapter = bluez_objects.iter().find(|object| object.powered.is_some());
     let powered = adapter
         .and_then(|object| object.powered)
         .or_else(|| bluez_objects.iter().find_map(|object| object.powered))
         .unwrap_or(false);
-    let power_path = adapter.map(|object| object.path.prop("Powered"));
+    let power_path = adapter.map(|object| properties(&object.path).prop("Powered"));
     let discovering = bluez_objects
         .iter()
         .find_map(|object| object.discovering)
@@ -338,7 +332,7 @@ fn device_view(device: &DeviceSnapshot) -> BluetoothDeviceView {
 }
 
 fn method_call_path(object: &LocusPath, method: &str) -> LocusPath {
-    object.rel("methods").child(method).prop("call")
+    object.child("@methods").child(method).prop("call")
 }
 
 fn status_icon(powered: bool, discovering: bool, connected_count: u8) -> &'static str {

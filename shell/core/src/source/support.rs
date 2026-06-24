@@ -4,7 +4,10 @@ use std::{
     collections::VecDeque,
     io::{self, ErrorKind},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use futures_util::{Stream, StreamExt};
@@ -17,7 +20,9 @@ use rxrust::{
     },
 };
 
-use super::{Observable, WatchEvent};
+use super::{Observable, SourceError, SourceErrors, WatchEvent};
+
+const MAX_SOURCE_ERRORS: usize = 20;
 
 pub fn from_stream_result<T, S>(stream: S) -> Observable<T>
 where
@@ -388,10 +393,103 @@ where
 {
     observable
         .map_err(move |error| {
+            record_source_error(source, &path, &error);
             eprintln!("[shell-core/source/{source}] {}: {error}", path.display());
             error
         })
         .box_it()
+}
+
+pub fn error_count() -> Observable<u64> {
+    errors()
+        .map(|errors| errors.total)
+        .distinct_until_changed()
+        .box_it()
+}
+
+pub fn errors() -> Observable<SourceErrors> {
+    Shared::<()>::lift(SourceErrorSnapshots).box_it()
+}
+
+struct SourceErrorSnapshots;
+
+impl ObservableType for SourceErrorSnapshots {
+    type Item<'a> = SourceErrors;
+    type Err = String;
+}
+
+impl<C> CoreObservable<C> for SourceErrorSnapshots
+where
+    C: Context,
+    C::Inner: Observer<SourceErrors, String> + Send + 'static,
+{
+    type Unsub = BoxedSubscriptionSend;
+
+    fn subscribe(self, context: C) -> Self::Unsub {
+        let state = source_error_state();
+        let mut observer = context.into_inner();
+        observer.next(source_error_snapshot(state));
+        state
+            .subject
+            .lock()
+            .expect("source error subject lock poisoned")
+            .clone()
+            .subscribe_with(observer)
+            .into_boxed()
+    }
+}
+
+struct SourceErrorState {
+    total: AtomicU64,
+    recent: Mutex<VecDeque<SourceError>>,
+    subject: Mutex<SharedSubject<'static, SourceErrors, String>>,
+}
+
+fn source_error_state() -> &'static SourceErrorState {
+    static SOURCE_ERROR_STATE: OnceLock<SourceErrorState> = OnceLock::new();
+    SOURCE_ERROR_STATE.get_or_init(|| SourceErrorState {
+        total: AtomicU64::new(0),
+        recent: Mutex::new(VecDeque::new()),
+        subject: Mutex::new(Shared::subject()),
+    })
+}
+
+fn record_source_error(source: &'static str, path: &Path, message: &str) {
+    let state = source_error_state();
+    let total = state.total.fetch_add(1, Ordering::SeqCst) + 1;
+    let snapshot = {
+        let mut recent = state
+            .recent
+            .lock()
+            .expect("source error history lock poisoned");
+        recent.push_front(SourceError {
+            id: total,
+            source,
+            path: path.to_path_buf(),
+            message: message.to_owned(),
+        });
+        recent.truncate(MAX_SOURCE_ERRORS);
+        SourceErrors {
+            total,
+            recent: recent.iter().cloned().collect(),
+        }
+    };
+    if let Ok(mut subject) = state.subject.lock() {
+        subject.next(snapshot);
+    }
+}
+
+fn source_error_snapshot(state: &SourceErrorState) -> SourceErrors {
+    SourceErrors {
+        total: state.total.load(Ordering::SeqCst),
+        recent: state
+            .recent
+            .lock()
+            .expect("source error history lock poisoned")
+            .iter()
+            .cloned()
+            .collect(),
+    }
 }
 
 fn trace_source_lifecycle(action: &str, label: &str) {

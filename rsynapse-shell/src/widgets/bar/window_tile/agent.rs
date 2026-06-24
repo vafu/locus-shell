@@ -1,9 +1,7 @@
-use shell_core::{
-    locus_path::LocusPath,
-    source::{self, Observable, RelationState, rx::Observable as _},
-};
+use shell_core::source::{self, Observable, RelationState, rx::Observable as _};
 use shell_rx_macros::combine_latest;
 
+use super::super::agent_dbus::{self, AgentSession};
 use super::source::{AgentVisualState, WindowBase, WindowTileKind, WindowTileVm, non_empty};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,11 +34,10 @@ struct ProjectIcon(Option<String>);
 
 pub(super) fn agent_tile_source(
     base: WindowBase,
-    app_instance: LocusPath,
-    agent_session: LocusPath,
+    agent_session: AgentSession,
 ) -> Observable<WindowTileVm> {
-    let app = agent_app_props_source(app_instance);
-    let session = agent_session_props_source(agent_session.clone());
+    let app = source::once(agent_app_props(&agent_session));
+    let session = source::once(agent_session_props(&agent_session));
     let project_icon = project_icon_source(agent_session.clone());
     let substatus_count = substatus_count_source(agent_session);
 
@@ -65,65 +62,29 @@ pub(super) fn agent_tile_source(
     .box_it()
 }
 
-fn agent_app_props_source(app_instance: LocusPath) -> Observable<AgentAppProps> {
-    combine_latest!(
-        app_instance.observe_prop::<String>("icon").map(non_empty),
-        app_instance.observe_prop::<String>("name").map(non_empty)
-            => |(icon, name)| AgentAppProps { icon, name },
-    )
-    .distinct_until_changed()
-    .box_it()
+fn agent_app_props(session: &AgentSession) -> AgentAppProps {
+    AgentAppProps {
+        icon: session.agent.clone(),
+        name: session.agent.clone(),
+    }
 }
 
-fn agent_session_props_source(agent_session: LocusPath) -> Observable<AgentSessionProps> {
-    combine_latest!(
-        agent_session.observe_prop::<String>("agent").map(non_empty),
-        agent_session
-            .observe_prop::<String>("agent_nickname")
-            .map(non_empty),
-        agent_session.observe_prop::<String>("model").map(non_empty),
-        agent_session.observe_prop::<String>("state").map(non_empty),
-        agent_session.observe_prop::<String>("cwd").map(non_empty),
-        agent_session
-            .observe_prop::<String>("raw_title")
-            .map(non_empty),
-        agent_session
-            .observe_prop_or::<bool>("requires_attention", false),
-        agent_session
-            .observe_prop_or::<f64>("context_pct", 0.0)
-            .map(|value| {
-                Some(value)
-                    .filter(|value| value.is_finite())
-                    .map(|value| value.clamp(0.0, 100.0).round() as u32)
-                    .unwrap_or(0)
-            })
-            => |(
-                agent,
-                nickname,
-                model,
-                state,
-                cwd,
-                raw_title,
-                requires_attention,
-                context_pct,
-            )| AgentSessionProps {
-                agent,
-                nickname,
-                model,
-                state,
-                cwd,
-                raw_title,
-                requires_attention,
-                context_pct,
-            },
-    )
-    .distinct_until_changed()
-    .box_it()
+fn agent_session_props(session: &AgentSession) -> AgentSessionProps {
+    AgentSessionProps {
+        agent: session.agent.clone(),
+        nickname: session.nickname.clone(),
+        model: session.model.clone(),
+        state: session.state.clone(),
+        cwd: session.cwd.clone(),
+        raw_title: session.raw_title.clone(),
+        requires_attention: session.requires_attention,
+        context_pct: session.context_pct,
+    }
 }
 
-fn project_icon_source(agent_session: LocusPath) -> Observable<Option<String>> {
-    agent_session
-        .observe_rel("session-project")
+fn project_icon_source(agent_session: AgentSession) -> Observable<Option<String>> {
+    agent_dbus::projects()
+        .map(move |projects| agent_dbus::project_for_cwd(agent_session.cwd.as_deref(), &projects))
         .map(|project| match project {
             Some(project) => RelationState::Set(project),
             None => RelationState::Unset,
@@ -143,11 +104,21 @@ fn project_icon_source(agent_session: LocusPath) -> Observable<Option<String>> {
         .box_it()
 }
 
-fn substatus_count_source(agent_session: LocusPath) -> Observable<u32> {
-    agent_session
-        .rel("subagent-session")
-        .as_children()
-        .map(|entries| entries.len().min(u32::MAX as usize) as u32)
+fn substatus_count_source(agent_session: AgentSession) -> Observable<u32> {
+    let session_id = agent_session.session_id;
+    agent_dbus::agent_sessions()
+        .map(move |sessions| {
+            sessions
+                .into_iter()
+                .filter(|session| {
+                    session.is_subagent
+                        && session.parent_session_id.is_some()
+                        && session.parent_session_id == session_id
+                })
+                .count()
+                .min(u32::MAX as usize) as u32
+        })
+        .distinct_until_changed()
         .box_it()
 }
 

@@ -2,7 +2,7 @@ use std::{fs, thread};
 
 use shell_core::source::{self, Observable, rx::Observable as _};
 
-const POWER_PROFILE_OBJECT_PATH: &str = "dbus-service/powerprofiles/object/@";
+const POWER_PROFILE_PROPERTIES_PATH: &str = "dbus-service/powerprofiles/object/@/@properties";
 const POWER_PROFILE_ORDER: &[&str] = &["power-saver", "balanced", "performance"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,7 +26,7 @@ impl Default for PowerProfileView {
 
 pub(super) fn power_profile_status() -> Observable<PowerProfileView> {
     source::root()
-        .child(POWER_PROFILE_OBJECT_PATH)
+        .child(POWER_PROFILE_PROPERTIES_PATH)
         .observe_prop_or::<String>("ActiveProfile", String::new())
         .map(power_profile_view)
         .distinct_until_changed()
@@ -36,7 +36,7 @@ pub(super) fn power_profile_status() -> Observable<PowerProfileView> {
 pub(super) fn cycle_power_profile(profile: &str) {
     let next = next_profile(profile).to_owned();
     let path = source::root()
-        .child(POWER_PROFILE_OBJECT_PATH)
+        .child(POWER_PROFILE_PROPERTIES_PATH)
         .prop("ActiveProfile")
         .into_path_buf();
 

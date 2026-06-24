@@ -1,3 +1,4 @@
+mod agent_dbus;
 mod audio;
 mod battery;
 mod bluetooth;
@@ -5,6 +6,7 @@ mod mpris;
 mod network;
 mod power_profile;
 mod project_label;
+mod source_errors;
 mod system_stats;
 mod systray;
 mod time;
@@ -24,6 +26,7 @@ use shell_core::{
     gtk::{self, prelude::*},
     list::ComponentListBoxExt,
     locus_path::LocusPath,
+    source::SourceError,
     window::{self, Anchors, Edge, Layer, WindowConfig},
 };
 
@@ -39,6 +42,7 @@ use self::mpris::{MprisView, mpris_status};
 use self::network::{NetworkView, network_status};
 use self::power_profile::{PowerProfileView, power_profile_status};
 use self::project_label::ProjectLabel;
+use self::source_errors::{SourceErrorRow, source_error_count, source_error_items};
 use self::system_stats::{ArcSide, SysStatsView, sys_stats};
 use self::systray::{TrayItem, systray_items};
 use self::time::{ClockView, clock};
@@ -110,6 +114,12 @@ pub struct MainBar {
 
     #[source(clock())]
     clock: ClockView,
+
+    #[source(source_error_count())]
+    source_error_count: u64,
+
+    #[source(source_error_items())]
+    source_error_items: Vec<SourceError>,
 }
 
 #[shell_macros::component(model = MainBar)]
@@ -582,6 +592,52 @@ impl SimpleAsyncComponent for MainBar {
                         }
                     },
 
+                    gtk::MenuButton {
+                        add_css_class: "barblock",
+                        add_css_class: "flat",
+                        add_css_class: "circular",
+                        add_css_class: "source-error-widget",
+                        #[watch]
+                        set_visible: model.source_error_count > 0,
+                        #[watch]
+                        set_tooltip_text: Some(source_error_tooltip(model.source_error_count).as_str()),
+
+                        #[wrap(Some)]
+                        set_child = &gtk::Box {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 4,
+
+                            gtk::Image {
+                                add_css_class: "materialicon",
+                                add_css_class: "source-error-icon",
+                                set_icon_name: Some(material_icon::icon_name("error").as_str()),
+                            },
+
+                            gtk::Label {
+                                add_css_class: "source-error-count",
+                                #[watch]
+                                set_label: source_error_count_label(model.source_error_count).as_str(),
+                            }
+                        },
+
+                        #[wrap(Some)]
+                        set_popover = &gtk::Popover {
+                            add_css_class: "menu",
+
+                            gtk::Box {
+                                add_css_class: "source-error-popover",
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 8,
+
+                                #[bind_list(source_error_items, row = SourceErrorRow)]
+                                source_error_items -> gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+                                    set_spacing: 8,
+                                }
+                            }
+                        }
+                    },
+
                     #[name = "clock_button"]
                     gtk::Button {
                         add_css_class: "barblock",
@@ -832,6 +888,14 @@ fn battery_icon_name(battery: &BatteryView) -> String {
     let state = if charging { "-charging" } else { "" };
 
     format!("battery-level-{level}{state}-symbolic")
+}
+
+fn source_error_tooltip(count: u64) -> String {
+    format!("{count} source error(s) caught")
+}
+
+fn source_error_count_label(count: u64) -> String {
+    count.to_string()
 }
 
 fn mpris_classes(mpris: &MprisView) -> Vec<&'static str> {

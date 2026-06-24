@@ -143,7 +143,7 @@ where
 ///
 /// RxRust currently exposes binary `combine_latest`; this keeps the fold in one
 /// place while preserving normal Observable composition at call sites.
-pub fn combine_latest_vec<T>(observables: Vec<Observable<T>>) -> Observable<Vec<T>>
+pub fn combine_latest<T>(observables: Vec<Observable<T>>) -> Observable<Vec<T>>
 where
     T: Clone + Send + 'static,
 {
@@ -175,6 +175,14 @@ where
         .box_it()
 }
 
+/// Compatibility spelling for call sites that predate `combine_latest`.
+pub fn combine_latest_vec<T>(observables: Vec<Observable<T>>) -> Observable<Vec<T>>
+where
+    T: Clone + Send + 'static,
+{
+    combine_latest(observables)
+}
+
 /// State of a locusfs node path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NodeState {
@@ -196,6 +204,22 @@ pub enum ChildrenEvent {
     Added(LocusPath),
     Changed(LocusPath),
     Removed(LocusPath),
+}
+
+/// One source error caught by shell-core source primitives.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SourceError {
+    pub id: u64,
+    pub source: &'static str,
+    pub path: PathBuf,
+    pub message: String,
+}
+
+/// Process-local source error state.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SourceErrors {
+    pub total: u64,
+    pub recent: Vec<SourceError>,
 }
 
 /// Conversion from locusfs property text into a typed Rust value.
@@ -248,6 +272,19 @@ pub fn children(path: impl Into<PathBuf>) -> Observable<Vec<LocusPath>> {
 /// full snapshot.
 pub fn children_events(path: impl Into<PathBuf>) -> Observable<ChildrenEvent> {
     children_events::children_events(path)
+}
+
+/// Emits the process-local total number of source errors caught by shell-core.
+///
+/// The first emission is the current total. Future emissions happen when a
+/// source primitive logs a hard error.
+pub fn error_count() -> Observable<u64> {
+    support::error_count()
+}
+
+/// Emits process-local source error totals and recent error history.
+pub fn errors() -> Observable<SourceErrors> {
+    support::errors()
 }
 
 #[cfg(test)]

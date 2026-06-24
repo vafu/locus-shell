@@ -1,7 +1,4 @@
-use shell_core::{
-    locus_path::LocusPath,
-    source::{self, Observable, rx::Observable as _},
-};
+use shell_core::source::{self, Observable, rx::Observable as _};
 use shell_rx_macros::combine_latest;
 
 use crate::desktop_icon;
@@ -46,13 +43,13 @@ pub(super) struct WindowBase {
     pub(super) icon: String,
     pub(super) active: bool,
     pub(super) urgent: bool,
-    app_instance: Option<LocusPath>,
+    id: Option<u32>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AgentResolvedWindow {
     base: WindowBase,
-    agent_session: Option<LocusPath>,
+    agent_session: Option<super::super::agent_dbus::AgentSession>,
 }
 
 pub(super) fn window_tile_vm(window: WindowNode) -> Observable<Option<WindowTileVm>> {
@@ -69,22 +66,22 @@ fn window_base_source(window: WindowNode) -> Observable<WindowBase> {
     let app_id = window.observe_prop::<String>("app-id").map(non_empty);
     let active = window.observe_prop_or::<bool>("selected", false);
     let urgent = window.observe_prop_or::<bool>("urgent", false);
-    let app_instance = window.observe_rel("app-instance");
+    let id = window.observe_prop::<u32>("id");
 
     combine_latest!(
         title,
         app_id,
         active,
         urgent,
-        app_instance
-            => |(title, app_id, active, urgent, app_instance)| {
+        id
+            => |(title, app_id, active, urgent, id)| {
                 let app_id = app_id.unwrap_or_default();
                 WindowBase {
                     title: title.unwrap_or_default(),
                     icon: desktop_icon::icon_for_app_id(&app_id),
                     active,
                     urgent,
-                    app_instance,
+                    id,
                 }
             },
     )
@@ -93,32 +90,24 @@ fn window_base_source(window: WindowNode) -> Observable<WindowBase> {
 }
 
 fn agent_session_source(base: WindowBase) -> Observable<AgentResolvedWindow> {
-    let Some(app_instance) = base.app_instance.clone() else {
-        return source::once(AgentResolvedWindow {
-            base,
-            agent_session: None,
-        });
-    };
-
-    app_instance
-        .observe_rel("agent-session")
-        .map(move |agent_session| AgentResolvedWindow {
+    let window_id = base.id;
+    super::super::agent_dbus::agent_sessions()
+        .map(move |sessions| AgentResolvedWindow {
             base: base.clone(),
-            agent_session,
+            agent_session: sessions
+                .into_iter()
+                .find(|session| window_id.is_some() && session.window_id == window_id),
         })
         .distinct_until_changed()
         .box_it()
 }
 
 fn tile_vm_source(window: AgentResolvedWindow) -> Observable<WindowTileVm> {
-    let Some(app_instance) = window.base.app_instance.clone() else {
-        return source::once(plain_window_tile(&window.base));
-    };
     let Some(agent_session) = window.agent_session.clone() else {
         return source::once(plain_window_tile(&window.base));
     };
 
-    agent::agent_tile_source(window.base, app_instance, agent_session)
+    agent::agent_tile_source(window.base, agent_session)
 }
 
 fn plain_window_tile(base: &WindowBase) -> WindowTileVm {

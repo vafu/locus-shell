@@ -8,8 +8,8 @@ mod parse;
 
 use parse::parse_ssid;
 
-const DBUS_OBJECT_PATH: &str = "dbus-object";
-const NETWORK_MANAGER_DEVICE_PREFIX: &str = "networkmanager%3ADevices%2F";
+const NETWORK_MANAGER_OBJECT_PATH: &str = "dbus-service/networkmanager/object";
+const NETWORK_MANAGER_DEVICE_PATH: &str = "dbus-service/networkmanager/object/Devices";
 
 const DEVICE_STATE_UNAVAILABLE: u32 = 20;
 const DEVICE_STATE_DISCONNECTED: u32 = 30;
@@ -77,13 +77,10 @@ struct AccessPoint {
 
 pub(super) fn network_status() -> Observable<NetworkView> {
     source::root()
-        .child(DBUS_OBJECT_PATH)
+        .child(NETWORK_MANAGER_DEVICE_PATH)
         .as_children()
         .switch_map(|objects| {
-            let mut devices = objects
-                .into_iter()
-                .filter(is_networkmanager_device_object)
-                .collect::<Vec<_>>();
+            let mut devices = objects;
             devices.sort_by(|left, right| left.as_path().cmp(right.as_path()));
             source::combine_latest_vec(devices.into_iter().map(network_object).collect())
         })
@@ -103,18 +100,19 @@ fn networkmanager_object_path(dbus_path: &str) -> Option<LocusPath> {
     let local = dbus_path.strip_prefix("/org/freedesktop/NetworkManager/")?;
     Some(
         source::root()
-            .child(DBUS_OBJECT_PATH)
-            .encoded_child(format!("networkmanager:{local}")),
+            .child(NETWORK_MANAGER_OBJECT_PATH)
+            .child(local),
     )
 }
 
 fn network_object(object: LocusPath) -> Observable<NetworkObject> {
+    let properties = properties(&object);
     // TODO(rsynapse-shell): move `ActiveAccessPoint` behind the selected Wi-Fi
     // interface only. A direct `Interface -> switch_map(detail)` split currently
     // hits an RxRust boxing/GAT edge, so this stable path still opens the
     // relation-like property on every NetworkManager device while only following
     // AP object details when NetworkManager reports an active AP.
-    let access_point = object
+    let access_point = properties
         .observe_prop::<String>("ActiveAccessPoint")
         .map(|access_point| {
             access_point
@@ -126,8 +124,8 @@ fn network_object(object: LocusPath) -> Observable<NetworkObject> {
         .switch_map(|access_point| access_point);
 
     combine_latest!(
-        object.observe_prop::<String>("Interface"),
-        object.observe_prop_or::<u32>("State", 0),
+        properties.observe_prop::<String>("Interface"),
+        properties.observe_prop_or::<u32>("State", 0),
         access_point
             => move |(interface, state, access_point)| NetworkObject {
                 state,
@@ -140,9 +138,10 @@ fn network_object(object: LocusPath) -> Observable<NetworkObject> {
 }
 
 fn access_point_view(access_point: LocusPath) -> Observable<Option<AccessPoint>> {
+    let properties = properties(&access_point);
     combine_latest!(
-        access_point.observe_prop::<String>("Ssid"),
-        access_point.observe_prop_or::<u32>("Strength", 0)
+        properties.observe_prop::<String>("Ssid"),
+        properties.observe_prop_or::<u32>("Strength", 0)
             => move |(ssid, strength)| Some(AccessPoint {
                 ssid,
                 strength,
@@ -150,6 +149,10 @@ fn access_point_view(access_point: LocusPath) -> Observable<Option<AccessPoint>>
     )
     .distinct_until_changed()
     .box_it()
+}
+
+fn properties(object: &LocusPath) -> LocusPath {
+    object.child("@properties")
 }
 
 fn wifi_status(devices: &[NetworkObject]) -> WifiView {
@@ -274,11 +277,4 @@ fn ethernet_icon_name(state: u32) -> &'static str {
         DEVICE_STATE_FAILED | DEVICE_STATE_NEED_AUTH => "network-wired-no-route-symbolic",
         _ => "network-wired-disconnected-symbolic",
     }
-}
-
-fn is_networkmanager_device_object(path: &LocusPath) -> bool {
-    path.as_path()
-        .file_name()
-        .and_then(|value| value.to_str())
-        .is_some_and(|name| name.starts_with(NETWORK_MANAGER_DEVICE_PREFIX))
 }
