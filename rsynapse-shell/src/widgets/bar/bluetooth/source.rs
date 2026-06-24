@@ -36,6 +36,7 @@ struct UpowerDevice {
 struct DeviceSnapshot {
     name: String,
     address: String,
+    path: LocusPath,
     connected: bool,
     connecting: bool,
     kind: BluetoothDeviceKind,
@@ -130,10 +131,12 @@ fn bluetooth_view(
     bluez_objects: Vec<BluezObject>,
     upower_devices: Vec<UpowerDevice>,
 ) -> BluetoothView {
-    let powered = bluez_objects
-        .iter()
-        .find_map(|object| object.powered)
+    let adapter = bluez_objects.iter().find(|object| object.powered.is_some());
+    let powered = adapter
+        .and_then(|object| object.powered)
+        .or_else(|| bluez_objects.iter().find_map(|object| object.powered))
         .unwrap_or(false);
+    let power_path = adapter.map(|object| object.path.prop("Powered"));
     let discovering = bluez_objects
         .iter()
         .find_map(|object| object.discovering)
@@ -146,6 +149,7 @@ fn bluetooth_view(
             icon: status_icon(powered, discovering, connected_count).to_owned(),
             connected_count,
             powered,
+            power_path,
         },
         keyboard: group_view(&devices, DeviceGroup::Keyboard),
         audio: group_view(&devices, DeviceGroup::Audio),
@@ -169,6 +173,7 @@ fn device_snapshots(
                     .battery
                     .or_else(|| upower_battery_for(upower_devices, &address)),
                 address,
+                path: object.path.clone(),
                 connected: object.connected.unwrap_or(false),
                 connecting: object.connecting.unwrap_or(false),
                 kind,
@@ -239,7 +244,13 @@ fn device_view(device: &DeviceSnapshot) -> BluetoothDeviceView {
         connected: device.connected,
         connecting: device.connecting,
         battery: device.battery,
+        connect_path: method_call_path(&device.path, "Connect"),
+        disconnect_path: method_call_path(&device.path, "Disconnect"),
     }
+}
+
+fn method_call_path(object: &LocusPath, method: &str) -> LocusPath {
+    object.rel("methods").child(method).prop("call")
 }
 
 fn status_icon(powered: bool, discovering: bool, connected_count: u8) -> &'static str {

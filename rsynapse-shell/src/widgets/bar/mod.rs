@@ -50,6 +50,7 @@ pub struct MainBarInit {
 pub enum MainBarInput {
     Source(sources::Msg),
     Media(MediaAction),
+    ToggleBluetooth,
     CyclePowerProfile,
 }
 
@@ -673,10 +674,9 @@ impl SimpleAsyncComponent for MainBar {
             mpris_revealer.set_reveal_child(false);
         });
         widgets.mpris_group.add_controller(mpris_motion);
-        widgets.bluetooth_power_button.connect_clicked(|_| {
-            thread::spawn(|| {
-                let _ = Command::new("bluetoothctl").arg("mgmt.power").status();
-            });
+        let input_sender = sender.input_sender().clone();
+        widgets.bluetooth_power_button.connect_clicked(move |_| {
+            input_sender.emit(MainBarInput::ToggleBluetooth);
         });
         let input_sender = sender.input_sender().clone();
         widgets.power_profile_button.connect_clicked(move |_| {
@@ -745,6 +745,7 @@ impl SimpleAsyncComponent for MainBar {
         match msg {
             MainBarInput::Source(msg) => MainBar::update(self, msg),
             MainBarInput::Media(action) => launch_playerctl(action, &self.mpris.playerctl_name),
+            MainBarInput::ToggleBluetooth => bluetooth::toggle_power(&self.bluetooth.status),
             MainBarInput::CyclePowerProfile => {
                 power_profile::cycle_power_profile(&self.power_profile.profile)
             }

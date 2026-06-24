@@ -1,10 +1,10 @@
 mod device_type;
 mod source;
 
-use std::{process::Command, thread};
+use std::{fs, thread};
 
 use adw::prelude::*;
-use shell_core::{gtk, source::Observable};
+use shell_core::{gtk, locus_path::LocusPath, source::Observable};
 
 use crate::widgets::level_indicator::{
     self, LevelRenderStyle, LevelStage, LineStyle, TRACK_CLASSES,
@@ -29,6 +29,7 @@ pub(super) struct BluetoothStatusView {
     pub(super) icon: String,
     pub(super) connected_count: u8,
     pub(super) powered: bool,
+    pub(super) power_path: Option<LocusPath>,
 }
 
 impl Default for BluetoothStatusView {
@@ -37,12 +38,30 @@ impl Default for BluetoothStatusView {
             icon: "bluetooth_disabled".to_owned(),
             connected_count: 0,
             powered: false,
+            power_path: None,
         }
     }
 }
 
 pub(super) fn bluetooth_status() -> Observable<BluetoothView> {
     source::bluetooth_status()
+}
+
+pub(super) fn toggle_power(status: &BluetoothStatusView) {
+    let Some(path) = status.power_path.clone() else {
+        eprintln!("[bluetooth] cannot toggle power: no BlueZ adapter Powered path");
+        return;
+    };
+    let next = if status.powered { "false" } else { "true" };
+
+    thread::spawn(move || {
+        if let Err(error) = fs::write(path.as_path(), next) {
+            eprintln!(
+                "[bluetooth] failed to write {}: {error}",
+                path.as_path().display()
+            );
+        }
+    });
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,6 +95,8 @@ pub(super) struct BluetoothDeviceView {
     pub(super) connected: bool,
     pub(super) connecting: bool,
     pub(super) battery: Option<u8>,
+    pub(super) connect_path: LocusPath,
+    pub(super) disconnect_path: LocusPath,
 }
 
 pub(super) fn status_count(status: &BluetoothStatusView) -> String {
@@ -161,8 +182,12 @@ pub(super) fn device_list(group: &DeviceGroupView) -> gtk::ListBox {
                 .build(),
         );
 
-        let address = device.address.clone();
         let connected = device.connected;
+        let call_path = if connected {
+            device.disconnect_path.clone()
+        } else {
+            device.connect_path.clone()
+        };
         row.connect_activated(move |row| {
             if let Some(popover) = row
                 .ancestor(gtk::Popover::static_type())
@@ -171,13 +196,14 @@ pub(super) fn device_list(group: &DeviceGroupView) -> gtk::ListBox {
                 popover.popdown();
             }
 
-            let address = address.clone();
+            let call_path = call_path.clone();
             thread::spawn(move || {
-                let action = if connected { "disconnect" } else { "connect" };
-                let _ = Command::new("bluetoothctl")
-                    .arg(action)
-                    .arg(address)
-                    .status();
+                if let Err(error) = fs::write(call_path.as_path(), "") {
+                    eprintln!(
+                        "[bluetooth] failed to call {}: {error}",
+                        call_path.as_path().display()
+                    );
+                }
             });
         });
 
