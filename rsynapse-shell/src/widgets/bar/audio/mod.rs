@@ -1,8 +1,11 @@
+mod route_popover;
 mod route_row;
 mod source;
 
-pub(super) use route_row::AudioRouteRow;
-pub(super) use source::{audio_routes, audio_status};
+pub(super) use route_popover::AudioRoutePopover;
+use route_row::AudioRouteRow;
+use source::audio_routes;
+pub(super) use source::audio_status;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AudioView {

@@ -1,8 +1,9 @@
 mod source;
 
-use std::{fs, thread};
+use std::{cell::RefCell, fs, rc::Rc, thread};
 
 use relm4::prelude::*;
+use relm4::{Controller, component::ComponentController};
 use shell_core::{
     gtk::{self, prelude::*},
     list::ComponentListBoxExt,
@@ -20,9 +21,6 @@ pub(super) struct TrayItem {
 
     #[source(tray_item_vm(item.clone()))]
     pub vm: TrayItemVm,
-
-    #[source(tray_menu_items(item.clone()))]
-    pub menu_items: Vec<LocusPath>,
 }
 
 #[shell_macros::component(
@@ -45,18 +43,6 @@ impl SimpleComponent for TrayItem {
             set_tooltip_text: Some(model.vm.tooltip.as_str()),
 
             #[wrap(Some)]
-            set_popover = &gtk::Popover {
-                add_css_class: "menu",
-                add_css_class: "tray-menu-popover",
-
-                #[bind_list(menu_items, row = TrayMenuItem)]
-                menu_items -> gtk::Box {
-                    add_css_class: "tray-menu",
-                    set_orientation: gtk::Orientation::Vertical,
-                }
-            },
-
-            #[wrap(Some)]
             set_child = &gtk::Image {
                 add_css_class: "tray-icon",
                 #[watch]
@@ -71,6 +57,76 @@ impl SimpleComponent for TrayItem {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = TrayItem::new(init);
+        let widgets = view_output!();
+        let menu_popover = gtk::Popover::new();
+        menu_popover.add_css_class("menu");
+        menu_popover.add_css_class("tray-menu-popover");
+        let menu_mount = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        menu_mount.add_css_class("tray-menu");
+        menu_popover.set_child(Some(&menu_mount));
+        root.set_popover(Some(&menu_popover));
+        let menu_controller = Rc::new(RefCell::new(None));
+        mount_tray_menu(
+            &menu_popover,
+            &menu_mount,
+            &menu_controller,
+            model.item.clone(),
+        );
+        let item = model.item.clone();
+        let menu_controller = menu_controller.clone();
+        let menu_popover_for_signal = menu_popover.clone();
+        let menu_mount_for_signal = menu_mount.clone();
+        menu_popover.connect_visible_notify(move |_| {
+            mount_tray_menu(
+                &menu_popover_for_signal,
+                &menu_mount_for_signal,
+                &menu_controller,
+                item.clone(),
+            );
+        });
+
+        ComponentParts { model, widgets }
+    }
+}
+
+#[derive(Debug)]
+#[shell_macros::model(module = tray_menu_sources)]
+pub(crate) struct TrayMenu {
+    pub item: LocusPath,
+
+    #[source(tray_menu_items(item.clone()))]
+    pub items: Vec<LocusPath>,
+}
+
+#[shell_macros::component(
+    module = tray_menu_sources,
+    model = TrayMenu
+)]
+#[relm4::component(pub(crate))]
+impl SimpleComponent for TrayMenu {
+    type Init = LocusPath;
+    type Input = tray_menu_sources::Msg;
+    type Output = ();
+
+    view! {
+        #[root]
+        gtk::Box {
+            add_css_class: "tray-menu",
+            set_orientation: gtk::Orientation::Vertical,
+
+            #[bind_list(items, row = TrayMenuItem)]
+            items -> gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+            }
+        }
+    }
+
+    fn init(
+        init: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = TrayMenu::new(init);
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
@@ -165,4 +221,26 @@ fn activate_menu_item(item: LocusPath) {
             eprintln!("[systray] failed to activate DBusMenu item: {error}");
         }
     });
+}
+
+fn mount_tray_menu(
+    popover: &gtk::Popover,
+    mount: &gtk::Box,
+    controller: &Rc<RefCell<Option<Controller<TrayMenu>>>>,
+    item: LocusPath,
+) {
+    if popover.is_visible() {
+        if controller.borrow().is_none() {
+            let launched = TrayMenu::builder().launch(item).detach();
+            let widget = <gtk::Box as AsRef<gtk::Widget>>::as_ref(launched.widget()).clone();
+            mount.append(&widget);
+            *controller.borrow_mut() = Some(launched);
+        }
+        return;
+    }
+
+    if let Some(launched) = controller.borrow_mut().take() {
+        let widget = <gtk::Box as AsRef<gtk::Widget>>::as_ref(launched.widget()).clone();
+        mount.remove(&widget);
+    }
 }

@@ -1,7 +1,10 @@
 mod source;
 
 use relm4::prelude::*;
-use shell_core::gtk::{self, prelude::*};
+use shell_core::{
+    gtk::{self, prelude::*},
+    locus_path::LocusPath,
+};
 
 use self::source::{ProjectLabelVm, project_label_vm};
 
@@ -13,7 +16,7 @@ use crate::widgets::material_icon;
 pub(super) struct ProjectLabel {
     pub workspace: WorkspaceNode,
 
-    #[source(project_label_vm(workspace.clone()))]
+    #[source(project_label_vm(workspace.path.clone()))]
     pub vm: ProjectLabelVm,
 }
 
@@ -240,7 +243,7 @@ fn project_primary(model: &ProjectLabelVm, workspace: &WorkspaceNode) -> String 
         .as_deref()
         .and_then(non_empty_text)
         .map(str::to_owned)
-        .unwrap_or_else(|| workspace_title(&model.workspace_name, workspace, model.index))
+        .unwrap_or_else(|| workspace_title(&model.workspace_name, &workspace.path, model.index))
 }
 
 fn project_secondary(model: &ProjectLabelVm) -> Option<String> {
@@ -259,7 +262,7 @@ fn project_tooltip(model: &ProjectLabelVm, workspace: &WorkspaceNode) -> String 
     }
 }
 
-fn workspace_title(workspace_name: &str, workspace: &WorkspaceNode, index: u32) -> String {
+fn workspace_title(workspace_name: &str, workspace: &LocusPath, index: u32) -> String {
     optional_text(Some(workspace_name))
         .map(str::to_owned)
         .unwrap_or_else(|| {

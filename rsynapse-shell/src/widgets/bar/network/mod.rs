@@ -11,9 +11,6 @@ use parse::parse_ssid;
 const DBUS_OBJECT_PATH: &str = "dbus-object";
 const NETWORK_MANAGER_DEVICE_PREFIX: &str = "networkmanager%3ADevices%2F";
 
-const DEVICE_TYPE_ETHERNET: u32 = 1;
-const DEVICE_TYPE_WIFI: u32 = 2;
-
 const DEVICE_STATE_UNAVAILABLE: u32 = 20;
 const DEVICE_STATE_DISCONNECTED: u32 = 30;
 const DEVICE_STATE_PREPARE: u32 = 40;
@@ -67,7 +64,6 @@ impl Default for EthernetView {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct NetworkObject {
-    device_type: Option<u32>,
     state: u32,
     interface: Option<String>,
     access_point: Option<AccessPoint>,
@@ -99,17 +95,6 @@ pub(super) fn network_status() -> Observable<NetworkView> {
         .box_it()
 }
 
-fn wifi_status(devices: &[NetworkObject]) -> WifiView {
-    let Some(device) = devices
-        .iter()
-        .find(|object| object.device_type == Some(DEVICE_TYPE_WIFI))
-    else {
-        return WifiView::default();
-    };
-
-    wifi_view(device, device.access_point.as_ref())
-}
-
 fn networkmanager_object_path(dbus_path: &str) -> Option<LocusPath> {
     if dbus_path == "/" {
         return None;
@@ -124,6 +109,11 @@ fn networkmanager_object_path(dbus_path: &str) -> Option<LocusPath> {
 }
 
 fn network_object(object: LocusPath) -> Observable<NetworkObject> {
+    // TODO(rsynapse-shell): move `ActiveAccessPoint` behind the selected Wi-Fi
+    // interface only. A direct `Interface -> switch_map(detail)` split currently
+    // hits an RxRust boxing/GAT edge, so this stable path still opens the
+    // relation-like property on every NetworkManager device while only following
+    // AP object details when NetworkManager reports an active AP.
     let access_point = object
         .observe_prop::<String>("ActiveAccessPoint")
         .map(|access_point| {
@@ -136,17 +126,10 @@ fn network_object(object: LocusPath) -> Observable<NetworkObject> {
         .switch_map(|access_point| access_point);
 
     combine_latest!(
-        object.observe_prop::<u32>("DeviceType"),
-        object.observe_prop_or::<u32>("State", 0),
         object.observe_prop::<String>("Interface"),
+        object.observe_prop_or::<u32>("State", 0),
         access_point
-            => move |(
-                device_type,
-                state,
-                interface,
-                access_point,
-            )| NetworkObject {
-                device_type,
+            => move |(interface, state, access_point)| NetworkObject {
                 state,
                 interface,
                 access_point,
@@ -167,6 +150,17 @@ fn access_point_view(access_point: LocusPath) -> Observable<Option<AccessPoint>>
     )
     .distinct_until_changed()
     .box_it()
+}
+
+fn wifi_status(devices: &[NetworkObject]) -> WifiView {
+    let Some(device) = devices
+        .iter()
+        .find(|device| device.interface.as_deref().is_some_and(is_wifi_interface))
+    else {
+        return WifiView::default();
+    };
+
+    wifi_view(device, device.access_point.as_ref())
 }
 
 fn wifi_view(device: &NetworkObject, access_point: Option<&AccessPoint>) -> WifiView {
@@ -191,15 +185,34 @@ fn wifi_view(device: &NetworkObject, access_point: Option<&AccessPoint>) -> Wifi
     }
 }
 
-fn ethernet_view(objects: &[NetworkObject]) -> EthernetView {
-    objects
+fn ethernet_device_view(device: &NetworkObject) -> EthernetView {
+    let state = device.state;
+    EthernetView {
+        visible: !matches!(state, DEVICE_STATE_DISCONNECTED | DEVICE_STATE_UNAVAILABLE),
+        icon: ethernet_icon_name(state).to_owned(),
+        tooltip: device.interface.clone().unwrap_or_default(),
+    }
+}
+
+fn ethernet_view(devices: &[NetworkObject]) -> EthernetView {
+    devices
         .iter()
-        .filter(|device| device.device_type == Some(DEVICE_TYPE_ETHERNET))
+        .filter(|device| {
+            device
+                .interface
+                .as_deref()
+                .is_some_and(is_ethernet_interface)
+        })
         .find(|device| device.state == DEVICE_STATE_ACTIVATED)
         .or_else(|| {
-            objects
+            devices
                 .iter()
-                .filter(|device| device.device_type == Some(DEVICE_TYPE_ETHERNET))
+                .filter(|device| {
+                    device
+                        .interface
+                        .as_deref()
+                        .is_some_and(is_ethernet_interface)
+                })
                 .find(|device| {
                     !matches!(
                         device.state,
@@ -208,21 +221,23 @@ fn ethernet_view(objects: &[NetworkObject]) -> EthernetView {
                 })
         })
         .or_else(|| {
-            objects
-                .iter()
-                .find(|device| device.device_type == Some(DEVICE_TYPE_ETHERNET))
+            devices.iter().find(|device| {
+                device
+                    .interface
+                    .as_deref()
+                    .is_some_and(is_ethernet_interface)
+            })
         })
         .map(ethernet_device_view)
         .unwrap_or_default()
 }
 
-fn ethernet_device_view(device: &NetworkObject) -> EthernetView {
-    let state = device.state;
-    EthernetView {
-        visible: !matches!(state, DEVICE_STATE_DISCONNECTED | DEVICE_STATE_UNAVAILABLE),
-        icon: ethernet_icon_name(state).to_owned(),
-        tooltip: device.interface.clone().unwrap_or_default(),
-    }
+fn is_wifi_interface(interface: &str) -> bool {
+    interface.starts_with("wl") || interface.starts_with("wlan")
+}
+
+fn is_ethernet_interface(interface: &str) -> bool {
+    interface.starts_with("en") || interface.starts_with("eth")
 }
 
 fn wifi_icon_name(state: u32, strength: u8) -> String {

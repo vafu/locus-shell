@@ -7,11 +7,11 @@ use shell_rx_macros::combine_latest;
 use super::{AudioRouteView, AudioView};
 
 const PIPEWIRE_PATH: &str = "pipewire";
+const PIPEWIRE_SINKS_PATH: &str = "pipewire-sink";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SinkSnapshot {
     path: LocusPath,
-    state: Option<String>,
     id: u32,
     name: Option<String>,
     description: Option<String>,
@@ -21,29 +21,27 @@ struct SinkSnapshot {
 }
 
 pub(in crate::widgets::bar) fn audio_status() -> Observable<AudioView> {
-    let pipewire = source::root().child(PIPEWIRE_PATH);
-    let default_sink = pipewire
+    let root = source::root();
+    let pipewire = root.child(PIPEWIRE_PATH);
+    pipewire
         .child("default")
         .observe_rel("sink")
-        .switch_map(default_sink_view);
-    let sinks = pipewire.child("sink").as_children().switch_map(|sinks| {
-        source::combine_latest_vec(sinks.into_iter().map(sink_snapshot).collect())
-    });
-
-    combine_latest!(
-        default_sink,
-        sinks => |(default_sink, sinks)| active_sink_view(default_sink, sinks),
-    )
-    .distinct_until_changed()
-    .box_it()
+        .switch_map(default_sink_view)
+        .map(|view| view.unwrap_or_default())
+        .distinct_until_changed()
+        .box_it()
 }
 
 pub(in crate::widgets::bar) fn audio_routes() -> Observable<Vec<AudioRouteView>> {
-    let pipewire = source::root().child(PIPEWIRE_PATH);
+    let root = source::root();
+    let pipewire = root.child(PIPEWIRE_PATH);
     let default_sink = pipewire.child("default").observe_rel("sink");
-    let sinks = pipewire.child("sink").as_children().switch_map(|sinks| {
-        source::combine_latest_vec(sinks.into_iter().map(sink_snapshot).collect())
-    });
+    let sinks = root
+        .child(PIPEWIRE_SINKS_PATH)
+        .as_children()
+        .switch_map(|sinks| {
+            source::combine_latest_vec(sinks.into_iter().map(sink_snapshot).collect())
+        });
 
     combine_latest!(
         default_sink,
@@ -78,7 +76,6 @@ fn default_sink_view(sink: Option<LocusPath>) -> Observable<Option<AudioView>> {
 
 fn sink_snapshot(sink: LocusPath) -> Observable<SinkSnapshot> {
     combine_latest!(
-        sink.observe_prop::<String>("state"),
         sink.observe_prop_or::<u32>("id", u32::MAX),
         sink.observe_prop::<String>("name"),
         sink.observe_prop::<String>("description"),
@@ -87,7 +84,7 @@ fn sink_snapshot(sink: LocusPath) -> Observable<SinkSnapshot> {
         sink.observe_prop_or::<bool>("muted", false),
         sink.observe_prop_or::<u32>("volume-percent", 0),
         sink.observe_prop::<String>("form-factor")
-            => move |(state, id, name, description, nick, icon, muted, volume, form_factor)| {
+            => move |(id, name, description, nick, icon, muted, volume, form_factor)| {
                 let view = sink_view_from_props(
                     description.as_deref(),
                     icon.as_deref(),
@@ -96,7 +93,6 @@ fn sink_snapshot(sink: LocusPath) -> Observable<SinkSnapshot> {
                 );
                 SinkSnapshot {
                     path: sink.clone(),
-                    state,
                     id,
                     name,
                     description: description.clone(),
@@ -108,18 +104,6 @@ fn sink_snapshot(sink: LocusPath) -> Observable<SinkSnapshot> {
     )
     .distinct_until_changed()
     .box_it()
-}
-
-fn active_sink_view(default_sink: Option<AudioView>, sinks: Vec<SinkSnapshot>) -> AudioView {
-    if let Some(default_sink) = default_sink {
-        return default_sink;
-    }
-
-    let Some(sink) = fallback_sink(&sinks) else {
-        return AudioView::default();
-    };
-
-    sink.view.clone()
 }
 
 fn route_views(
@@ -169,20 +153,6 @@ fn route_views(
         .collect()
 }
 
-fn fallback_sink(sinks: &[SinkSnapshot]) -> Option<&SinkSnapshot> {
-    sinks.iter().min_by(|left, right| {
-        (
-            sink_state_rank(left.state.as_deref().unwrap_or_default()),
-            left.id,
-        )
-            .cmp(&(
-                sink_state_rank(right.state.as_deref().unwrap_or_default()),
-                right.id,
-            ))
-            .then_with(|| left.path.as_path().cmp(right.path.as_path()))
-    })
-}
-
 fn sink_view_from_props(
     description: Option<&str>,
     icon: Option<&str>,
@@ -198,15 +168,6 @@ fn sink_view_from_props(
         visible: true,
         icon,
         tooltip: audio_tooltip(description, muted, Some(volume)),
-    }
-}
-
-fn sink_state_rank(state: &str) -> u8 {
-    match state {
-        "running" => 0,
-        "idle" => 1,
-        "suspended" => 2,
-        _ => 3,
     }
 }
 

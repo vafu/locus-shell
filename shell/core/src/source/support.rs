@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use rxrust::{
     context::Context,
     observer::Observer,
@@ -24,7 +24,87 @@ where
     T: Send + 'static,
     S: Stream<Item = Result<T, String>> + Send + 'static,
 {
-    Shared::from_stream_result(stream).box_it()
+    Shared::<()>::lift(AbortableStreamResult { stream }).box_it()
+}
+
+struct AbortableStreamResult<S> {
+    stream: S,
+}
+
+impl<T, S> ObservableType for AbortableStreamResult<S>
+where
+    S: Stream<Item = Result<T, String>>,
+{
+    type Item<'a>
+        = T
+    where
+        Self: 'a;
+    type Err = String;
+}
+
+impl<T, S, C> CoreObservable<C> for AbortableStreamResult<S>
+where
+    T: Send + 'static,
+    S: Stream<Item = Result<T, String>> + Send + 'static,
+    C: Context,
+    C::Inner: Observer<T, String> + Send + 'static,
+{
+    type Unsub = AbortableStreamSubscription;
+
+    fn subscribe(self, context: C) -> Self::Unsub {
+        let mut observer = context.into_inner();
+        let mut stream = Box::pin(self.stream);
+        let handle = tokio::spawn(async move {
+            while let Some(result) = stream.next().await {
+                if observer.is_closed() {
+                    return;
+                }
+                match result {
+                    Ok(value) => observer.next(value),
+                    Err(error) => {
+                        observer.error(error);
+                        return;
+                    }
+                }
+            }
+            observer.complete();
+        });
+
+        AbortableStreamSubscription {
+            handle: Some(handle),
+        }
+    }
+}
+
+struct AbortableStreamSubscription {
+    handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Subscription for AbortableStreamSubscription {
+    fn unsubscribe(mut self) {
+        self.abort();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_none_or(tokio::task::JoinHandle::is_finished)
+    }
+}
+
+impl AbortableStreamSubscription {
+    fn abort(&mut self) {
+        let Some(handle) = self.handle.take() else {
+            return;
+        };
+        handle.abort();
+    }
+}
+
+impl Drop for AbortableStreamSubscription {
+    fn drop(&mut self) {
+        self.abort();
+    }
 }
 
 pub fn shared_source<T>(
@@ -46,9 +126,11 @@ where
         .get(&key)
         .and_then(|value| value.downcast_ref::<Arc<ShareReplayHub<T>>>())
     {
+        trace_source_lifecycle("cache hit", &source_key_label(&key));
         return share_replay_latest(hub.clone());
     }
 
+    trace_source_lifecycle("cache miss", &source_key_label(&key));
     let label = format!("{}:{}", key.kind, key.path.display());
     let path = key.path.clone();
     let hub = Arc::new(ShareReplayHub::new(label, move || create(path.clone())));
@@ -66,6 +148,10 @@ struct SourceKey {
 fn source_cache() -> &'static Mutex<HashMap<SourceKey, Box<dyn Any + Send>>> {
     static SOURCE_CACHE: OnceLock<Mutex<HashMap<SourceKey, Box<dyn Any + Send>>>> = OnceLock::new();
     SOURCE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn source_key_label(key: &SourceKey) -> String {
+    format!("{}:{} type={:?}", key.kind, key.path.display(), key.type_id)
 }
 
 fn share_replay_latest<T>(hub: Arc<ShareReplayHub<T>>) -> Observable<T>
@@ -395,16 +481,22 @@ fn nearest_watchable_ancestor(path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
+    use std::{
+        pin::Pin,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        task::{Context as TaskContext, Poll},
     };
 
+    use futures_util::Stream;
     use rxrust::prelude::{
-        IntoBoxedSubscription as _, ObservableFactory as _, Shared, Subscription,
+        IntoBoxedSubscription as _, Observable as _, ObservableFactory as _, Observer, Shared,
+        Subscription,
     };
 
-    use super::{ShareReplayState, ShareReplaySubscription};
+    use super::{ShareReplayState, ShareReplaySubscription, from_stream_result};
 
     #[derive(Clone, Default)]
     struct CountSubscription {
@@ -483,5 +575,89 @@ mod tests {
         assert_eq!(state.subscribers, 1);
         assert_eq!(state.latest, Some(1));
         assert!(state.connection.is_some());
+    }
+
+    struct PendingDropStream {
+        drop_count: Arc<AtomicUsize>,
+        poll_count: Arc<AtomicUsize>,
+    }
+
+    impl Stream for PendingDropStream {
+        type Item = Result<(), String>;
+
+        fn poll_next(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+            self.poll_count.fetch_add(1, Ordering::SeqCst);
+            Poll::Pending
+        }
+    }
+
+    impl Drop for PendingDropStream {
+        fn drop(&mut self) {
+            self.drop_count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct IgnoreObserver;
+
+    impl Observer<(), String> for IgnoreObserver {
+        fn next(&mut self, _value: ()) {}
+
+        fn error(self, _err: String) {}
+
+        fn complete(self) {}
+
+        fn is_closed(&self) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn from_stream_result_unsubscribe_drops_pending_stream() {
+        let drop_count = Arc::new(AtomicUsize::new(0));
+        let poll_count = Arc::new(AtomicUsize::new(0));
+        let stream = PendingDropStream {
+            drop_count: drop_count.clone(),
+            poll_count,
+        };
+
+        let subscription = from_stream_result(stream).subscribe_with(IgnoreObserver);
+        subscription.unsubscribe();
+
+        for _ in 0..10 {
+            if drop_count.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(drop_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn rxrust_from_stream_result_unsubscribe_does_not_drop_pending_stream() {
+        let drop_count = Arc::new(AtomicUsize::new(0));
+        let poll_count = Arc::new(AtomicUsize::new(0));
+        let stream = PendingDropStream {
+            drop_count: drop_count.clone(),
+            poll_count: poll_count.clone(),
+        };
+
+        let subscription = Shared::from_stream_result(stream).subscribe_with(IgnoreObserver);
+
+        for _ in 0..10 {
+            if poll_count.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(poll_count.load(Ordering::SeqCst), 1);
+
+        subscription.unsubscribe();
+
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(drop_count.load(Ordering::SeqCst), 0);
     }
 }

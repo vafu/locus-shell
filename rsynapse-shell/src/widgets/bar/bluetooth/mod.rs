@@ -4,7 +4,8 @@ mod source;
 use std::{fs, thread};
 
 use adw::prelude::*;
-use shell_core::{gtk, locus_path::LocusPath, source::Observable};
+use relm4::prelude::*;
+use shell_core::{gtk, list::ComponentListBoxExt, locus_path::LocusPath, source::Observable};
 
 use crate::widgets::level_indicator::{
     self, LevelRenderStyle, LevelStage, LineStyle, TRACK_CLASSES,
@@ -45,6 +46,154 @@ impl Default for BluetoothStatusView {
 
 pub(super) fn bluetooth_status() -> Observable<BluetoothView> {
     source::bluetooth_status()
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BluetoothDeviceGroup {
+    Keyboard,
+    Audio,
+    Pointer,
+}
+
+impl BluetoothDeviceGroup {
+    fn matches(self, kind: device_type::BluetoothDeviceKind) -> bool {
+        match self {
+            Self::Keyboard => kind == device_type::BluetoothDeviceKind::InputKeyboard,
+            Self::Audio => matches!(
+                kind,
+                device_type::BluetoothDeviceKind::AudioHeadphones
+                    | device_type::BluetoothDeviceKind::AudioHeadset
+                    | device_type::BluetoothDeviceKind::AudioCard
+            ),
+            Self::Pointer => matches!(
+                kind,
+                device_type::BluetoothDeviceKind::InputMouse
+                    | device_type::BluetoothDeviceKind::InputTablet
+            ),
+        }
+    }
+
+    fn fallback_icon(self) -> &'static str {
+        match self {
+            Self::Keyboard => "keyboard",
+            Self::Audio => "headphones",
+            Self::Pointer => "mouse",
+        }
+    }
+
+    fn tooltip(self) -> &'static str {
+        match self {
+            Self::Keyboard => "Bluetooth keyboard",
+            Self::Audio => "Bluetooth audio",
+            Self::Pointer => "Bluetooth pointer",
+        }
+    }
+}
+
+#[derive(Debug)]
+#[shell_macros::model(module = bluetooth_group_popover_sources)]
+pub(super) struct BluetoothGroupPopover {
+    pub group: BluetoothDeviceGroup,
+
+    #[source(source::bluetooth_group_devices(*group))]
+    devices: Vec<BluetoothDeviceView>,
+}
+
+#[shell_macros::component(
+    module = bluetooth_group_popover_sources,
+    model = BluetoothGroupPopover
+)]
+#[relm4::component(pub(crate))]
+impl SimpleComponent for BluetoothGroupPopover {
+    type Init = BluetoothDeviceGroup;
+    type Input = bluetooth_group_popover_sources::Msg;
+    type Output = ();
+
+    view! {
+        #[root]
+        gtk::Box {
+            add_css_class: "bt-device-list",
+            set_orientation: gtk::Orientation::Vertical,
+
+            #[bind_list(devices, row = BluetoothDeviceRow)]
+            devices -> gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+            }
+        }
+    }
+
+    fn init(
+        init: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = BluetoothGroupPopover::new(init);
+        let widgets = view_output!();
+
+        ComponentParts { model, widgets }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct BluetoothDeviceRow {
+    device: BluetoothDeviceView,
+}
+
+#[relm4::component(pub(crate))]
+impl SimpleComponent for BluetoothDeviceRow {
+    type Init = BluetoothDeviceView;
+    type Input = ();
+    type Output = ();
+
+    view! {
+        #[root]
+        adw::ActionRow {
+            add_css_class: "bt-device-row",
+            set_activatable: true,
+            set_title: model.device.name.as_str(),
+            set_subtitle: &device_subtitle(&model.device),
+
+            add_prefix = &gtk::Image {
+                add_css_class: "materialicon",
+                set_icon_name: Some(material_icon::icon_name(model.device.icon.as_str()).as_str()),
+            }
+        }
+    }
+
+    fn init(
+        init: Self::Init,
+        root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = BluetoothDeviceRow { device: init };
+        let widgets = view_output!();
+        let call_path = if model.device.connected {
+            model.device.disconnect_path.clone()
+        } else {
+            model.device.connect_path.clone()
+        };
+
+        root.connect_activated(move |row| {
+            if let Some(popover) = row
+                .ancestor(gtk::Popover::static_type())
+                .and_then(|widget| widget.downcast::<gtk::Popover>().ok())
+            {
+                popover.popdown();
+            }
+
+            let call_path = call_path.clone();
+            thread::spawn(move || {
+                if let Err(error) = fs::write(call_path.as_path(), "") {
+                    eprintln!(
+                        "[bluetooth] failed to call {}: {error}",
+                        call_path.as_path().display()
+                    );
+                }
+            });
+        });
+
+        ComponentParts { model, widgets }
+    }
 }
 
 pub(super) fn toggle_power(status: &BluetoothStatusView) {
@@ -88,7 +237,7 @@ impl Default for DeviceGroupView {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct BluetoothDeviceView {
+pub(crate) struct BluetoothDeviceView {
     pub(super) name: String,
     pub(super) address: String,
     pub(super) icon: String,
@@ -151,66 +300,6 @@ pub(super) fn battery_level_draw_func(
         100.0,
         LevelRenderStyle::Line(LineStyle::vertical(3.0)),
     )
-}
-
-pub(super) fn device_list(group: &DeviceGroupView) -> gtk::ListBox {
-    let list = gtk::ListBox::new();
-    list.add_css_class("bt-device-list");
-    list.set_selection_mode(gtk::SelectionMode::None);
-
-    if group.devices.is_empty() {
-        let row = adw::ActionRow::builder()
-            .title("No devices")
-            .activatable(false)
-            .sensitive(false)
-            .build();
-        list.append(&row);
-        return list;
-    }
-
-    for device in &group.devices {
-        let row = adw::ActionRow::builder()
-            .title(device.name.as_str())
-            .subtitle(device_subtitle(device))
-            .activatable(true)
-            .build();
-        row.add_css_class("bt-device-row");
-        row.add_prefix(
-            &gtk::Image::builder()
-                .css_classes(["materialicon"])
-                .icon_name(material_icon::icon_name(device.icon.as_str()))
-                .build(),
-        );
-
-        let connected = device.connected;
-        let call_path = if connected {
-            device.disconnect_path.clone()
-        } else {
-            device.connect_path.clone()
-        };
-        row.connect_activated(move |row| {
-            if let Some(popover) = row
-                .ancestor(gtk::Popover::static_type())
-                .and_then(|widget| widget.downcast::<gtk::Popover>().ok())
-            {
-                popover.popdown();
-            }
-
-            let call_path = call_path.clone();
-            thread::spawn(move || {
-                if let Err(error) = fs::write(call_path.as_path(), "") {
-                    eprintln!(
-                        "[bluetooth] failed to call {}: {error}",
-                        call_path.as_path().display()
-                    );
-                }
-            });
-        });
-
-        list.append(&row);
-    }
-
-    list
 }
 
 fn device_subtitle(device: &BluetoothDeviceView) -> String {

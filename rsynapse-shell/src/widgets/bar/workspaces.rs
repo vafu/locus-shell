@@ -3,9 +3,11 @@ use shell_core::{
     source::{self, Observable, rx::Observable as _},
 };
 
+pub(super) type WorkspaceNode = WorkspaceEntry;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct WorkspaceEntry {
-    path: LocusPath,
+pub(super) struct WorkspaceEntry {
+    pub(super) path: LocusPath,
     index: u32,
 }
 
@@ -18,7 +20,7 @@ struct WindowEntry {
     id: u32,
 }
 
-pub(super) fn workspaces() -> Observable<Vec<LocusPath>> {
+pub(super) fn workspaces() -> Observable<Vec<WorkspaceNode>> {
     source::root()
         .child("workspace")
         .as_children()
@@ -32,9 +34,6 @@ pub(super) fn workspaces() -> Observable<Vec<LocusPath>> {
                     .then_with(|| left.path.as_path().cmp(right.path.as_path()))
             });
             workspaces
-                .into_iter()
-                .map(|workspace| workspace.path)
-                .collect()
         })
         .distinct_until_changed()
         .box_it()

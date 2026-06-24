@@ -29,3 +29,4 @@
 - Fixed `source::combine_latest_vec` so dynamic list view models replace values by source index instead of appending update history; NetworkManager and other list-derived widgets now see runtime updates instead of stale first snapshots.
 - Reduced the NetworkManager bar source fan-out: it now watches `dbus-object` children, subscribes only to `networkmanager:Devices/*`, and follows only each Wi-Fi device's active access point instead of all AP objects.
 - Fixed shell-core source subscription cleanup: custom shared/replay and stream subscriptions now abort/unsubscribe on `Drop`, so Rx operators that discard inner subscriptions do not leave locusfs watch FDs open.
+- Reduced eager bar source fan-out: audio routes, DBusMenu tray rows, and Bluetooth device details now mount only while their popovers are open; NetworkManager still has a TODO to move `ActiveAccessPoint` behind the selected Wi-Fi interface once the RxRust switch-map boxing edge is resolved.

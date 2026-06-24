@@ -47,32 +47,24 @@ where
     C::Root: AsRef<gtk::Widget> + Clone + std::fmt::Debug,
 {
     fn reconcile(&mut self, container: &gtk::Box, items: &[C::Init]) {
-        let mut index = 0;
-        while index < self.rows.len() {
-            if items.iter().any(|item| item == &self.rows[index].item) {
-                index += 1;
-            } else {
-                let row = self.rows.remove(index);
-                container.remove(row.widget());
-            }
+        for row in &self.rows {
+            container.remove(row.widget());
         }
 
-        for (target_index, item) in items.iter().enumerate() {
-            let current_index = self.rows.iter().position(|row| &row.item == item);
-            match current_index {
-                Some(current_index) if current_index != target_index => {
-                    let row = self.rows.remove(current_index);
-                    self.rows.insert(target_index, row);
-                    move_widget(container, &self.rows, target_index);
-                }
-                Some(_) => {}
-                None => {
-                    let row = ComponentListRow::new(item.clone());
-                    insert_widget(container, &self.rows, target_index, row.widget());
-                    self.rows.insert(target_index, row);
-                }
-            }
+        let mut old_rows = std::mem::take(&mut self.rows);
+        let mut rows = Vec::with_capacity(items.len());
+
+        for item in items {
+            let row = old_rows
+                .iter()
+                .position(|row| &row.item == item)
+                .map(|index| old_rows.remove(index))
+                .unwrap_or_else(|| ComponentListRow::new(item.clone()));
+            container.append(row.widget());
+            rows.push(row);
         }
+
+        self.rows = rows;
     }
 }
 
@@ -100,41 +92,6 @@ where
     {
         self.controller.widget().as_ref()
     }
-}
-
-fn insert_widget<C>(
-    container: &gtk::Box,
-    rows: &[ComponentListRow<C>],
-    target_index: usize,
-    widget: &gtk::Widget,
-) where
-    C: Component,
-    C::Init: Clone,
-    C::Root: AsRef<gtk::Widget>,
-{
-    if target_index == 0 {
-        container.prepend(widget);
-        return;
-    }
-
-    let previous = rows[target_index - 1].widget();
-    container.insert_child_after(widget, Some(previous));
-}
-
-fn move_widget<C>(container: &gtk::Box, rows: &[ComponentListRow<C>], target_index: usize)
-where
-    C: Component,
-    C::Init: Clone,
-    C::Root: AsRef<gtk::Widget>,
-{
-    let widget = rows[target_index].widget();
-    if target_index == 0 {
-        container.reorder_child_after(widget, None::<&gtk::Widget>);
-        return;
-    }
-
-    let previous = rows[target_index - 1].widget();
-    container.reorder_child_after(widget, Some(previous));
 }
 
 fn component_list_key<C>() -> Quark

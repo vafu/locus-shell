@@ -4,7 +4,7 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
-const MPRIS_PLAYERS_PATH: &str = "mpris/player";
+const MPRIS_PLAYERS_PATH: &str = "mpris-player";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct MprisView {

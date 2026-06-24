@@ -4,7 +4,7 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
-const TRAY_ITEMS_PATH: &str = "statusnotifier/item";
+const TRAY_ITEMS_PATH: &str = "statusnotifier-item";
 const FALLBACK_ICON: &str = "application-x-executable-symbolic";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,18 +55,9 @@ pub(crate) fn tray_items() -> Observable<Vec<LocusPath>> {
     source::root()
         .child(TRAY_ITEMS_PATH)
         .as_children()
-        .switch_map(|children| {
-            source::combine_latest_vec(
-                children
-                    .into_iter()
-                    .map(|child| child.as_relation())
-                    .collect(),
-            )
-        })
-        .map(|relations| {
-            let mut targets = relations.into_iter().flatten().collect::<Vec<_>>();
-            targets.sort_by(|left, right| left.as_path().cmp(right.as_path()));
-            targets
+        .map(|mut items| {
+            items.sort_by(|left, right| left.as_path().cmp(right.as_path()));
+            items
         })
         .distinct_until_changed()
         .box_it()
