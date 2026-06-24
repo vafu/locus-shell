@@ -1,13 +1,13 @@
 use shell_core::{
     locus_path::LocusPath,
-    source::{self, Observable, rx::Observable as _},
+    source::{self, NodeState, Observable, rx::Observable as _},
 };
 use shell_rx_macros::combine_latest;
 
 use super::{AudioRouteView, AudioView};
 
 const PIPEWIRE_PATH: &str = "pipewire";
-const PIPEWIRE_SINKS_PATH: &str = "pipewire-sink";
+const PIPEWIRE_SINKS_PATH: &str = "pipewire/sink";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SinkSnapshot {
@@ -23,11 +23,7 @@ struct SinkSnapshot {
 pub(in crate::widgets::bar) fn audio_status() -> Observable<AudioView> {
     let root = source::root();
     let pipewire = root.child(PIPEWIRE_PATH);
-    pipewire
-        .child("default")
-        .observe_rel("sink")
-        .switch_map(default_sink_view)
-        .map(|view| view.unwrap_or_default())
+    default_sink_view(pipewire.child("default").child("sink"))
         .distinct_until_changed()
         .box_it()
 }
@@ -35,7 +31,11 @@ pub(in crate::widgets::bar) fn audio_status() -> Observable<AudioView> {
 pub(in crate::widgets::bar) fn audio_routes() -> Observable<Vec<AudioRouteView>> {
     let root = source::root();
     let pipewire = root.child(PIPEWIRE_PATH);
-    let default_sink = pipewire.child("default").observe_rel("sink");
+    let default_sink_id = pipewire
+        .child("default")
+        .child("sink")
+        .observe_prop::<u32>("id")
+        .map(|id| id.unwrap_or(u32::MAX));
     let sinks = root
         .child(PIPEWIRE_SINKS_PATH)
         .as_children()
@@ -44,30 +44,30 @@ pub(in crate::widgets::bar) fn audio_routes() -> Observable<Vec<AudioRouteView>>
         });
 
     combine_latest!(
-        default_sink,
-        sinks => |(default_sink, sinks)| route_views(default_sink, sinks),
+        default_sink_id,
+        sinks => |(default_sink_id, sinks)| route_views(default_sink_id, sinks),
     )
     .distinct_until_changed()
     .box_it()
 }
 
-fn default_sink_view(sink: Option<LocusPath>) -> Observable<Option<AudioView>> {
-    let Some(sink) = sink else {
-        return source::once(None);
-    };
-
+fn default_sink_view(sink: LocusPath) -> Observable<AudioView> {
     combine_latest!(
+        sink.as_node(),
         sink.observe_prop::<String>("description"),
         sink.observe_prop::<String>("icon-name"),
         sink.observe_prop_or::<bool>("muted", false),
         sink.observe_prop_or::<u32>("volume-percent", 0)
-            => |(description, icon, muted, volume)| {
-                Some(sink_view_from_props(
-                    description.as_deref(),
-                    icon.as_deref(),
-                    muted,
-                    volume,
-                ))
+            => |(state, description, icon, muted, volume)| {
+                match state {
+                    NodeState::Present => sink_view_from_props(
+                        description.as_deref(),
+                        icon.as_deref(),
+                        muted,
+                        volume,
+                    ),
+                    NodeState::Missing => AudioView::default(),
+                }
             },
     )
     .distinct_until_changed()
@@ -107,13 +107,12 @@ fn sink_snapshot(sink: LocusPath) -> Observable<SinkSnapshot> {
 }
 
 fn route_views(
-    default_sink: Option<LocusPath>,
+    default_sink_id: u32,
     mut sinks: Vec<SinkSnapshot>,
 ) -> Vec<AudioRouteView> {
-    let default_path = default_sink.as_ref().map(LocusPath::as_path);
     sinks.sort_by(|left, right| {
-        let left_default = Some(left.path.as_path()) == default_path;
-        let right_default = Some(right.path.as_path()) == default_path;
+        let left_default = left.id == default_sink_id;
+        let right_default = right.id == default_sink_id;
         right_default
             .cmp(&left_default)
             .then_with(|| left.id.cmp(&right.id))
@@ -133,7 +132,7 @@ fn route_views(
             } else {
                 name.clone()
             };
-            let is_default = Some(sink.path.as_path()) == default_path;
+            let is_default = sink.id == default_sink_id;
             let icon = sink_type_icon(
                 sink.form_factor.as_deref(),
                 Some(title.as_str()),

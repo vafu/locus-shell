@@ -8,8 +8,8 @@ mod parse;
 
 use parse::parse_ssid;
 
-const NETWORK_MANAGER_OBJECT_PATH: &str = "dbus-service/networkmanager/object";
-const NETWORK_MANAGER_DEVICE_PATH: &str = "dbus-service/networkmanager/object/Devices";
+const NETWORK_MANAGER_OBJECT_PATH: &str = "dbus/networkmanager/object";
+const NETWORK_MANAGER_DEVICE_PATH: &str = "dbus/networkmanager/object/Devices";
 
 const DEVICE_STATE_UNAVAILABLE: u32 = 20;
 const DEVICE_STATE_DISCONNECTED: u32 = 30;

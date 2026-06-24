@@ -3,7 +3,7 @@ use shell_core::{
     source::{self, Observable, rx::Observable as _},
 };
 
-const AGENT_DBUS_OBJECTS_PATH: &str = "dbus-service/agentdbus/object/sessions/codex";
+const AGENT_DBUS_OBJECTS_PATH: &str = "dbus/agentdbus/object/sessions/codex";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct AgentSession {

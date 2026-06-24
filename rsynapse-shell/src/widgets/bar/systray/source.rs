@@ -1,10 +1,10 @@
 use shell_core::{
-    locus_path::{LocusPath, encode_segment},
+    locus_path::LocusPath,
     source::{self, NodeState, Observable, rx::Observable as _},
 };
 use shell_rx_macros::combine_latest;
 
-const TRAY_ITEMS_PATH: &str = "statusnotifier-item";
+const TRAY_ITEMS_PATH: &str = "statusnotifier/item";
 const FALLBACK_ICON: &str = "application-x-executable-symbolic";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -112,7 +112,7 @@ fn tray_item_view(
 }
 
 pub(super) fn tray_menu_items(item: LocusPath) -> Observable<Vec<LocusPath>> {
-    let items = source::root().child("dbusmenu-item").as_children();
+    let items = source::root().child("dbusmenu/item").as_children();
     combine_latest!(
         item.observe_prop_or::<String>("service-name", String::new()),
         item.observe_prop_or::<String>("menu-path", String::new()),
@@ -163,7 +163,7 @@ fn dbusmenu_path(service: &str, menu_path: &str) -> Option<LocusPath> {
     let menu_path = non_empty(menu_path)?;
     Some(
         source::root()
-            .child("dbusmenu-menu")
+            .child("dbusmenu/menu")
             .encoded_child(dbusmenu_local_id(service, menu_path)),
     )
 }
@@ -179,10 +179,7 @@ fn dbusmenu_items_for_menu(
     let Some(menu_path) = non_empty(menu_path) else {
         return Vec::new();
     };
-    let prefix = format!(
-        "{}%3A",
-        encode_segment(&dbusmenu_local_id(service, menu_path))
-    );
+    let prefix = format!("{}:", dbusmenu_local_id(service, menu_path));
     items.retain(|item| {
         item.as_path()
             .file_name()

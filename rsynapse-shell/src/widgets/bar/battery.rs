@@ -1,7 +1,7 @@
 use shell_core::source::{self, Observable, rx::Observable as _};
 use shell_rx_macros::combine_latest;
 
-const BATTERY_PROPERTIES_PATH: &str = "dbus-service/upower/object/devices/battery_BAT1/@properties";
+const BATTERY_PROPERTIES_PATH: &str = "dbus/upower/object/devices/battery_BAT1/@properties";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BatteryView {

@@ -2,7 +2,7 @@ use std::{fs, thread};
 
 use shell_core::source::{self, Observable, rx::Observable as _};
 
-const POWER_PROFILE_PROPERTIES_PATH: &str = "dbus-service/powerprofiles/object/@/@properties";
+const POWER_PROFILE_PROPERTIES_PATH: &str = "dbus/powerprofiles/object/@/@properties";
 const POWER_PROFILE_ORDER: &[&str] = &["power-saver", "balanced", "performance"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]

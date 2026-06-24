@@ -171,10 +171,10 @@ mod tests {
     #[test]
     fn appends_encoded_child_segment() {
         assert_eq!(
-            LocusPath::new("/tmp/locusfs/dbusmenu-item")
+            LocusPath::new("/tmp/locusfs/dbusmenu/item")
                 .encoded_child("1_9976:MenuBar")
                 .as_path(),
-            std::path::Path::new("/tmp/locusfs/dbusmenu-item/1_9976%3AMenuBar")
+            std::path::Path::new("/tmp/locusfs/dbusmenu/item/1_9976%3AMenuBar")
         );
     }
 

@@ -9,8 +9,8 @@ use super::{
     device_type::{BluetoothDeviceKind, device_kind},
 };
 
-const BLUEZ_ADAPTER_PATH: &str = "dbus-service/bluez/object/org/bluez/hci0";
-const UPOWER_DEVICES_PATH: &str = "dbus-service/upower/object/devices";
+const BLUEZ_ADAPTER_PATH: &str = "dbus/bluez/object/org/bluez/hci0";
+const UPOWER_DEVICES_PATH: &str = "dbus/upower/object/devices";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BluezObject {
