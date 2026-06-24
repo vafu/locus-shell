@@ -1,0 +1,30 @@
+plugin_dirs = ["./target/debug", "~/.local/lib/locusfs/plugins"]
+
+[plugins.project]
+enabled = true
+
+[plugins.niri]
+enabled = true
+
+[plugins.dbus]
+enabled = true
+
+[plugins.dbus.config]
+services = [
+  { name = "org.freedesktop.UPower", bus = "system", local_id = "upower", object_manager_path = "/org/freedesktop/UPower" },
+  { name = "org.freedesktop.NetworkManager", bus = "system", local_id = "networkmanager", object_manager_path = "/org/freedesktop/NetworkManager" },
+  { name = "org.bluez", bus = "system", local_id = "bluez", object_manager_path = "/" },
+  { name = "net.hadess.PowerProfiles", bus = "system", local_id = "powerprofiles", object_manager_path = "/net/hadess/PowerProfiles" },
+]
+
+[plugins.pipewire]
+enabled = true
+
+[plugins.mpris]
+enabled = true
+
+[plugins.statusnotifier]
+enabled = true
+
+[plugins.dbusmenu]
+enabled = true
