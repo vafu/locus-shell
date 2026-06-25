@@ -184,17 +184,8 @@ fn project_group_classes(vm: &ProjectLabelVm) -> Vec<&'static str> {
     if vm.active {
         classes.push("current-workspace");
     }
-    if vm.urgent || vm.has_attention {
+    if vm.urgent {
         classes.push("has-attention");
-    }
-    if vm.all_idle {
-        classes.push("all-idle");
-    }
-    if vm.has_working {
-        classes.push("has-working");
-    }
-    if vm.has_complete {
-        classes.push("has-complete");
     }
     if vm.empty {
         classes.push("is-empty");

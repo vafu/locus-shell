@@ -7,7 +7,7 @@ use std::{
     thread,
 };
 
-use shell_core::gtk::{self, prelude::*};
+use shell_core::gtk;
 
 const DEFAULT_SIZE: u16 = 24;
 const DEFAULT_STYLE: &str = "outlined";
@@ -17,22 +17,6 @@ const DEFAULT_FILL: bool = true;
 const MATERIAL_THEME: &str = "Material";
 const MATERIAL_REPO: &str =
     "https://raw.githubusercontent.com/google/material-design-icons/refs/heads/master/symbols/web";
-
-pub(super) fn image(icon: &str) -> gtk::Image {
-    let image = gtk::Image::new();
-    image.add_css_class("materialicon");
-    set_icon(&image, icon);
-    image
-}
-
-pub(super) fn set_icon(image: &gtk::Image, icon: &str) {
-    let name = resolved_icon_name(icon);
-    image.set_icon_name(Some(name.as_str()));
-
-    if icon_requires_fetch(icon, &name) {
-        fetch_icon_for_image(icon.to_owned(), name, image.clone());
-    }
-}
 
 pub(super) fn icon_name(icon: &str) -> String {
     let name = resolved_icon_name(icon);
@@ -80,27 +64,6 @@ fn material_icon_exists(icon_name: &str) -> bool {
 
 fn icon_requires_fetch(icon: &str, icon_name: &str) -> bool {
     !icon.is_empty() && !icon.ends_with("-symbolic") && !material_icon_exists(icon_name)
-}
-
-fn fetch_icon_for_image(icon: String, icon_name: String, image: gtk::Image) {
-    let (sender, receiver) = async_channel::bounded(1);
-    fetch_icon(icon, icon_name.clone(), Some(sender));
-
-    gtk::glib::MainContext::default().spawn_local(async move {
-        let Ok(result) = receiver.recv().await else {
-            return;
-        };
-        match result {
-            Ok(file) => {
-                let file = gtk::gio::File::for_path(file);
-                let paintable = gtk::IconPaintable::for_file(&file, i32::from(DEFAULT_SIZE), 1);
-                image.set_paintable(Some(&paintable));
-            }
-            Err(error) => {
-                eprintln!("[material-icon] {icon_name}: {error}");
-            }
-        }
-    });
 }
 
 fn fetch_icon_once(icon: String, icon_name: String) {

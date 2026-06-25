@@ -1,4 +1,3 @@
-mod agent_aggregate;
 mod workspace_fallback;
 
 use shell_core::{
@@ -7,10 +6,7 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
-use self::{
-    agent_aggregate::project_agent_aggregate_source,
-    workspace_fallback::workspace_window_fallback_source,
-};
+use self::workspace_fallback::workspace_window_fallback_source;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::widgets::bar) struct ProjectLabelVm {
@@ -18,10 +14,6 @@ pub(in crate::widgets::bar) struct ProjectLabelVm {
     pub(super) workspace_name: String,
     pub(super) urgent: bool,
     pub(super) active: bool,
-    pub(super) has_attention: bool,
-    pub(super) all_idle: bool,
-    pub(super) has_working: bool,
-    pub(super) has_complete: bool,
     pub(super) project_name: Option<String>,
     pub(super) project_branch: Option<String>,
     pub(super) project_icon: Option<String>,
@@ -43,11 +35,6 @@ pub(super) fn project_label_vm(workspace: LocusPath) -> Observable<ProjectLabelV
         .switch_map(project_details_source);
     let workspace_fallback = workspace_window_fallback_source(workspace.clone());
 
-    let agent_workspace = workspace.clone();
-    let agent_aggregate = workspace.observe_rel("project").switch_map(move |project| {
-        project_agent_aggregate_source(agent_workspace.clone(), project)
-    });
-
     combine_latest!(
         workspace
             .observe_prop_or::<u32>("index", u32::MAX),
@@ -58,26 +45,21 @@ pub(super) fn project_label_vm(workspace: LocusPath) -> Observable<ProjectLabelV
         workspace
             .observe_prop_or::<bool>("selected", false),
         project,
-        workspace_fallback,
-        agent_aggregate
-            => |(index, workspace_name, urgent, active, project, fallback, agent_aggregate)| {
+        workspace_fallback
+            => |(index, workspace_name, urgent, active, project, fallback)| {
                 let fallback_icon = (!project.has_project).then_some(fallback.icon).flatten();
                 let project_icon_is_app = fallback_icon.is_some();
                 let project_icon = project.icon.or(fallback_icon);
                 ProjectLabelVm {
-                index,
-                workspace_name,
-                urgent,
-                active,
-                has_attention: agent_aggregate.has_attention,
-                all_idle: agent_aggregate.all_idle,
-                has_working: agent_aggregate.has_working,
-                has_complete: agent_aggregate.has_complete,
-                project_name: project.name,
-                project_branch: project.branch,
-                project_icon,
-                project_icon_is_app,
-                empty: !project.has_project && fallback.empty,
+                    index,
+                    workspace_name,
+                    urgent,
+                    active,
+                    project_name: project.name,
+                    project_branch: project.branch,
+                    project_icon,
+                    project_icon_is_app,
+                    empty: !project.has_project && fallback.empty,
                 }
             },
     )
