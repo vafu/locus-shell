@@ -86,6 +86,7 @@ pub(super) fn selected_workspace_windows() -> Observable<Vec<LocusPath>> {
                     .cmp(&(right.column, right.row, right.id))
                     .then_with(|| left.path.as_path().cmp(right.path.as_path()))
             });
+
             windows.into_iter().map(|window| window.path).collect()
         })
         .distinct_until_changed()
@@ -94,7 +95,7 @@ pub(super) fn selected_workspace_windows() -> Observable<Vec<LocusPath>> {
 
 fn window_entry(window: LocusPath) -> Observable<WindowEntry> {
     shell_rx_macros::combine_latest!(
-        window.observe_prop::<u32>("workspace-id"),
+        window.observe_prop_or::<u32>("workspace-id", u32::MAX).map(Some),
         window.observe_prop_or::<u32>("column", u32::MAX),
         window.observe_prop_or::<u32>("row", u32::MAX),
         window.observe_prop_or::<u32>("id", u32::MAX)

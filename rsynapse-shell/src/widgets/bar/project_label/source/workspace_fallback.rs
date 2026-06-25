@@ -26,7 +26,7 @@ struct WorkspaceWindowModel {
 pub(super) fn workspace_window_fallback_source(
     workspace: LocusPath,
 ) -> Observable<WorkspaceFallback> {
-    let workspace_id = workspace.observe_prop::<u32>("id");
+    let workspace_id = workspace.observe_prop_or::<u32>("id", u32::MAX).map(Some);
     let windows = source::root()
         .child("window")
         .as_children()
@@ -42,11 +42,11 @@ pub(super) fn workspace_window_fallback_source(
 
 fn workspace_window_model(window: LocusPath) -> Observable<WorkspaceWindowModel> {
     combine_latest!(
-        window.observe_prop::<u32>("workspace-id"),
+        window.observe_prop_or::<u32>("workspace-id", u32::MAX).map(Some),
         window.observe_prop_or::<u32>("column", u32::MAX),
         window.observe_prop_or::<u32>("row", u32::MAX),
         window.observe_prop_or::<u32>("id", u32::MAX),
-        window.observe_prop::<String>("app-id").map(non_empty)
+        window.observe_prop_or::<String>("app-id", String::new()).map(non_empty_value)
             => move |(workspace_id, column, row, id, app_id)| WorkspaceWindowModel {
                 path: window.clone(),
                 workspace_id,
@@ -88,4 +88,8 @@ fn workspace_window_fallback(
 fn app_icon(app_id: &str) -> Option<String> {
     let desktop_icon = non_empty(Some(desktop_icon::icon_for_app_id(app_id)));
     desktop_icon.or_else(|| non_empty(Some(app_id.to_owned())))
+}
+
+fn non_empty_value(value: String) -> Option<String> {
+    non_empty(Some(value))
 }

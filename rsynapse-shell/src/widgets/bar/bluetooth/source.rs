@@ -103,8 +103,8 @@ pub(super) fn bluetooth_group_devices(
 fn bluez_adapter_summary_object(object: LocusPath) -> Observable<BluezObject> {
     let properties = properties(&object);
     combine_latest!(
-        properties.observe_prop::<bool>("Powered"),
-        properties.observe_prop::<bool>("Discovering")
+        properties.observe_prop_or::<bool>("Powered", false).map(Some),
+        properties.observe_prop_or::<bool>("Discovering", false).map(Some)
             => move |(powered, discovering)| BluezObject {
                 path: object.clone(),
                 powered,
@@ -125,10 +125,10 @@ fn bluez_adapter_summary_object(object: LocusPath) -> Observable<BluezObject> {
 fn bluez_device_summary_object(object: LocusPath) -> Observable<BluezObject> {
     let properties = properties(&object);
     combine_latest!(
-        properties.observe_prop::<bool>("Connected"),
-        properties.observe_prop::<u32>("Class"),
-        properties.observe_prop::<u32>("Appearance"),
-        properties.observe_prop::<u8>("BatteryPercentage")
+        properties.observe_prop_or::<bool>("Connected", false).map(Some),
+        properties.observe_prop_or::<u32>("Class", 0).map(Some),
+        properties.observe_prop_or::<u32>("Appearance", 0).map(Some),
+        properties.observe_prop_or::<u8>("BatteryPercentage", 0).map(Some)
             => move |(connected, class, appearance, battery)| BluezObject {
                 path: object.clone(),
                 powered: None,
@@ -149,13 +149,13 @@ fn bluez_device_summary_object(object: LocusPath) -> Observable<BluezObject> {
 fn bluez_detail_object(object: LocusPath) -> Observable<BluezObject> {
     let properties = properties(&object);
     combine_latest!(
-        properties.observe_prop::<bool>("Connected"),
-        properties.observe_prop::<bool>("Connecting"),
-        properties.observe_prop::<String>("Name"),
-        properties.observe_prop::<String>("Address"),
-        properties.observe_prop::<u32>("Class"),
-        properties.observe_prop::<u32>("Appearance"),
-        properties.observe_prop::<u8>("BatteryPercentage")
+        properties.observe_prop_or::<bool>("Connected", false).map(Some),
+        properties.observe_prop_or::<bool>("Connecting", false).map(Some),
+        properties.observe_prop_or::<String>("Name", String::new()).map(Some),
+        properties.observe_prop_or::<String>("Address", String::new()).map(Some),
+        properties.observe_prop_or::<u32>("Class", 0).map(Some),
+        properties.observe_prop_or::<u32>("Appearance", 0).map(Some),
+        properties.observe_prop_or::<u8>("BatteryPercentage", 0).map(Some)
             => move |(connected, connecting, name, address, class, appearance, battery)| BluezObject {
                 path: object.clone(),
                 powered: None,
@@ -184,8 +184,8 @@ fn is_device(path: &LocusPath) -> bool {
 fn upower_device(object: LocusPath) -> Observable<UpowerDevice> {
     let properties = properties(&object);
     combine_latest!(
-        properties.observe_prop::<String>("NativePath"),
-        properties.observe_prop::<f64>("Percentage").map(|value| value.and_then(percent))
+        properties.observe_prop_or::<String>("NativePath", String::new()).map(Some),
+        properties.observe_prop_or::<f64>("Percentage", 0.0).map(percent)
             => |(native_path, percentage)| UpowerDevice {
                 native_path,
                 percentage,

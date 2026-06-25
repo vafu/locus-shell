@@ -151,6 +151,7 @@ async fn children_event_value(path: &Path, event: WatchEvent) -> Result<Children
 async fn read_children_state(path: &Path) -> Result<ChildrenRead, String> {
     match locusfs_watch::read_dir_names(path).await {
         Ok(mut entries) => {
+            entries.retain(|entry| is_semantic_child_name(entry));
             entries.sort();
             let parent = LocusPath::new(path);
             Ok(ChildrenRead::Present(
@@ -165,8 +166,25 @@ async fn read_children_state(path: &Path) -> Result<ChildrenRead, String> {
     }
 }
 
+fn is_semantic_child_name(entry: &str) -> bool {
+    !entry.starts_with('@')
+}
+
 async fn read_children(path: &Path) -> Result<Vec<LocusPath>, String> {
     read_children_state(path)
         .await
         .map(ChildrenRead::into_children)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_semantic_child_name;
+
+    #[test]
+    fn semantic_children_filter_synthetic_entries() {
+        assert!(is_semantic_child_name("019efced_2d_4376"));
+        assert!(is_semantic_child_name("window"));
+        assert!(!is_semantic_child_name("@methods"));
+        assert!(!is_semantic_child_name("@properties"));
+    }
 }

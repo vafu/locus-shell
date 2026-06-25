@@ -16,3 +16,5 @@ shell-core.workspace = true
 shell-macros.workspace = true
 shell-rx-macros.workspace = true
 tokio = { version = "1.52.3", features = ["fs", "time"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }

@@ -73,13 +73,13 @@ fn project_details_source(project: Option<LocusPath>) -> Observable<ProjectDetai
     };
 
     combine_latest!(
-        project.observe_prop::<String>("display-name").map(non_empty),
-        project.observe_prop::<String>("title").map(non_empty),
-        project.observe_prop::<String>("name").map(non_empty),
-        project.observe_prop::<String>("path").map(non_empty),
-        project.observe_prop::<String>("branch").map(non_empty),
-        project.observe_prop::<String>("display-icon").map(non_empty),
-        project.observe_prop::<String>("icon").map(non_empty)
+        project.observe_prop_or::<String>("display-name", String::new()).map(non_empty_value),
+        project.observe_prop_or::<String>("title", String::new()).map(non_empty_value),
+        project.observe_prop_or::<String>("name", String::new()).map(non_empty_value),
+        project.observe_prop_or::<String>("path", String::new()).map(non_empty_value),
+        project.observe_prop_or::<String>("branch", String::new()).map(non_empty_value),
+        project.observe_prop_or::<String>("display-icon", String::new()).map(non_empty_value),
+        project.observe_prop_or::<String>("icon", String::new()).map(non_empty_value)
             => |(display_name, title, name, path, branch, display_icon, icon)| ProjectDetails {
                     has_project: true,
                     name: display_name.or(title).or(name).or(path),
@@ -88,6 +88,10 @@ fn project_details_source(project: Option<LocusPath>) -> Observable<ProjectDetai
             },
     )
     .box_it()
+}
+
+fn non_empty_value(value: String) -> Option<String> {
+    non_empty(Some(value))
 }
 
 fn non_empty(value: Option<String>) -> Option<String> {
