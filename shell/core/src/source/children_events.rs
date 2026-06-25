@@ -7,8 +7,8 @@ use crate::{locus_path::LocusPath, source::Observable};
 use super::{
     ChildrenEvent, WatchAction, WatchChange, WatchEvent, WatchState,
     support::{
-        WatchEvents, from_stream_result, is_missing, log_errors, open_target_or_parent,
-        shared_source, watch_error,
+        WatchEvents, ancestor_event_may_affect_path, from_stream_result, is_missing, log_errors,
+        open_target_or_parent, shared_source, watch_error,
     },
 };
 
@@ -30,6 +30,7 @@ enum ChildrenEventStreamPhase {
 struct ChildrenEventStreamState {
     path: PathBuf,
     watch: Option<locusfs_watch::Watch>,
+    watch_ancestor: Option<PathBuf>,
     events: WatchEvents,
     watching_target: bool,
     phase: ChildrenEventStreamPhase,
@@ -42,6 +43,7 @@ fn children_event_stream(
         ChildrenEventStreamState {
             path,
             watch: None,
+            watch_ancestor: None,
             events: WatchEvents::new(),
             watching_target: false,
             phase: ChildrenEventStreamPhase::Open,
@@ -52,9 +54,10 @@ fn children_event_stream(
                     ChildrenEventStreamPhase::Open => {
                         match open_target_or_parent(&state.path).await {
                             Ok(opened) => {
-                                let (watch, watching_target) = opened.into_parts();
+                                let (watch, watch_ancestor) = opened.into_parts();
                                 state.watch = Some(watch);
-                                state.watching_target = watching_target;
+                                state.watching_target = watch_ancestor.is_none();
+                                state.watch_ancestor = watch_ancestor;
                                 state.phase = ChildrenEventStreamPhase::InitialRead;
                             }
                             Err(error) => {
@@ -66,13 +69,6 @@ fn children_event_stream(
                     ChildrenEventStreamPhase::InitialRead => {
                         state.phase = ChildrenEventStreamPhase::WatchEvents;
                         let result = read_children_snapshot_state(&state.path).await;
-                        if state.watching_target
-                            && matches!(result, Ok(ChildrenSnapshotRead::Missing))
-                        {
-                            state.watch = None;
-                            state.watching_target = false;
-                            state.phase = ChildrenEventStreamPhase::Open;
-                        }
                         let result = result.map(ChildrenSnapshotRead::into_event);
                         return Some((result, state));
                     }
@@ -84,23 +80,31 @@ fn children_event_stream(
                         {
                             Ok(event) => {
                                 if !state.watching_target {
+                                    let Some(ancestor) = state.watch_ancestor.as_ref() else {
+                                        state.phase = ChildrenEventStreamPhase::Done;
+                                        return Some((
+                                            Err("ancestor watch path missing".to_owned()),
+                                            state,
+                                        ));
+                                    };
+                                    if !ancestor_event_may_affect_path(
+                                        ancestor,
+                                        &state.path,
+                                        &event,
+                                    ) {
+                                        continue;
+                                    }
                                     if let Ok(opened) = open_target_or_parent(&state.path).await {
-                                        let (watch, watching_target) = opened.into_parts();
+                                        let (watch, watch_ancestor) = opened.into_parts();
                                         state.watch = Some(watch);
-                                        state.watching_target = watching_target;
+                                        state.watching_target = watch_ancestor.is_none();
+                                        state.watch_ancestor = watch_ancestor;
                                     }
                                     read_children_snapshot(&state.path)
                                         .await
                                         .map(ChildrenEvent::Snapshot)
                                 } else {
-                                    let unset =
-                                        matches!(event, WatchEvent::State(WatchState::Unset));
                                     let result = children_watch_event(&state.path, event).await;
-                                    if children_event_watch_should_reopen(unset, &result) {
-                                        state.watch = None;
-                                        state.watching_target = false;
-                                        state.phase = ChildrenEventStreamPhase::Open;
-                                    }
                                     result.map(ChildrenSnapshotRead::into_event)
                                 }
                             }
@@ -206,40 +210,4 @@ async fn read_children_snapshot(path: &Path) -> Result<Vec<LocusPath>, String> {
             ChildrenSnapshotRead::Snapshot(children) => children,
             ChildrenSnapshotRead::Missing | ChildrenSnapshotRead::Event(_) => Vec::new(),
         })
-}
-
-fn children_event_watch_should_reopen(
-    missing_event: bool,
-    result: &Result<ChildrenSnapshotRead, String>,
-) -> bool {
-    missing_event || matches!(result, Ok(ChildrenSnapshotRead::Missing))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ChildrenSnapshotRead, children_event_watch_should_reopen};
-
-    #[test]
-    fn children_event_watch_reopens_on_explicit_missing_event() {
-        assert!(children_event_watch_should_reopen(
-            true,
-            &Ok(ChildrenSnapshotRead::Snapshot(Vec::new())),
-        ));
-    }
-
-    #[test]
-    fn children_event_watch_reopens_when_event_read_finds_missing_directory() {
-        assert!(children_event_watch_should_reopen(
-            false,
-            &Ok(ChildrenSnapshotRead::Missing),
-        ));
-    }
-
-    #[test]
-    fn children_event_watch_does_not_reopen_for_empty_present_directory() {
-        assert!(!children_event_watch_should_reopen(
-            false,
-            &Ok(ChildrenSnapshotRead::Snapshot(Vec::new())),
-        ));
-    }
 }

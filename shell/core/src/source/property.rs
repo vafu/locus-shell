@@ -8,8 +8,8 @@ use crate::source::Observable;
 use super::{
     FromLocusValue, WatchEvent, WatchState, WatchValue,
     support::{
-        WatchEvents, from_stream_result, is_missing, log_errors, open_target_or_parent,
-        shared_source, watch_error,
+        WatchEvents, ancestor_event_may_affect_path, from_stream_result, is_missing, log_errors,
+        open_target_or_parent, shared_source, watch_error,
     },
 };
 
@@ -36,6 +36,7 @@ enum PropertyStreamPhase {
 struct PropertyStreamState {
     path: PathBuf,
     watch: Option<locusfs_watch::Watch>,
+    watch_ancestor: Option<PathBuf>,
     events: WatchEvents,
     watching_target: bool,
     phase: PropertyStreamPhase,
@@ -49,6 +50,7 @@ where
         PropertyStreamState {
             path,
             watch: None,
+            watch_ancestor: None,
             events: WatchEvents::new(),
             watching_target: false,
             phase: PropertyStreamPhase::Open,
@@ -58,9 +60,10 @@ where
                 match state.phase {
                     PropertyStreamPhase::Open => match open_target_or_parent(&state.path).await {
                         Ok(opened) => {
-                            let (watch, watching_target) = opened.into_parts();
+                            let (watch, watch_ancestor) = opened.into_parts();
                             state.watch = Some(watch);
-                            state.watching_target = watching_target;
+                            state.watching_target = watch_ancestor.is_none();
+                            state.watch_ancestor = watch_ancestor;
                             state.phase = PropertyStreamPhase::InitialRead;
                         }
                         Err(error) => {
@@ -81,22 +84,29 @@ where
                         {
                             Ok(event) => {
                                 if !state.watching_target {
+                                    let Some(ancestor) = state.watch_ancestor.as_ref() else {
+                                        state.phase = PropertyStreamPhase::Done;
+                                        return Some((
+                                            Err("ancestor watch path missing".to_owned()),
+                                            state,
+                                        ));
+                                    };
+                                    if !ancestor_event_may_affect_path(
+                                        ancestor,
+                                        &state.path,
+                                        &event,
+                                    ) {
+                                        continue;
+                                    }
                                     if let Ok(opened) = open_target_or_parent(&state.path).await {
-                                        let (watch, watching_target) = opened.into_parts();
+                                        let (watch, watch_ancestor) = opened.into_parts();
                                         state.watch = Some(watch);
-                                        state.watching_target = watching_target;
+                                        state.watching_target = watch_ancestor.is_none();
+                                        state.watch_ancestor = watch_ancestor;
                                     }
                                     read_property(&state.path).await
                                 } else {
-                                    let unset =
-                                        matches!(event, WatchEvent::State(WatchState::Unset));
-                                    let result = property_event_value(&state.path, event).await;
-                                    if property_watch_should_reopen(unset, &result) {
-                                        state.watch = None;
-                                        state.watching_target = false;
-                                        state.phase = PropertyStreamPhase::Open;
-                                    }
-                                    result
+                                    property_event_value(&state.path, event).await
                                 }
                             }
                             Err(error) => {
@@ -150,39 +160,4 @@ where
     T::from_locus_value(value.trim())
         .map(Some)
         .map_err(|error| format!("failed to decode property {}: {error}", path.display()))
-}
-
-fn property_watch_should_reopen<T>(unset_event: bool, result: &Result<Option<T>, String>) -> bool {
-    unset_event || matches!(result, Ok(None))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::property_watch_should_reopen;
-
-    #[test]
-    fn property_watch_reopens_on_explicit_unset() {
-        assert!(property_watch_should_reopen(true, &Ok(Some(1))));
-    }
-
-    #[test]
-    fn property_watch_reopens_when_event_read_finds_missing_property() {
-        assert!(property_watch_should_reopen(
-            false,
-            &Ok::<_, String>(None::<i32>)
-        ));
-    }
-
-    #[test]
-    fn property_watch_stays_on_target_when_event_reads_value() {
-        assert!(!property_watch_should_reopen(false, &Ok(Some(1))));
-    }
-
-    #[test]
-    fn property_watch_error_does_not_mask_done_state() {
-        assert!(!property_watch_should_reopen::<i32>(
-            false,
-            &Err("read failed".to_owned()),
-        ));
-    }
 }

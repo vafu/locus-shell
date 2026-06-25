@@ -4,6 +4,7 @@ use shell_core::{
 };
 
 const AGENT_DBUS_OBJECTS_PATH: &str = "dbus/agentdbus/object/sessions/codex";
+static AGENT_DBUS_FIELDS_AS_NONE: bool = true;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct AgentSession {
@@ -44,10 +45,10 @@ enum AgentSessionField {
     AppInstanceId(Option<String>),
     WindowId(Option<u32>),
     ParentSessionId(Option<String>),
-    IsSubagent(bool),
-    RequiresAttention(bool),
-    TaskComplete(bool),
-    ContextPct(u32),
+    IsSubagent(Option<bool>),
+    RequiresAttention(Option<bool>),
+    TaskComplete(Option<bool>),
+    ContextPct(Option<u32>),
 }
 
 pub(super) fn agent_sessions() -> Observable<Vec<AgentSession>> {
@@ -101,76 +102,61 @@ fn agent_session(path: LocusPath) -> Observable<AgentSession> {
     let properties = path.child("@properties");
 
     source::combine_latest(vec![
-        properties
-            .observe_prop::<String>("SessionId")
+        agent_prop::<String>(&properties, "SessionId")
             .map(non_empty)
             .map(AgentSessionField::SessionId)
             .box_it(),
-        properties
-            .observe_prop::<String>("AgentName")
+        agent_prop::<String>(&properties, "AgentName")
             .map(non_empty)
             .map(AgentSessionField::Agent)
             .box_it(),
-        properties
-            .observe_prop::<String>("AgentNickname")
+        agent_prop::<String>(&properties, "AgentNickname")
             .map(non_empty)
             .map(AgentSessionField::Nickname)
             .box_it(),
-        properties
-            .observe_prop::<String>("AgentRole")
+        agent_prop::<String>(&properties, "AgentRole")
             .map(non_empty)
             .map(AgentSessionField::Role)
             .box_it(),
-        properties
-            .observe_prop::<String>("ModelName")
+        agent_prop::<String>(&properties, "ModelName")
             .map(non_empty)
             .map(AgentSessionField::Model)
             .box_it(),
-        properties
-            .observe_prop::<String>("State")
+        agent_prop::<String>(&properties, "State")
             .map(non_empty)
             .map(AgentSessionField::State)
             .box_it(),
-        properties
-            .observe_prop::<String>("Cwd")
+        agent_prop::<String>(&properties, "Cwd")
             .map(non_empty)
             .map(AgentSessionField::Cwd)
             .box_it(),
-        properties
-            .observe_prop::<String>("SessionTitle")
+        agent_prop::<String>(&properties, "SessionTitle")
             .map(non_empty)
             .map(AgentSessionField::RawTitle)
             .box_it(),
-        properties
-            .observe_prop::<String>("AppInstanceId")
+        agent_prop::<String>(&properties, "AppInstanceId")
             .map(non_empty)
             .map(AgentSessionField::AppInstanceId)
             .box_it(),
-        properties
-            .observe_prop::<String>("WindowId")
+        agent_prop::<String>(&properties, "WindowId")
             .map(parse_window_id)
             .map(AgentSessionField::WindowId)
             .box_it(),
-        properties
-            .observe_prop::<String>("ParentSessionId")
+        agent_prop::<String>(&properties, "ParentSessionId")
             .map(non_empty)
             .map(AgentSessionField::ParentSessionId)
             .box_it(),
-        properties
-            .observe_prop_or::<bool>("IsSubagent", false)
+        agent_prop::<bool>(&properties, "IsSubagent")
             .map(AgentSessionField::IsSubagent)
             .box_it(),
-        properties
-            .observe_prop_or::<bool>("RequiresAttention", false)
+        agent_prop::<bool>(&properties, "RequiresAttention")
             .map(AgentSessionField::RequiresAttention)
             .box_it(),
-        properties
-            .observe_prop_or::<bool>("TaskComplete", false)
+        agent_prop::<bool>(&properties, "TaskComplete")
             .map(AgentSessionField::TaskComplete)
             .box_it(),
-        properties
-            .observe_prop_or::<f64>("ContextPct", 0.0)
-            .map(percent)
+        agent_prop::<f64>(&properties, "ContextPct")
+            .map(|value| value.map(percent))
             .map(AgentSessionField::ContextPct)
             .box_it(),
     ])
@@ -212,14 +198,29 @@ fn agent_session_from_fields(path: LocusPath, fields: Vec<AgentSessionField>) ->
             AgentSessionField::AppInstanceId(value) => session.app_instance_id = value,
             AgentSessionField::WindowId(value) => session.window_id = value,
             AgentSessionField::ParentSessionId(value) => session.parent_session_id = value,
-            AgentSessionField::IsSubagent(value) => session.is_subagent = value,
-            AgentSessionField::RequiresAttention(value) => session.requires_attention = value,
-            AgentSessionField::TaskComplete(value) => session.task_complete = value,
-            AgentSessionField::ContextPct(value) => session.context_pct = value,
+            AgentSessionField::IsSubagent(value) => session.is_subagent = value.unwrap_or(false),
+            AgentSessionField::RequiresAttention(value) => {
+                session.requires_attention = value.unwrap_or(false);
+            }
+            AgentSessionField::TaskComplete(value) => {
+                session.task_complete = value.unwrap_or(false)
+            }
+            AgentSessionField::ContextPct(value) => session.context_pct = value.unwrap_or(0),
         }
     }
 
     session
+}
+
+fn agent_prop<T>(properties: &LocusPath, property: &'static str) -> Observable<Option<T>>
+where
+    T: source::FromLocusValue,
+{
+    if AGENT_DBUS_FIELDS_AS_NONE {
+        source::once(None)
+    } else {
+        properties.observe_prop::<T>(property)
+    }
 }
 
 fn project_path(project: LocusPath) -> Observable<ProjectPath> {
