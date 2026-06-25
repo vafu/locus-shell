@@ -102,11 +102,11 @@ pub(super) fn expand_locus_module(
                         source
                             .on_error(move |error| {
                                 let result = ::std::result::Result::Err(error.to_string());
-                                error_sender.input(#input);
+                                let _ = error_sender.input_sender().send(#input);
                             })
                             .subscribe(move |value| {
                         let result = ::std::result::Result::Ok(value);
-                        update_sender.input(#input);
+                        let _ = update_sender.input_sender().send(#input);
                             })
                             .into_boxed();
 
@@ -356,13 +356,13 @@ pub(super) fn expand_model_impl(
                                 let result = ::std::result::Result::Err(error.to_string());
                                 let input: <Component as ::relm4::Component>::Input =
                                     #module_ident::Msg::#variant(result).into();
-                                error_sender.input(input);
+                                let _ = error_sender.input_sender().send(input);
                             })
                             .subscribe(move |value| {
                         let result = ::std::result::Result::Ok(value);
                         let input: <Component as ::relm4::Component>::Input =
                             #module_ident::Msg::#variant(result).into();
-                        update_sender.input(input);
+                        let _ = update_sender.input_sender().send(input);
                             })
                             .into_boxed();
 
@@ -400,13 +400,13 @@ pub(super) fn expand_model_impl(
                                 let result = ::std::result::Result::Err(error.to_string());
                                 let input: <Component as ::relm4::component::AsyncComponent>::Input =
                                     #module_ident::Msg::#variant(result).into();
-                                error_sender.input(input);
+                                let _ = error_sender.input_sender().send(input);
                             })
                             .subscribe(move |value| {
                         let result = ::std::result::Result::Ok(value);
                         let input: <Component as ::relm4::component::AsyncComponent>::Input =
                             #module_ident::Msg::#variant(result).into();
-                        update_sender.input(input);
+                        let _ = update_sender.input_sender().send(input);
                             })
                             .into_boxed();
 
@@ -691,12 +691,12 @@ fn source_model_impl(
                     let subscription: ::shell_core::source::rxrust::prelude::BoxedSubscriptionSend =
                         source
                             .on_error(move |error| {
-                                error_sender.input(error_map(#module_ident::Msg::#variant(
+                                let _ = error_sender.input_sender().send(error_map(#module_ident::Msg::#variant(
                                     ::std::result::Result::Err(error.to_string()),
                                 )));
                             })
                             .subscribe(move |value| {
-                        update_sender.input(map(#module_ident::Msg::#variant(
+                        let _ = update_sender.input_sender().send(map(#module_ident::Msg::#variant(
                             ::std::result::Result::Ok(value),
                         )));
                             })
@@ -777,13 +777,13 @@ fn source_model_impl(
                     let subscription: ::shell_core::source::rxrust::prelude::BoxedSubscriptionSend =
                         source
                             .on_error(move |error| {
-                                error_sender.input(error_map.clone()(#module_ident::Msg::#context_update_variant(
+                                let _ = error_sender.input_sender().send(error_map.clone()(#module_ident::Msg::#context_update_variant(
                                     ::std::result::Result::Err(error.to_string()),
                                 )));
                             })
                             .subscribe(move |context| {
                         context_subscriptions.clear();
-                        update_sender.input(update_map.clone()(#module_ident::Msg::#context_update_variant(
+                        let _ = update_sender.input_sender().send(update_map.clone()(#module_ident::Msg::#context_update_variant(
                             ::std::result::Result::Ok(context.clone()),
                         )));
                         context_subscriptions =

@@ -3,10 +3,13 @@ mod theme;
 mod widgets;
 
 use shell_core::{ShellApp, css::CssPriority};
+use tracing_subscriber::EnvFilter;
 
 use widgets::{MainBar, MainBarInit};
 
 fn main() {
+    init_tracing();
+
     let _ = relm4::RELM_THREADS.set(4);
 
     ShellApp::new("io.github.Locus.RsynapseShell")
@@ -25,4 +28,11 @@ fn main() {
         .run_async::<MainBar>(MainBarInit {
             title: "Rsynapse Shell",
         });
+}
+
+fn init_tracing() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .compact()
+        .init();
 }

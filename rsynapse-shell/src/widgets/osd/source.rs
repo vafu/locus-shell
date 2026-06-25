@@ -33,11 +33,11 @@ fn audio_events() -> Observable<OsdLevel> {
     combine_latest!(
         sink.observe_prop_or::<u32>("volume-percent", 0),
         sink.observe_prop_or::<bool>("muted", false),
-        sink.observe_prop::<String>("icon-name")
+        sink.observe_prop_or::<String>("icon-name", String::new())
             => |(volume, muted, icon)| OsdLevel {
                 value: (f64::from(volume) / 100.0).clamp(0.0, 1.0),
-                icon_name: icon
-                    .filter(|icon| !icon.is_empty())
+                icon_name: (!icon.is_empty())
+                    .then_some(icon)
                     .unwrap_or_else(|| audio_icon_name(volume, muted).to_owned()),
             },
     )

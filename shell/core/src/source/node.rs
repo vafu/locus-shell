@@ -8,8 +8,8 @@ use crate::source::Observable;
 use super::{
     NodeState, WatchAction, WatchChange, WatchEvent, WatchState,
     support::{
-        WatchEvents, from_stream_result, log_errors, open_target_or_parent, shared_source,
-        watch_error,
+        WatchEvents, ancestor_event_may_affect_path, from_stream_result, log_errors,
+        open_target_or_parent, shared_source, watch_error,
     },
 };
 
@@ -33,6 +33,7 @@ enum NodeStreamPhase {
 struct NodeStreamState {
     path: PathBuf,
     watch: Option<locusfs_watch::Watch>,
+    watch_ancestor: Option<PathBuf>,
     events: WatchEvents,
     watching_target: bool,
     phase: NodeStreamPhase,
@@ -43,6 +44,7 @@ fn node_stream(path: PathBuf) -> impl futures_util::Stream<Item = Result<NodeSta
         NodeStreamState {
             path,
             watch: None,
+            watch_ancestor: None,
             events: WatchEvents::new(),
             watching_target: false,
             phase: NodeStreamPhase::Open,
@@ -52,9 +54,10 @@ fn node_stream(path: PathBuf) -> impl futures_util::Stream<Item = Result<NodeSta
                 match state.phase {
                     NodeStreamPhase::Open => match open_target_or_parent(&state.path).await {
                         Ok(opened) => {
-                            let (watch, watching_target) = opened.into_parts();
+                            let (watch, watch_ancestor) = opened.into_parts();
                             state.watch = Some(watch);
-                            state.watching_target = watching_target;
+                            state.watching_target = watch_ancestor.is_none();
+                            state.watch_ancestor = watch_ancestor;
                             state.phase = NodeStreamPhase::InitialRead;
                         }
                         Err(error) => {
@@ -75,28 +78,29 @@ fn node_stream(path: PathBuf) -> impl futures_util::Stream<Item = Result<NodeSta
                         {
                             Ok(event) => {
                                 if !state.watching_target {
+                                    let Some(ancestor) = state.watch_ancestor.as_ref() else {
+                                        state.phase = NodeStreamPhase::Done;
+                                        return Some((
+                                            Err("ancestor watch path missing".to_owned()),
+                                            state,
+                                        ));
+                                    };
+                                    if !ancestor_event_may_affect_path(
+                                        ancestor,
+                                        &state.path,
+                                        &event,
+                                    ) {
+                                        continue;
+                                    }
                                     if let Ok(opened) = open_target_or_parent(&state.path).await {
-                                        let (watch, watching_target) = opened.into_parts();
+                                        let (watch, watch_ancestor) = opened.into_parts();
                                         state.watch = Some(watch);
-                                        state.watching_target = watching_target;
+                                        state.watching_target = watch_ancestor.is_none();
+                                        state.watch_ancestor = watch_ancestor;
                                     }
                                     Ok(read_node_state(&state.path).await)
                                 } else {
-                                    let missing = matches!(
-                                        event,
-                                        WatchEvent::State(WatchState::Unset)
-                                            | WatchEvent::Change(WatchChange::Node {
-                                                action: WatchAction::Removed,
-                                                ..
-                                            })
-                                    );
-                                    let result = Ok(node_event_state(&state.path, event).await);
-                                    if node_watch_should_reopen(missing, &result) {
-                                        state.watch = None;
-                                        state.watching_target = false;
-                                        state.phase = NodeStreamPhase::Open;
-                                    }
-                                    result
+                                    Ok(node_event_state(&state.path, event).await)
                                 }
                             }
                             Err(error) => {
@@ -137,30 +141,5 @@ async fn read_node_state(path: &Path) -> NodeState {
         NodeState::Present
     } else {
         NodeState::Missing
-    }
-}
-
-fn node_watch_should_reopen(missing_event: bool, result: &Result<NodeState, String>) -> bool {
-    missing_event || matches!(result, Ok(NodeState::Missing))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::node_watch_should_reopen;
-    use crate::source::NodeState;
-
-    #[test]
-    fn node_watch_reopens_on_explicit_missing_event() {
-        assert!(node_watch_should_reopen(true, &Ok(NodeState::Present)));
-    }
-
-    #[test]
-    fn node_watch_reopens_when_event_read_finds_missing_node() {
-        assert!(node_watch_should_reopen(false, &Ok(NodeState::Missing)));
-    }
-
-    #[test]
-    fn node_watch_stays_on_target_when_event_reads_present_node() {
-        assert!(!node_watch_should_reopen(false, &Ok(NodeState::Present)));
     }
 }

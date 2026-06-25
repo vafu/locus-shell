@@ -62,19 +62,19 @@ pub(super) fn mpris_status() -> Observable<MprisView> {
 
 fn player(path: LocusPath) -> Observable<PlayerView> {
     let metadata = combine_latest!(
-        path.observe_prop::<String>("artist"),
-        path.observe_prop::<String>("title"),
-        path.observe_prop::<String>("album"),
-        path.observe_prop::<String>("identity"),
+        path.observe_prop_or::<String>("artist", String::new()),
+        path.observe_prop_or::<String>("title", String::new()),
+        path.observe_prop_or::<String>("album", String::new()),
+        path.observe_prop_or::<String>("identity", String::new()),
         path.observe_prop_or::<String>("art-url", String::new()),
         path.observe_prop_or::<String>("playerctl-name", String::new())
             => |(artist, title, album, identity, art_url, playerctl_name)| PlayerMetadata {
-                metadata: metadata(artist.as_deref(), title.as_deref()),
+                metadata: metadata(Some(artist.as_str()), Some(title.as_str())),
                 tooltip: tooltip(
-                    identity.as_deref(),
-                    artist.as_deref(),
-                    title.as_deref(),
-                    album.as_deref(),
+                    Some(identity.as_str()),
+                    Some(artist.as_str()),
+                    Some(title.as_str()),
+                    Some(album.as_str()),
                 ),
                 art_url,
                 playerctl_name,

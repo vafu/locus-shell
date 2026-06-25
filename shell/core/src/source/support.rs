@@ -20,7 +20,7 @@ use rxrust::{
     },
 };
 
-use super::{Observable, SourceError, SourceErrors, WatchEvent};
+use super::{Observable, SourceError, SourceErrors, WatchChange, WatchEvent};
 
 const MAX_SOURCE_ERRORS: usize = 20;
 
@@ -505,14 +505,17 @@ fn trace_source_lifecycle(action: &str, label: &str) {
 
 pub enum OpenedWatch {
     Target(locusfs_watch::Watch),
-    Parent(locusfs_watch::Watch),
+    Parent {
+        watch: locusfs_watch::Watch,
+        ancestor: PathBuf,
+    },
 }
 
 impl OpenedWatch {
-    pub fn into_parts(self) -> (locusfs_watch::Watch, bool) {
+    pub fn into_parts(self) -> (locusfs_watch::Watch, Option<PathBuf>) {
         match self {
-            Self::Target(watch) => (watch, true),
-            Self::Parent(watch) => (watch, false),
+            Self::Target(watch) => (watch, None),
+            Self::Parent { watch, ancestor } => (watch, Some(ancestor)),
         }
     }
 }
@@ -525,11 +528,103 @@ pub async fn open_target_or_parent(path: &Path) -> Result<OpenedWatch, String> {
                 .ok_or_else(|| format!("path has no watchable ancestor: {}", path.display()))?;
             locusfs_watch::Watch::open(&ancestor)
                 .await
-                .map(OpenedWatch::Parent)
+                .map(|watch| OpenedWatch::Parent {
+                    watch,
+                    ancestor: ancestor.clone(),
+                })
                 .map_err(|error| watch_error("open ancestor watch", &ancestor, error))
         }
         Err(error) => Err(watch_error("open watch", path, error)),
     }
+}
+
+pub fn ancestor_event_may_affect_path(ancestor: &Path, path: &Path, event: &WatchEvent) -> bool {
+    let Some(target) = path_components(path.strip_prefix(ancestor).unwrap_or(path)) else {
+        return true;
+    };
+    let Some(event_paths) = event_paths_relative_to_ancestor(ancestor, event) else {
+        return true;
+    };
+
+    event_paths
+        .iter()
+        .any(|event_path| paths_intersect(event_path, &target))
+}
+
+fn event_paths_relative_to_ancestor(
+    ancestor: &Path,
+    event: &WatchEvent,
+) -> Option<Vec<Vec<String>>> {
+    match event {
+        WatchEvent::State(_) => Some(Vec::new()),
+        WatchEvent::Change(WatchChange::Change) => None,
+        WatchEvent::Change(WatchChange::Node { node, .. }) => {
+            Some(vec![absolute_event_path_relative_to_ancestor(
+                ancestor,
+                node_path_components(node)?,
+            )])
+        }
+        WatchEvent::Change(WatchChange::Property { node, key, .. }) => {
+            Some(vec![child_event_path_relative_to_ancestor(
+                ancestor, node, key,
+            )?])
+        }
+        WatchEvent::Change(WatchChange::Relation { node, relation, .. }) => {
+            Some(vec![child_event_path_relative_to_ancestor(
+                ancestor, node, relation,
+            )?])
+        }
+    }
+}
+
+fn child_event_path_relative_to_ancestor(
+    ancestor: &Path,
+    node: &Option<String>,
+    child: &str,
+) -> Option<Vec<String>> {
+    let mut path = match node {
+        Some(node) => {
+            absolute_event_path_relative_to_ancestor(ancestor, node_path_components(node)?)
+        }
+        None => Vec::new(),
+    };
+    path.push(child.to_owned());
+    Some(path)
+}
+
+fn absolute_event_path_relative_to_ancestor(
+    ancestor: &Path,
+    mut event_path: Vec<String>,
+) -> Vec<String> {
+    let Some(ancestor) = path_components(ancestor) else {
+        return event_path;
+    };
+    let strip_len = (0..=event_path.len())
+        .rev()
+        .find(|len| ancestor.ends_with(&event_path[..*len]))
+        .unwrap_or(0);
+    event_path.drain(..strip_len);
+    event_path
+}
+
+fn node_path_components(node: &str) -> Option<Vec<String>> {
+    let (kind, local) = node.split_once(':')?;
+    Some(vec![kind.to_owned(), local.to_owned()])
+}
+
+fn path_components(path: &Path) -> Option<Vec<String>> {
+    path.components()
+        .map(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .map(|component| component.to_owned())
+        })
+        .collect()
+}
+
+fn paths_intersect(event_path: &[String], target: &[String]) -> bool {
+    event_path.is_empty() || event_path.starts_with(target) || target.starts_with(event_path)
 }
 
 pub struct WatchEvents {
@@ -580,6 +675,7 @@ fn nearest_watchable_ancestor(path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::{
+        path::Path,
         pin::Pin,
         sync::{
             Arc,
@@ -594,7 +690,12 @@ mod tests {
         Subscription,
     };
 
-    use super::{ShareReplayState, ShareReplaySubscription, from_stream_result};
+    use crate::source::{WatchAction, WatchChange, WatchEvent, WatchState};
+
+    use super::{
+        ShareReplayState, ShareReplaySubscription, ancestor_event_may_affect_path,
+        from_stream_result,
+    };
 
     #[derive(Clone, Default)]
     struct CountSubscription {
@@ -673,6 +774,143 @@ mod tests {
         assert_eq!(state.subscribers, 1);
         assert_eq!(state.latest, Some(1));
         assert!(state.connection.is_some());
+    }
+
+    #[test]
+    fn ancestor_filter_ignores_unrelated_root_node_events() {
+        let event = WatchEvent::Change(WatchChange::Node {
+            action: WatchAction::Added,
+            node: "window:1".to_owned(),
+        });
+
+        assert!(!ancestor_event_may_affect_path(
+            Path::new("/run/locusfs"),
+            Path::new("/run/locusfs/statusnotifier/item"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_ignores_root_node_events_for_same_kind_different_local() {
+        let event = WatchEvent::Change(WatchChange::Node {
+            action: WatchAction::Added,
+            node: "statusnotifier:other".to_owned(),
+        });
+
+        assert!(!ancestor_event_may_affect_path(
+            Path::new("/run/locusfs"),
+            Path::new("/run/locusfs/statusnotifier/item"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_accepts_root_node_events_for_target() {
+        let event = WatchEvent::Change(WatchChange::Node {
+            action: WatchAction::Added,
+            node: "statusnotifier:item".to_owned(),
+        });
+
+        assert!(ancestor_event_may_affect_path(
+            Path::new("/run/locusfs"),
+            Path::new("/run/locusfs/statusnotifier/item"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_ignores_unrelated_kind_node_events() {
+        let event = WatchEvent::Change(WatchChange::Node {
+            action: WatchAction::Added,
+            node: "statusnotifier:other".to_owned(),
+        });
+
+        assert!(!ancestor_event_may_affect_path(
+            Path::new("/run/locusfs/statusnotifier"),
+            Path::new("/run/locusfs/statusnotifier/item"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_accepts_kind_node_events_for_target() {
+        let event = WatchEvent::Change(WatchChange::Node {
+            action: WatchAction::Added,
+            node: "statusnotifier:item".to_owned(),
+        });
+
+        assert!(ancestor_event_may_affect_path(
+            Path::new("/run/locusfs/statusnotifier"),
+            Path::new("/run/locusfs/statusnotifier/item"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_matches_subject_relative_property_events() {
+        let event = WatchEvent::Change(WatchChange::Property {
+            action: WatchAction::Changed,
+            node: None,
+            key: "title".to_owned(),
+        });
+
+        assert!(ancestor_event_may_affect_path(
+            Path::new("/run/locusfs/statusnotifier/item"),
+            Path::new("/run/locusfs/statusnotifier/item/title"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_matches_absolute_property_events_under_kind() {
+        let event = WatchEvent::Change(WatchChange::Property {
+            action: WatchAction::Added,
+            node: Some("statusnotifier:item".to_owned()),
+            key: "title".to_owned(),
+        });
+
+        assert!(ancestor_event_may_affect_path(
+            Path::new("/run/locusfs/statusnotifier"),
+            Path::new("/run/locusfs/statusnotifier/item/title"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_ignores_unrelated_property_events_under_kind() {
+        let event = WatchEvent::Change(WatchChange::Property {
+            action: WatchAction::Added,
+            node: Some("statusnotifier:other".to_owned()),
+            key: "title".to_owned(),
+        });
+
+        assert!(!ancestor_event_may_affect_path(
+            Path::new("/run/locusfs/statusnotifier"),
+            Path::new("/run/locusfs/statusnotifier/item/title"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_accepts_generic_change_events() {
+        let event = WatchEvent::Change(WatchChange::Change);
+
+        assert!(ancestor_event_may_affect_path(
+            Path::new("/run/locusfs"),
+            Path::new("/run/locusfs/statusnotifier/item"),
+            &event,
+        ));
+    }
+
+    #[test]
+    fn ancestor_filter_ignores_ancestor_state_events() {
+        let event = WatchEvent::State(WatchState::Unset);
+
+        assert!(!ancestor_event_may_affect_path(
+            Path::new("/run/locusfs"),
+            Path::new("/run/locusfs/statusnotifier/item"),
+            &event,
+        ));
     }
 
     struct PendingDropStream {

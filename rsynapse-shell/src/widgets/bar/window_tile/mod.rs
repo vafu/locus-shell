@@ -4,7 +4,10 @@ mod source;
 use relm4::prelude::*;
 use shell_core::gtk::{self, prelude::*};
 
-use self::source::{AgentVisualState, WindowTileKind, WindowTileVm, window_tile_vm};
+use self::{
+    agent::{Agent, State as AgentState},
+    source::{Kind, ViewModel, window_tile_vm},
+};
 use super::WindowNode;
 use crate::widgets::{
     level_indicator::{self, LevelRenderStyle, LevelStage, LineStyle},
@@ -41,7 +44,7 @@ pub(super) struct WindowTile {
     pub window: WindowNode,
 
     #[source(window_tile_vm(window.clone()))]
-    pub vm: Option<WindowTileVm>,
+    pub vm: Option<ViewModel>,
 }
 
 #[shell_macros::component(
@@ -77,10 +80,10 @@ impl SimpleComponent for WindowTile {
 
                 gtk::Image {
                     #[watch]
-                    set_visible: is_plain_visible(&model.vm),
+                    set_visible: !is_agent(&model.vm),
 
                     #[watch]
-                    set_icon_name: plain_icon_name(&model.vm).as_deref(),
+                    set_icon_name: window_icon_name(&model.vm).as_deref(),
                 },
 
                 gtk::Box {
@@ -89,12 +92,13 @@ impl SimpleComponent for WindowTile {
                     set_vexpand: true,
 
                     #[watch]
-                    set_visible: is_agent_visible(&model.vm),
+                    set_visible: is_agent(&model.vm),
 
-                    #[local_ref]
-                    agent_icon -> gtk::Image {
+                    gtk::Image {
+                        add_css_class: "materialicon",
+
                         #[watch]
-                        set_icon_name: Some(material_icon::icon_name(vm_icon(&model.vm)).as_str()),
+                        set_icon_name: window_icon_name(&model.vm).as_deref(),
                     },
 
                     gtk::Overlay {
@@ -125,16 +129,6 @@ impl SimpleComponent for WindowTile {
                                 CONTEXT_STYLE,
                             ),
                         }
-                    },
-
-                    gtk::Label {
-                        add_css_class: "agent-subagent-badge",
-
-                        #[watch]
-                        set_label: agent_badge_label(substatus_count(&model.vm)).as_str(),
-
-                        #[watch]
-                        set_visible: substatus_count(&model.vm) > 0,
                     }
                 }
             }
@@ -147,14 +141,13 @@ impl SimpleComponent for WindowTile {
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = WindowTile::new(init);
-        let agent_icon = material_icon::image(vm_icon(&model.vm));
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
     }
 }
 
-fn window_tile_classes(vm: &Option<WindowTileVm>) -> Vec<&'static str> {
+fn window_tile_classes(vm: &Option<ViewModel>) -> Vec<&'static str> {
     let Some(vm) = vm else {
         return vec![
             "workspace-window-frame",
@@ -165,53 +158,61 @@ fn window_tile_classes(vm: &Option<WindowTileVm>) -> Vec<&'static str> {
 
     let mut classes = vec!["workspace-window-frame", "workspace-window-tile"];
     classes.push(match vm.kind {
-        WindowTileKind::Plain => "workspace-window-plain",
-        WindowTileKind::Agent => "workspace-window-agent",
-        WindowTileKind::Neovim => "workspace-window-neovim",
+        Kind::Plain => "workspace-window-plain",
+        Kind::Neovim => "workspace-window-neovim",
+        Kind::Agent(_) => "workspace-window-agent",
     });
 
-    if vm.kind == WindowTileKind::Agent {
+    if let Kind::Agent(agent) = &vm.kind {
         classes.push("agent-window");
+        if agent.attention {
+            classes.push("attention");
+        }
+        match agent.state {
+            AgentState::None => {}
+            AgentState::Thinking => classes.push("thinking"),
+            AgentState::ToolUse => classes.push("tool-use"),
+            AgentState::Compacting => classes.push("compacting"),
+        }
     }
+
     if vm.active {
         classes.push("active");
     }
     if vm.urgent {
         classes.push("urgent");
     }
-    if vm.attention {
-        classes.push("attention");
-    }
-    match vm.agent_state {
-        AgentVisualState::None => {}
-        AgentVisualState::Thinking => classes.push("thinking"),
-        AgentVisualState::ToolUse => classes.push("tool-use"),
-        AgentVisualState::Compacting => classes.push("compacting"),
-    }
 
     classes
 }
 
-fn is_plain_visible(vm: &Option<WindowTileVm>) -> bool {
+fn window_icon_name(vm: &Option<ViewModel>) -> Option<String> {
+    vm.as_ref().map(|vm| match &vm.kind {
+        Kind::Agent(agent) => agent_icon(agent, &vm.icon),
+        Kind::Plain | Kind::Neovim => vm.icon.clone(),
+    })
+}
+
+fn agent_icon(agent: &Agent, fallback: &str) -> String {
+    if agent.icon.is_empty() {
+        fallback.to_owned()
+    } else {
+        material_icon::icon_name(&agent.icon)
+    }
+}
+
+fn is_agent(vm: &Option<ViewModel>) -> bool {
     vm.as_ref()
-        .is_some_and(|vm| vm.kind != WindowTileKind::Agent)
+        .is_some_and(|vm| matches!(vm.kind, Kind::Agent(_)))
 }
 
-fn is_agent_visible(vm: &Option<WindowTileVm>) -> bool {
+fn context_pct(vm: &Option<ViewModel>) -> u32 {
     vm.as_ref()
-        .is_some_and(|vm| vm.kind == WindowTileKind::Agent)
-}
-
-fn vm_icon(vm: &Option<WindowTileVm>) -> &str {
-    vm.as_ref().map_or("", |vm| vm.icon.as_str())
-}
-
-fn context_pct(vm: &Option<WindowTileVm>) -> u32 {
-    vm.as_ref().map_or(0, |vm| vm.context_pct)
-}
-
-fn substatus_count(vm: &Option<WindowTileVm>) -> u32 {
-    vm.as_ref().map_or(0, |vm| vm.substatus_count)
+        .and_then(|vm| match &vm.kind {
+            Kind::Agent(agent) => Some(agent.context_pct),
+            Kind::Plain | Kind::Neovim => None,
+        })
+        .unwrap_or(0)
 }
 
 fn context_indicator_root_classes() -> Vec<&'static str> {
@@ -220,17 +221,4 @@ fn context_indicator_root_classes() -> Vec<&'static str> {
 
 fn context_indicator_level_classes(context_pct: u32) -> Vec<&'static str> {
     level_indicator::level_classes(f64::from(context_pct), 0.0, CONTEXT_STAGES)
-}
-
-fn agent_badge_label(count: u32) -> String {
-    count.to_string()
-}
-
-fn plain_icon_name(vm: &Option<WindowTileVm>) -> Option<String> {
-    let vm = vm.as_ref()?;
-    if vm.kind == WindowTileKind::Agent {
-        None
-    } else {
-        Some(vm.icon.clone())
-    }
 }

@@ -1,4 +1,3 @@
-mod agent_dbus;
 mod audio;
 mod battery;
 mod bluetooth;

@@ -34,8 +34,7 @@ pub(in crate::widgets::bar) fn audio_routes() -> Observable<Vec<AudioRouteView>>
     let default_sink_id = pipewire
         .child("default")
         .child("sink")
-        .observe_prop::<u32>("id")
-        .map(|id| id.unwrap_or(u32::MAX));
+        .observe_prop_or::<u32>("id", u32::MAX);
     let sinks = root
         .child(PIPEWIRE_SINKS_PATH)
         .as_children()
@@ -54,15 +53,15 @@ pub(in crate::widgets::bar) fn audio_routes() -> Observable<Vec<AudioRouteView>>
 fn default_sink_view(sink: LocusPath) -> Observable<AudioView> {
     combine_latest!(
         sink.as_node(),
-        sink.observe_prop::<String>("description"),
-        sink.observe_prop::<String>("icon-name"),
+        sink.observe_prop_or::<String>("description", String::new()),
+        sink.observe_prop_or::<String>("icon-name", String::new()),
         sink.observe_prop_or::<bool>("muted", false),
         sink.observe_prop_or::<u32>("volume-percent", 0)
             => |(state, description, icon, muted, volume)| {
                 match state {
                     NodeState::Present => sink_view_from_props(
-                        description.as_deref(),
-                        icon.as_deref(),
+                        Some(description.as_str()),
+                        Some(icon.as_str()),
                         muted,
                         volume,
                     ),
@@ -77,17 +76,17 @@ fn default_sink_view(sink: LocusPath) -> Observable<AudioView> {
 fn sink_snapshot(sink: LocusPath) -> Observable<SinkSnapshot> {
     combine_latest!(
         sink.observe_prop_or::<u32>("id", u32::MAX),
-        sink.observe_prop::<String>("name"),
-        sink.observe_prop::<String>("description"),
-        sink.observe_prop::<String>("nick"),
-        sink.observe_prop::<String>("icon-name"),
+        sink.observe_prop_or::<String>("name", String::new()).map(Some),
+        sink.observe_prop_or::<String>("description", String::new()).map(Some),
+        sink.observe_prop_or::<String>("nick", String::new()).map(Some),
+        sink.observe_prop_or::<String>("icon-name", String::new()),
         sink.observe_prop_or::<bool>("muted", false),
         sink.observe_prop_or::<u32>("volume-percent", 0),
-        sink.observe_prop::<String>("form-factor")
+        sink.observe_prop_or::<String>("form-factor", String::new()).map(Some)
             => move |(id, name, description, nick, icon, muted, volume, form_factor)| {
                 let view = sink_view_from_props(
                     description.as_deref(),
-                    icon.as_deref(),
+                    Some(icon.as_str()),
                     muted,
                     volume,
                 );
@@ -106,10 +105,7 @@ fn sink_snapshot(sink: LocusPath) -> Observable<SinkSnapshot> {
     .box_it()
 }
 
-fn route_views(
-    default_sink_id: u32,
-    mut sinks: Vec<SinkSnapshot>,
-) -> Vec<AudioRouteView> {
+fn route_views(default_sink_id: u32, mut sinks: Vec<SinkSnapshot>) -> Vec<AudioRouteView> {
     sinks.sort_by(|left, right| {
         let left_default = left.id == default_sink_id;
         let right_default = right.id == default_sink_id;
