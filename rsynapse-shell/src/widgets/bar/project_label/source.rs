@@ -1,3 +1,4 @@
+mod agent;
 mod workspace_fallback;
 
 use shell_core::{
@@ -6,7 +7,10 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
-use self::workspace_fallback::workspace_window_fallback_source;
+use self::{
+    agent::{WorkspaceAgentState, workspace_agent_state},
+    workspace_fallback::workspace_window_fallback_source,
+};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::widgets::bar) struct ProjectLabelVm {
@@ -19,6 +23,7 @@ pub(in crate::widgets::bar) struct ProjectLabelVm {
     pub(super) project_icon: Option<String>,
     pub(super) project_icon_is_app: bool,
     pub(super) empty: bool,
+    pub(super) agent: WorkspaceAgentState,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -34,6 +39,7 @@ pub(super) fn project_label_vm(workspace: LocusPath) -> Observable<ProjectLabelV
         .observe_rel("project")
         .switch_map(project_details_source);
     let workspace_fallback = workspace_window_fallback_source(workspace.clone());
+    let agent = workspace_agent_state(workspace.clone());
 
     combine_latest!(
         workspace
@@ -45,8 +51,9 @@ pub(super) fn project_label_vm(workspace: LocusPath) -> Observable<ProjectLabelV
         workspace
             .observe_prop_or::<bool>("selected", false),
         project,
-        workspace_fallback
-            => |(index, workspace_name, urgent, active, project, fallback)| {
+        workspace_fallback,
+        agent
+            => |(index, workspace_name, urgent, active, project, fallback, agent)| {
                 let fallback_icon = (!project.has_project).then_some(fallback.icon).flatten();
                 let project_icon_is_app = fallback_icon.is_some();
                 let project_icon = project.icon.or(fallback_icon);
@@ -60,6 +67,7 @@ pub(super) fn project_label_vm(workspace: LocusPath) -> Observable<ProjectLabelV
                     project_icon,
                     project_icon_is_app,
                     empty: !project.has_project && fallback.empty,
+                    agent,
                 }
             },
     )
