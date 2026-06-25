@@ -14,7 +14,7 @@ $outline-offset: $label-margin * 0.5;
   min-height: 32px;
 
   .barblock {
-    background-color: #{$bg};
+    background-color: #{$bg_tint};
     transition: background-color 100ms;
     border-radius: 12px;
     padding: 0 8px;
@@ -64,7 +64,7 @@ $outline-offset: $label-margin * 0.5;
 .workspace-window-tile {
   border-radius: 12px;
   padding: 0 8px;
-  background-color: #{$bg};
+  background-color: #{$bg_tint};
   opacity: 1;
   transition:
     background-color 160ms,
@@ -78,21 +78,21 @@ $outline-offset: $label-margin * 0.5;
   }
 
   &.active {
-    background-color: #{$bg};
+    background-color: #{$bg_tint};
     outline: 1px solid color-mix(in srgb, #{$ws_active} 72%, #{$fg});
     outline-offset: 0;
     opacity: 1;
   }
 
   &.urgent {
-    background-color: color-mix(in srgb, #{$sys_danger} 20%, #{$bg});
+    background-color: color-mix(in srgb, #{$sys_danger} 20%, #{$bg_tint});
     outline: 1px solid color-mix(in srgb, #{$sys_danger} 55%, transparent);
     opacity: 1;
   }
 
   &.workspace-window-agent {
     &.attention {
-      background-color: color-mix(in srgb, #{$sys_danger} 16%, #{$bg});
+      background-color: color-mix(in srgb, #{$sys_danger} 16%, #{$bg_tint});
       outline: 1px solid color-mix(in srgb, #{$sys_danger} 50%, transparent);
       opacity: 1;
     }
@@ -179,11 +179,6 @@ $outline-offset: $label-margin * 0.5;
   .mpris-label {
     font-weight: 600;
     margin: 0 2px;
-  }
-
-  .mpris-art {
-    border-radius: 6px;
-    min-width: 24px;
   }
 
   .mpris-control {
@@ -332,7 +327,7 @@ $outline-offset: $label-margin * 0.5;
 }
 
 .projects-project {
-  background-color: #{$bg};
+  background-color: #{$bg_tint};
   transition:
     background-color 180ms,
     opacity 180ms,

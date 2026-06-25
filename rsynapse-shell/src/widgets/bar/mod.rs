@@ -130,6 +130,7 @@ impl SimpleAsyncComponent for MainBar {
     type Output = ();
 
     view! {
+        #[root]
         gtk::Window {
             add_css_class: "bar-window",
 
@@ -189,15 +190,6 @@ impl SimpleAsyncComponent for MainBar {
                         set_halign: gtk::Align::End,
                         set_orientation: gtk::Orientation::Horizontal,
                         set_spacing: 4,
-
-                        gtk::Picture {
-                            add_css_class: "mpris-art",
-                            set_width_request: 24,
-                            #[watch]
-                            set_visible: mpris_art_file(&model.mpris).is_some(),
-                            #[watch]
-                            set_file: mpris_art_file(&model.mpris).as_ref(),
-                        },
 
                         #[name = "mpris_details_revealer"]
                         gtk::Revealer {
@@ -906,18 +898,6 @@ fn mpris_classes(mpris: &MprisView) -> Vec<&'static str> {
     classes
 }
 
-fn mpris_art_file(mpris: &MprisView) -> Option<gtk::gio::File> {
-    let art_url = mpris.art_url.trim();
-    if art_url.is_empty() {
-        None
-    } else if art_url.starts_with("file://") {
-        Some(gtk::gio::File::for_uri(art_url))
-    } else if art_url.starts_with('/') {
-        Some(gtk::gio::File::for_path(art_url))
-    } else {
-        None
-    }
-}
 
 fn launch_playerctl(action: MediaAction, player_name: &str) {
     let player_name = player_name.trim().to_owned();
