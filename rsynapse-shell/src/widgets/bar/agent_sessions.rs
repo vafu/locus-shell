@@ -4,7 +4,7 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
-use crate::locusfs_paths::AGENTDBUS;
+use crate::locusfs_paths::DBUS_SESSION;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::widgets::bar) struct AgentSessionSnapshot {
@@ -16,8 +16,8 @@ pub(in crate::widgets::bar) struct AgentSessionSnapshot {
 
 pub(in crate::widgets::bar) fn agent_sessions() -> Observable<Vec<AgentSessionSnapshot>> {
     source::shared_by_key("rsynapse.agentdbus.sessions", "codex", || {
-        AGENTDBUS
-            .object("sessions/codex")
+        DBUS_SESSION
+            .object("/io/github/AgentDBus/sessions/codex")
             .as_children()
             .switch_map(|sessions| {
                 source::combine_latest_vec::<AgentSessionSnapshot>(

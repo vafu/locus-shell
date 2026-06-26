@@ -4,13 +4,13 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
-use crate::locusfs_paths::NETWORK_MANAGER;
+use crate::locusfs_paths::DBUS_SYSTEM;
 
 mod parse;
 
 use parse::parse_ssid;
 
-const NETWORK_MANAGER_DEVICES_PATH: &str = "Devices";
+const NETWORK_MANAGER_DEVICES_PATH: &str = "/org/freedesktop/NetworkManager/Devices";
 
 const DEVICE_STATE_UNAVAILABLE: u32 = 20;
 const DEVICE_STATE_DISCONNECTED: u32 = 30;
@@ -78,7 +78,7 @@ struct AccessPoint {
 
 pub(super) fn network_status() -> Observable<NetworkView> {
     source::shared_by_key("rsynapse.network-status", "devices", || {
-        NETWORK_MANAGER
+        DBUS_SYSTEM
             .object(NETWORK_MANAGER_DEVICES_PATH)
             .as_children()
             .switch_map(|objects| {
@@ -96,7 +96,7 @@ pub(super) fn network_status() -> Observable<NetworkView> {
 }
 
 fn networkmanager_object_path(dbus_path: &str) -> Option<LocusPath> {
-    NETWORK_MANAGER.object_from_dbus_path(dbus_path)
+    DBUS_SYSTEM.object_from_dbus_path(dbus_path)
 }
 
 fn network_object(object: LocusPath) -> Observable<NetworkObject> {

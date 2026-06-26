@@ -1,9 +1,9 @@
 use shell_core::source::{self, Observable, rx::Observable as _};
 use shell_rx_macros::combine_latest;
 
-use crate::locusfs_paths::UPOWER;
+use crate::locusfs_paths::DBUS_SYSTEM;
 
-const BATTERY_OBJECT_PATH: &str = "devices/battery_BAT1";
+const BATTERY_OBJECT_PATH: &str = "/org/freedesktop/UPower/devices/battery_BAT1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BatteryView {
@@ -42,7 +42,7 @@ impl BatteryState {
 
 pub(super) fn battery_status() -> Observable<BatteryView> {
     source::shared_by_key("rsynapse.battery-status", BATTERY_OBJECT_PATH, || {
-        let battery = UPOWER.object(BATTERY_OBJECT_PATH);
+        let battery = DBUS_SYSTEM.object(BATTERY_OBJECT_PATH);
 
         combine_latest!(
             battery

@@ -3,54 +3,33 @@ use std::path::{Path, PathBuf};
 use shell_core::{locus_path::LocusPath, source};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct DbusServicePath {
-    local_id: &'static str,
-    object_manager_path: &'static str,
+pub(crate) struct DbusBusPath {
+    bus: &'static str,
 }
 
-pub(crate) const AGENTDBUS: DbusServicePath =
-    DbusServicePath::new("agentdbus", "/io/github/AgentDBus");
-pub(crate) const BLUEZ: DbusServicePath = DbusServicePath::new("bluez", "/");
-pub(crate) const NETWORK_MANAGER: DbusServicePath =
-    DbusServicePath::new("networkmanager", "/org/freedesktop/NetworkManager");
-pub(crate) const POWER_PROFILES: DbusServicePath =
-    DbusServicePath::new("powerprofiles", "/net/hadess/PowerProfiles");
-pub(crate) const UPOWER: DbusServicePath =
-    DbusServicePath::new("upower", "/org/freedesktop/UPower");
+pub(crate) const DBUS_SYSTEM: DbusBusPath = DbusBusPath::new("system");
+pub(crate) const DBUS_SESSION: DbusBusPath = DbusBusPath::new("session");
 
-impl DbusServicePath {
-    pub(crate) const fn new(local_id: &'static str, object_manager_path: &'static str) -> Self {
-        Self {
-            local_id,
-            object_manager_path,
-        }
+impl DbusBusPath {
+    pub(crate) const fn new(bus: &'static str) -> Self {
+        Self { bus }
     }
 
-    pub(crate) fn objects(self) -> LocusPath {
-        self.service_root().child("objects")
+    pub(crate) fn root(self) -> LocusPath {
+        source::root().child("dbus").child(self.bus)
     }
 
-    pub(crate) fn methods(self) -> LocusPath {
-        self.service_root().child("methods")
-    }
-
-    pub(crate) fn object(self, relative: impl AsRef<Path>) -> LocusPath {
-        append_relative(self.objects(), relative.as_ref())
+    pub(crate) fn object(self, path: impl AsRef<str>) -> LocusPath {
+        append_relative(self.root(), &dbus_path_segments(path.as_ref()))
     }
 
     pub(crate) fn object_from_dbus_path(self, path: &str) -> Option<LocusPath> {
-        let relative = relative_object_path(self.object_manager_path, path)?;
-        Some(append_relative(self.objects(), &relative))
+        dbus_object_path(path).map(|path| append_relative(self.root(), &path))
     }
 
     pub(crate) fn method_for_object(self, object: &LocusPath, method: &str) -> Option<LocusPath> {
-        let objects = self.objects();
-        let relative = object.as_path().strip_prefix(objects.as_path()).ok()?;
-        Some(append_relative(self.methods(), relative).child(method))
-    }
-
-    fn service_root(self) -> LocusPath {
-        source::root().child("dbus").child(self.local_id)
+        object.as_path().strip_prefix(self.root().as_path()).ok()?;
+        Some(object.child(method_call_name(method)))
     }
 }
 
@@ -62,85 +41,82 @@ fn append_relative(base: LocusPath, relative: &Path) -> LocusPath {
     }
 }
 
-fn relative_object_path(object_manager_path: &str, path: &str) -> Option<PathBuf> {
-    if !path.starts_with('/') {
-        return None;
-    }
-
-    if path == "/" {
-        return (object_manager_path == "/").then(PathBuf::new);
-    }
-
-    if path == object_manager_path {
-        return Some(PathBuf::new());
-    }
-
-    if object_manager_path == "/" {
-        return Some(dbus_path_segments(path.trim_start_matches('/')));
-    }
-
-    let manager_prefix = format!("{}/", object_manager_path.trim_end_matches('/'));
-    if let Some(relative) = path.strip_prefix(manager_prefix.as_str()) {
-        return Some(dbus_path_segments(relative));
-    }
-
-    let mut absolute = PathBuf::from("_absolute");
-    absolute.push(dbus_path_segments(path.trim_start_matches('/')));
-    Some(absolute)
+fn dbus_object_path(path: &str) -> Option<PathBuf> {
+    path.starts_with('/').then(|| dbus_path_segments(path))
 }
 
 fn dbus_path_segments(path: &str) -> PathBuf {
     let mut output = PathBuf::new();
-    for segment in path.split('/').filter(|segment| !segment.is_empty()) {
+    for segment in path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+    {
         output.push(segment);
     }
     output
+}
+
+fn method_call_name(method: &str) -> String {
+    format!("{method}.call")
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use super::relative_object_path;
+    use shell_core::{locus_path::LocusPath, source};
+
+    use super::{DBUS_SESSION, DBUS_SYSTEM, dbus_object_path};
 
     #[test]
-    fn maps_object_manager_root_to_object_tree_root() {
+    fn maps_full_system_object_path_under_system_bus_root() {
         assert_eq!(
-            relative_object_path("/net/hadess/PowerProfiles", "/net/hadess/PowerProfiles").unwrap(),
-            Path::new("")
+            DBUS_SYSTEM
+                .object("/org/freedesktop/UPower/devices/battery_BAT1")
+                .as_path(),
+            source::root()
+                .child("dbus/system/org/freedesktop/UPower/devices/battery_BAT1")
+                .as_path()
         );
     }
 
     #[test]
-    fn strips_object_manager_prefix() {
+    fn maps_full_session_object_path_under_session_bus_root() {
         assert_eq!(
-            relative_object_path(
-                "/org/freedesktop/UPower",
-                "/org/freedesktop/UPower/devices/battery_BAT1"
-            )
-            .unwrap(),
-            Path::new("devices/battery_BAT1")
+            DBUS_SESSION
+                .object("/io/github/AgentDBus/sessions/codex")
+                .as_path(),
+            source::root()
+                .child("dbus/session/io/github/AgentDBus/sessions/codex")
+                .as_path()
         );
     }
 
     #[test]
-    fn root_object_manager_uses_path_relative_to_objects_root() {
+    fn dbus_root_object_maps_to_bus_root() {
+        assert_eq!(dbus_object_path("/").unwrap(), Path::new(""));
+    }
+
+    #[test]
+    fn rejects_non_absolute_dbus_object_paths() {
+        assert!(dbus_object_path("org/freedesktop/UPower").is_none());
+    }
+
+    #[test]
+    fn method_paths_append_call_suffix_to_object_directory() {
+        let object = DBUS_SYSTEM.object("/org/bluez/hci0/dev_00_11");
+
         assert_eq!(
-            relative_object_path("/", "/org/bluez/hci0/dev_00_11").unwrap(),
-            Path::new("org/bluez/hci0/dev_00_11")
+            DBUS_SYSTEM.method_for_object(&object, "Connect").unwrap(),
+            object.child("Connect.call")
         );
     }
 
     #[test]
-    fn outside_manager_paths_use_absolute_namespace() {
-        assert_eq!(
-            relative_object_path("/org/example/Manager", "/outside/object").unwrap(),
-            Path::new("_absolute/outside/object")
-        );
-    }
+    fn method_paths_must_stay_under_matching_bus_root() {
+        let object = LocusPath::new("/tmp/rsynapse/dbus/session/org/bluez/hci0/dev_00_11");
 
-    #[test]
-    fn slash_is_absent_for_non_root_object_manager() {
-        assert!(relative_object_path("/org/example/Manager", "/").is_none());
+        assert!(DBUS_SYSTEM.method_for_object(&object, "Connect").is_none());
     }
 }

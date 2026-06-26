@@ -65,11 +65,14 @@ Implementation:
 Decision: rsynapse-shell should consume the generic locusfs D-Bus projection:
 
 ```text
-/dbus/<service>/objects/<relative-object-path>/<Property>
-/dbus/<service>/methods/<relative-object-path>/<Method>
+/dbus/system/<actual/dbus/path>/<Property>
+/dbus/system/<actual/dbus/path>/<Method>.call
+/dbus/session/<actual/dbus/path>/<Property>
+/dbus/session/<actual/dbus/path>/<Method>.call
 ```
 
-Legacy `object`, `@properties`, `@methods`, `@absolute`, and method `/call`
+Legacy `object`, `@properties`, `@methods`, `@absolute`, `_absolute`,
+service-local public roots, ObjectManager-relative paths, and method `/call`
 paths are removed from source code.
 
 Implementation:
@@ -77,17 +80,19 @@ Implementation:
 - Added `rsynapse-shell/src/locusfs_paths.rs`.
 - Migrated Battery, PowerProfiles, NetworkManager, BlueZ, and AgentDBus
   consumers.
-- Added tests for ObjectManager-relative, root-manager, and `_absolute` object
-  path mapping.
+- Updated the helper to expose `DBUS_SYSTEM` and `DBUS_SESSION` bus roots and
+  append `.call` for method files.
+- Added tests for system/session full D-Bus object paths, root object mapping,
+  non-absolute rejection, and bus-scoped method call files.
 
 ### 6. D-Bus Helper Stays In rsynapse-shell For Now
 
 Decision: do not move the D-Bus layout helper into shell-core yet.
 
 Reasoning: shell-core should stay a generic locusfs/Rx source layer. The helper
-currently encodes rsynapse-shell service local IDs and ObjectManager roots. If a
-second consumer needs the same service-aware construction, promote a generic
-helper deliberately.
+currently encodes the current locusfs D-Bus filesystem contract for this
+consumer. If a second consumer needs the same bus/object/method construction,
+promote a generic helper deliberately.
 
 ### 7. Macro Correctness Findings Are Deferred
 

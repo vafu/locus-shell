@@ -217,14 +217,15 @@ Current generic D-Bus paths come from locusfs and should be consumed through
 normal `LocusPath` composition:
 
 ```text
-/dbus/<service>/objects/<relative-object-path>/<Property>
-/dbus/<service>/methods/<relative-object-path>/<Method>
+/dbus/system/<actual/dbus/path>/<Property>
+/dbus/system/<actual/dbus/path>/<Method>.call
+/dbus/session/<actual/dbus/path>/<Property>
+/dbus/session/<actual/dbus/path>/<Method>.call
 ```
 
-If the object equals the service ObjectManager path, its properties live
-directly under `/dbus/<service>/objects`. Services whose ObjectManager path is
-`/` expose object paths relative to `objects`. Objects outside the configured
-ObjectManager root live under `_absolute`. Legacy `object`, `@properties`,
+The path after the bus root is the actual D-Bus object path without the leading
+slash. There is no service-local public root, ObjectManager-relative stripping,
+`_absolute`, `objects`, or `methods` directory. Legacy `object`, `@properties`,
 `@methods`, and method `/call` suffix paths are not part of the current layout.
 
 ## Migration Notes

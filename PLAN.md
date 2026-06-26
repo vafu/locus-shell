@@ -180,8 +180,10 @@ Framework crates own:
   handwritten derived sources where reuse is expected, so widget authors do not
   need local `OnceLock` caches or manual `.shared()` calls.
 - Completed in `rsynapse-shell`: generic D-Bus consumers use the current
-  `/dbus/<service>/objects` and `/dbus/<service>/methods` layout instead of
-  legacy `object`, `@properties`, `@methods`, and method `/call` paths.
+  `/dbus/system/<actual/dbus/path>` and `/dbus/session/<actual/dbus/path>`
+  layout, with `.call` method files, instead of legacy service-local
+  `object`, `@properties`, `@methods`, ObjectManager-relative, and method
+  `/call` paths.
 - Replace ad hoc consumer source code with user-authored observable source functions where it improves ergonomics.
 
 ## Next Concrete Step

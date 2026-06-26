@@ -2,9 +2,10 @@ use std::{fs, thread};
 
 use shell_core::source::{self, Observable, rx::Observable as _};
 
-use crate::locusfs_paths::POWER_PROFILES;
+use crate::locusfs_paths::DBUS_SYSTEM;
 
 const POWER_PROFILE_ORDER: &[&str] = &["power-saver", "balanced", "performance"];
+const POWER_PROFILES_OBJECT_PATH: &str = "/net/hadess/PowerProfiles";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PowerProfileView {
@@ -27,8 +28,8 @@ impl Default for PowerProfileView {
 
 pub(super) fn power_profile_status() -> Observable<PowerProfileView> {
     source::shared_by_key("rsynapse.power-profile-status", "active", || {
-        POWER_PROFILES
-            .objects()
+        DBUS_SYSTEM
+            .object(POWER_PROFILES_OBJECT_PATH)
             .observe_prop_or::<String>("ActiveProfile", String::new())
             .map(power_profile_view)
             .distinct_until_changed()
@@ -38,8 +39,8 @@ pub(super) fn power_profile_status() -> Observable<PowerProfileView> {
 
 pub(super) fn cycle_power_profile(profile: &str) {
     let next = next_profile(profile).to_owned();
-    let path = POWER_PROFILES
-        .objects()
+    let path = DBUS_SYSTEM
+        .object(POWER_PROFILES_OBJECT_PATH)
         .prop("ActiveProfile")
         .into_path_buf();
 

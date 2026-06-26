@@ -4,15 +4,15 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
-use crate::locusfs_paths::{BLUEZ, UPOWER};
+use crate::locusfs_paths::DBUS_SYSTEM;
 
 use super::{
     BluetoothDeviceGroup, BluetoothDeviceView, BluetoothStatusView, BluetoothView, DeviceGroupView,
     device_type::{BluetoothDeviceKind, device_kind},
 };
 
-const BLUEZ_ADAPTER_PATH: &str = "org/bluez/hci0";
-const UPOWER_DEVICES_PATH: &str = "devices";
+const BLUEZ_ADAPTER_PATH: &str = "/org/bluez/hci0";
+const UPOWER_DEVICES_PATH: &str = "/org/freedesktop/UPower/devices";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BluezObject {
@@ -79,7 +79,7 @@ pub(super) fn bluetooth_group_devices(
 
 fn bluez_summary_objects() -> Observable<Vec<BluezObject>> {
     source::shared_by_key("rsynapse.bluez-summary-objects", BLUEZ_ADAPTER_PATH, || {
-        let adapter = BLUEZ.object(BLUEZ_ADAPTER_PATH);
+        let adapter = DBUS_SYSTEM.object(BLUEZ_ADAPTER_PATH);
 
         adapter
             .as_children()
@@ -103,7 +103,7 @@ fn bluez_summary_objects() -> Observable<Vec<BluezObject>> {
 
 fn bluez_detail_objects() -> Observable<Vec<BluezObject>> {
     source::shared_by_key("rsynapse.bluez-detail-objects", BLUEZ_ADAPTER_PATH, || {
-        BLUEZ
+        DBUS_SYSTEM
             .object(BLUEZ_ADAPTER_PATH)
             .as_children()
             .switch_map(|objects| {
@@ -123,7 +123,7 @@ fn bluez_detail_objects() -> Observable<Vec<BluezObject>> {
 
 fn upower_devices() -> Observable<Vec<UpowerDevice>> {
     source::shared_by_key("rsynapse.upower-devices", UPOWER_DEVICES_PATH, || {
-        UPOWER
+        DBUS_SYSTEM
             .object(UPOWER_DEVICES_PATH)
             .as_children()
             .switch_map(|objects| {
@@ -367,9 +367,9 @@ fn device_view(device: &DeviceSnapshot) -> BluetoothDeviceView {
 }
 
 fn method_call_path(object: &LocusPath, method: &str) -> LocusPath {
-    BLUEZ
+    DBUS_SYSTEM
         .method_for_object(object, method)
-        .expect("BlueZ method target must be under the BlueZ objects tree")
+        .expect("BlueZ method target must be under the system D-Bus tree")
 }
 
 fn status_icon(powered: bool, discovering: bool, connected_count: u8) -> &'static str {
