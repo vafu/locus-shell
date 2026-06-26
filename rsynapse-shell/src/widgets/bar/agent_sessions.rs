@@ -22,6 +22,7 @@ pub(in crate::widgets::bar) fn agent_sessions() -> Observable<Vec<AgentSessionSn
         DBUS_SESSION
             .object("/io/github/AgentDBus/sessions/codex")
             .as_children()
+            .map(agent_session_children)
             .switch_map(|sessions| {
                 source::combine_latest_vec::<AgentSessionSnapshot>(
                     sessions.into_iter().map(agent_session).collect(),
@@ -31,6 +32,21 @@ pub(in crate::widgets::bar) fn agent_sessions() -> Observable<Vec<AgentSessionSn
             .distinct_until_changed()
             .box_it()
     })
+}
+
+fn agent_session_children(children: Vec<LocusPath>) -> Vec<LocusPath> {
+    children
+        .into_iter()
+        .filter(is_agent_session_child)
+        .collect()
+}
+
+fn is_agent_session_child(child: &LocusPath) -> bool {
+    child
+        .as_path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| !name.ends_with(".call"))
 }
 
 fn agent_session(session: LocusPath) -> Observable<AgentSessionSnapshot> {
@@ -118,7 +134,9 @@ fn parse_context_pct(context_pct: &str) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentSessionSnapshot, latest_sessions_by_window};
+    use shell_core::locus_path::LocusPath;
+
+    use super::{AgentSessionSnapshot, agent_session_children, latest_sessions_by_window};
 
     fn session(session_id: &str, window_id: Option<u32>, status: &str) -> AgentSessionSnapshot {
         AgentSessionSnapshot {
@@ -153,6 +171,24 @@ mod tests {
                 session("subagent", None, "thinking"),
                 session("019f0001-new", Some(7), "idle"),
             ]
+        );
+    }
+
+    #[test]
+    fn agent_session_children_filters_method_call_files() {
+        assert_eq!(
+            agent_session_children(vec![
+                LocusPath::new("/dbus/session/io/github/AgentDBus/sessions/codex/session-one"),
+                LocusPath::new(
+                    "/dbus/session/io/github/AgentDBus/sessions/codex/RespondToElicitation.call",
+                ),
+                LocusPath::new(
+                    "/dbus/session/io/github/AgentDBus/sessions/codex/io.github.AgentDBus1.Session.RespondToElicitationById.call",
+                ),
+            ]),
+            vec![LocusPath::new(
+                "/dbus/session/io/github/AgentDBus/sessions/codex/session-one",
+            )]
         );
     }
 }
