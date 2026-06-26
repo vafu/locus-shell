@@ -133,8 +133,9 @@ module or in `shell/core`.
 
 ### Battery
 
-- Current Rust source already reads BAT1 through locusfs:
-  `dbus-service/upower/object/battery_BAT1/`.
+- Current Rust source already reads BAT1 through the generic LocusFS D-Bus
+  projection, for example
+  `/dbus/system/org/freedesktop/UPower/devices/battery_BAT1/`.
 - Extend it to read `IconName` from the same object. This should be the primary
   icon source because AGS used Astal's `battery_icon_name`, which maps to the
   UPower symbolic battery icon behavior.

@@ -240,7 +240,6 @@ D-Bus/provider dependencies:
 - [Per-monitor layer surface lifecycle](../../missing-shell-features/per-monitor-layer-surface-lifecycle.md)
 - [Dynamic provider collections](../../missing-shell-features/dynamic-provider-collections.md)
 - [Typed Locus collection hydration](../../missing-shell-features/typed-locus-collection-hydration.md)
-- [Shared source fanout keys](../../missing-shell-features/shared-source-fanout-keys.md)
 - [Observable source composition](../../missing-shell-features/observable-source-composition.md)
 - [StatusNotifier tray provider](../../missing-shell-features/statusnotifier-tray-provider.md)
 - [MPRIS provider](../../missing-shell-features/mpris-provider.md)

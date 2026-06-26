@@ -2,7 +2,7 @@
 
 ## Objective
 
-Locus Shell is a Rust/Relm4 desktop shell for high-performance, low-footprint widgets such as bars, OSDs, and notifications. It replaces heavier GJS/AGS-style shell code with native GTK4 binaries and locusfs-driven reactivity from a filesystem graph exposed through `locusfs-client`.
+Locus Shell is a Rust/Relm4 desktop shell for high-performance, low-footprint widgets such as bars, OSDs, and notifications. It replaces heavier GJS/AGS-style shell code with native GTK4 binaries and LocusFS-driven reactivity exposed through shell-owned Observable source helpers.
 
 The shell should provide a concise authoring model for widgets while preserving the runtime characteristics of compiled Rust and GTK4.
 

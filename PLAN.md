@@ -71,9 +71,10 @@ Framework crates own:
   names or product policy into `shell-core` unless another consumer needs the
   same transport contract.
 
-### 4. Locusfs Source Integration
+### 4. LocusFS Source Integration
 
-- Use `locusfs-client` as the current graph transport for reads and watches.
+- Use shell-core Observable primitives as the public graph transport. Direct
+  `locusfs-watch` client usage stays private to `shell-core::source`.
 - Consumer crates should represent Locus paths with `LocusPath`.
 - Do not reintroduce schema-specific marker structs, `NodeRef`, `Property`,
   `Relation`, `Path`, or generated graph extension traits in this workspace.
@@ -196,5 +197,5 @@ Framework crates own:
 ## Next Concrete Step
 
 Measure real shell runtime source fanout with `SHELL_CORE_SOURCE_TRACE`, then
-finish the macro-layer correctness work identified in `refactor/agent-macros.md`
-before adding generated `#[shell_macros::observable]` descriptor support.
+finish macro-layer correctness work before adding generated
+`#[shell_macros::observable]` descriptor support.
