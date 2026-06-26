@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use shell_core::{
     locus_path::LocusPath,
     source::{self, Observable, rx::Observable as _},
@@ -8,6 +10,7 @@ use crate::locusfs_paths::DBUS_SESSION;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::widgets::bar) struct AgentSessionSnapshot {
+    pub(in crate::widgets::bar) session_id: String,
     pub(in crate::widgets::bar) window_id: Option<u32>,
     pub(in crate::widgets::bar) status: String,
     pub(in crate::widgets::bar) requires_attention: bool,
@@ -24,20 +27,23 @@ pub(in crate::widgets::bar) fn agent_sessions() -> Observable<Vec<AgentSessionSn
                     sessions.into_iter().map(agent_session).collect(),
                 )
             })
-            .map(|sessions| sessions)
+            .map(latest_sessions_by_window)
             .distinct_until_changed()
             .box_it()
     })
 }
 
 fn agent_session(session: LocusPath) -> Observable<AgentSessionSnapshot> {
+    let session_id = session_id_from_path(&session);
     combine_latest!(
+        session.observe_prop_or::<String>("SessionId", session_id),
         session.observe_prop_or::<String>("WindowId", String::new()),
         session.observe_prop_or::<String>("State", String::new()),
         session.observe_prop_or::<bool>("RequiresAttention", false),
         session.observe_prop_or::<String>("ContextPct", String::new())
-            => move |(window_id, status, requires_attention, context_pct)| {
+            => move |(session_id, window_id, status, requires_attention, context_pct)| {
                 AgentSessionSnapshot {
+                    session_id,
                     window_id: parse_window_id(&window_id),
                     status,
                     requires_attention,
@@ -47,6 +53,45 @@ fn agent_session(session: LocusPath) -> Observable<AgentSessionSnapshot> {
     )
     .distinct_until_changed()
     .box_it()
+}
+
+fn latest_sessions_by_window(sessions: Vec<AgentSessionSnapshot>) -> Vec<AgentSessionSnapshot> {
+    let mut latest_by_window = BTreeMap::new();
+    let mut unbound = Vec::new();
+
+    for session in sessions {
+        let Some(window_id) = session.window_id else {
+            unbound.push(session);
+            continue;
+        };
+
+        match latest_by_window.entry(window_id) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(session);
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                if session_is_newer(&session, entry.get()) {
+                    entry.insert(session);
+                }
+            }
+        }
+    }
+
+    unbound.extend(latest_by_window.into_values());
+    unbound
+}
+
+fn session_is_newer(candidate: &AgentSessionSnapshot, current: &AgentSessionSnapshot) -> bool {
+    candidate.session_id > current.session_id
+}
+
+fn session_id_from_path(session: &LocusPath) -> String {
+    session
+        .as_path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 fn parse_window_id(window_id: &str) -> Option<u32> {
@@ -69,4 +114,45 @@ fn parse_context_pct(context_pct: &str) -> u32 {
         .or_else(|_| context_pct.parse::<f64>().map(|value| value.round() as u32))
         .unwrap_or(0)
         .min(100)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentSessionSnapshot, latest_sessions_by_window};
+
+    fn session(session_id: &str, window_id: Option<u32>, status: &str) -> AgentSessionSnapshot {
+        AgentSessionSnapshot {
+            session_id: session_id.to_owned(),
+            window_id,
+            status: status.to_owned(),
+            requires_attention: false,
+            context_pct: 0,
+        }
+    }
+
+    #[test]
+    fn latest_sessions_by_window_prefers_newer_session_for_same_window() {
+        assert_eq!(
+            latest_sessions_by_window(vec![
+                session("019f0000-old", Some(7), "thinking"),
+                session("019f0001-new", Some(7), "idle"),
+            ]),
+            vec![session("019f0001-new", Some(7), "idle")]
+        );
+    }
+
+    #[test]
+    fn latest_sessions_by_window_preserves_unbound_sessions() {
+        assert_eq!(
+            latest_sessions_by_window(vec![
+                session("019f0000-old", Some(7), "thinking"),
+                session("019f0001-new", Some(7), "idle"),
+                session("subagent", None, "thinking"),
+            ]),
+            vec![
+                session("subagent", None, "thinking"),
+                session("019f0001-new", Some(7), "idle"),
+            ]
+        );
+    }
 }
