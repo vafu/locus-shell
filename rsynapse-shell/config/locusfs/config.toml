@@ -12,6 +12,7 @@ enabled = true
 [plugins.dbus.config]
 services = [
   { name = "io.github.AgentDBus", bus = "session", local_id = "agentdbus", object_manager_path = "/io/github/AgentDBus" },
+  { name = "com.snap.BzBus", bus = "session", local_id = "bzbus", object_manager_path = "/com/snap/BzBus" },
   { name = "org.freedesktop.UPower", bus = "system", local_id = "upower", object_manager_path = "/org/freedesktop/UPower" },
   { name = "org.freedesktop.NetworkManager", bus = "system", local_id = "networkmanager", object_manager_path = "/org/freedesktop/NetworkManager" },
   { name = "org.bluez", bus = "system", local_id = "bluez", object_manager_path = "/" },

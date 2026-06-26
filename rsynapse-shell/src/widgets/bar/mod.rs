@@ -2,6 +2,7 @@ mod agent_sessions;
 mod audio;
 mod battery;
 mod bluetooth;
+mod bzbus;
 mod mpris;
 mod network;
 mod power_profile;
@@ -39,6 +40,7 @@ use self::battery::battery_status;
 use self::bluetooth::{
     BluetoothDeviceGroup, BluetoothGroupPopover, BluetoothView, bluetooth_status,
 };
+use self::bzbus::{BzBusView, bzbus_status};
 use self::mpris::{MprisView, mpris_status};
 use self::network::{NetworkView, network_status};
 use self::power_profile::{PowerProfileView, power_profile_status};
@@ -91,6 +93,9 @@ pub struct MainBar {
 
     #[source(selected_workspace_windows())]
     window_tiles: Vec<WindowNode>,
+
+    #[source(bzbus_status())]
+    bzbus: BzBusView,
 
     #[source(battery_status())]
     battery: BatteryView,
@@ -157,6 +162,27 @@ impl SimpleAsyncComponent for MainBar {
                         set_halign: gtk::Align::Center,
                         set_orientation: gtk::Orientation::Horizontal,
                         set_spacing: 4,
+                    },
+
+                    gtk::Box {
+                        #[watch]
+                        set_css_classes: &model.bzbus.classes,
+                        #[watch]
+                        set_tooltip_text: Some(model.bzbus.tooltip.as_str()),
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 4,
+
+                        gtk::Image {
+                            add_css_class: "materialicon",
+                            #[watch]
+                            set_icon_name: Some(material_icon::icon_name(model.bzbus.icon).as_str()),
+                        },
+
+                        gtk::Label {
+                            add_css_class: "bzbus-status",
+                            #[watch]
+                            set_label: model.bzbus.label.as_str(),
+                        }
                     }
                 },
 
