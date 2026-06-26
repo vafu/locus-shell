@@ -175,11 +175,17 @@ Framework crates own:
   authors should see ordinary Rust functions returning `Observable<T>`, not
   custom source traits.
 - Future service helpers should return observables or proxy through locusfs.
-- Keep descriptor-keyed sharing in generated/source policy where reuse is expected so widget authors do not need local `OnceLock` caches or manual `.shared()` calls.
+- Completed: primitive locusfs sources share by normalized backend path.
+- Completed: `source::shared_by_key` provides descriptor-keyed sharing for
+  handwritten derived sources where reuse is expected, so widget authors do not
+  need local `OnceLock` caches or manual `.shared()` calls.
+- Completed in `rsynapse-shell`: generic D-Bus consumers use the current
+  `/dbus/<service>/objects` and `/dbus/<service>/methods` layout instead of
+  legacy `object`, `@properties`, `@methods`, and method `/call` paths.
 - Replace ad hoc consumer source code with user-authored observable source functions where it improves ergonomics.
 
 ## Next Concrete Step
 
-Remove remaining stale schema/codegen references from docs and macro examples,
-then factor duplicated handwritten locusfs source helpers only if more consumers
-need the same graph reads.
+Measure real shell runtime source fanout with `SHELL_CORE_SOURCE_TRACE`, then
+finish the macro-layer correctness work identified in `refactor/agent-macros.md`
+before adding generated `#[shell_macros::observable]` descriptor support.

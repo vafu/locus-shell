@@ -52,15 +52,17 @@ impl Default for TrayMenuItemVm {
 }
 
 pub(crate) fn tray_items() -> Observable<Vec<LocusPath>> {
-    source::root()
-        .child(TRAY_ITEMS_PATH)
-        .as_children()
-        .map(|mut items| {
-            items.sort_by(|left, right| left.as_path().cmp(right.as_path()));
-            items
-        })
-        .distinct_until_changed()
-        .box_it()
+    source::shared_by_key("rsynapse.tray-items", TRAY_ITEMS_PATH, || {
+        source::root()
+            .child(TRAY_ITEMS_PATH)
+            .as_children()
+            .map(|mut items| {
+                items.sort_by(|left, right| left.as_path().cmp(right.as_path()));
+                items
+            })
+            .distinct_until_changed()
+            .box_it()
+    })
 }
 
 pub(super) fn tray_item_vm(item: LocusPath) -> Observable<TrayItemVm> {
@@ -112,15 +114,20 @@ fn tray_item_view(
 }
 
 pub(super) fn tray_menu_items(item: LocusPath) -> Observable<Vec<LocusPath>> {
-    let items = source::root().child("dbusmenu/item").as_children();
     combine_latest!(
         item.observe_prop_or::<String>("service-name", String::new()),
         item.observe_prop_or::<String>("menu-path", String::new()),
-        items
+        dbusmenu_items()
             => |(service, menu_path, items)| dbusmenu_items_for_menu(service.as_str(), menu_path.as_str(), items),
     )
     .distinct_until_changed()
     .box_it()
+}
+
+fn dbusmenu_items() -> Observable<Vec<LocusPath>> {
+    source::shared_by_key("rsynapse.dbusmenu-items", "all", || {
+        source::root().child("dbusmenu/item").as_children()
+    })
 }
 
 pub(super) fn tray_menu_item_vm(item: LocusPath) -> Observable<TrayMenuItemVm> {

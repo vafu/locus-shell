@@ -5,10 +5,7 @@ use shell_core::{
 };
 
 pub(super) fn source_error_count() -> Observable<u64> {
-    source::errors()
-        .map(|errors| errors.total)
-        .distinct_until_changed()
-        .box_it()
+    source::error_count()
 }
 
 pub(super) fn source_error_items() -> Observable<Vec<SourceError>> {

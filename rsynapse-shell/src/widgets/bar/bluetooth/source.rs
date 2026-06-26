@@ -4,13 +4,15 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
+use crate::locusfs_paths::{BLUEZ, UPOWER};
+
 use super::{
     BluetoothDeviceGroup, BluetoothDeviceView, BluetoothStatusView, BluetoothView, DeviceGroupView,
     device_type::{BluetoothDeviceKind, device_kind},
 };
 
-const BLUEZ_ADAPTER_PATH: &str = "dbus/bluez/object/org/bluez/hci0";
-const UPOWER_DEVICES_PATH: &str = "dbus/upower/object/devices";
+const BLUEZ_ADAPTER_PATH: &str = "org/bluez/hci0";
+const UPOWER_DEVICES_PATH: &str = "devices";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BluezObject {
@@ -44,60 +46,93 @@ struct DeviceSnapshot {
 }
 
 pub(super) fn bluetooth_status() -> Observable<BluetoothView> {
-    let root = source::root();
-    let adapter = root.child(BLUEZ_ADAPTER_PATH);
-
-    let bluez_objects = adapter.as_children().switch_map(move |objects| {
-        let adapter = adapter.clone();
-        let devices = objects
-            .into_iter()
-            .filter(is_device)
-            .map(bluez_device_summary_object);
-        source::combine_latest_vec(
-            std::iter::once(bluez_adapter_summary_object(adapter))
-                .chain(devices)
-                .collect(),
-        )
-    });
-
-    bluez_objects
-        .map(bluetooth_view)
-        .distinct_until_changed()
-        .box_it()
+    source::shared_by_key("rsynapse.bluetooth-status", BLUEZ_ADAPTER_PATH, || {
+        bluez_summary_objects()
+            .map(bluetooth_view)
+            .distinct_until_changed()
+            .box_it()
+    })
 }
 
 pub(super) fn bluetooth_group_devices(
     group: BluetoothDeviceGroup,
 ) -> Observable<Vec<BluetoothDeviceView>> {
-    let root = source::root();
-    let adapter = root.child(BLUEZ_ADAPTER_PATH);
-    let upower = root.child(UPOWER_DEVICES_PATH);
-
-    let bluez_objects = adapter.as_children().switch_map(|objects| {
-        source::combine_latest_vec(
-            objects
-                .into_iter()
-                .filter(is_device)
-                .map(bluez_detail_object)
-                .collect(),
-        )
-    });
-    let upower_devices = upower.as_children().switch_map(|objects| {
-        source::combine_latest_vec(objects.into_iter().map(upower_device).collect())
-    });
-
-    combine_latest!(
-        bluez_objects,
-        upower_devices => move |(bluez_objects, upower_devices)| {
-            device_snapshots(&bluez_objects, &upower_devices)
-                .into_iter()
-                .filter(|device| group.matches(device.kind))
-                .map(|device| device_view(&device))
-                .collect::<Vec<_>>()
+    source::shared_by_key(
+        "rsynapse.bluetooth-group-devices",
+        format!("{group:?}"),
+        move || {
+            combine_latest!(
+                bluez_detail_objects(),
+                upower_devices() => move |(bluez_objects, upower_devices)| {
+                    device_snapshots(&bluez_objects, &upower_devices)
+                        .into_iter()
+                        .filter(|device| group.matches(device.kind))
+                        .map(|device| device_view(&device))
+                        .collect::<Vec<_>>()
+                },
+            )
+            .distinct_until_changed()
+            .box_it()
         },
     )
-    .distinct_until_changed()
-    .box_it()
+}
+
+fn bluez_summary_objects() -> Observable<Vec<BluezObject>> {
+    source::shared_by_key("rsynapse.bluez-summary-objects", BLUEZ_ADAPTER_PATH, || {
+        let adapter = BLUEZ.object(BLUEZ_ADAPTER_PATH);
+
+        adapter
+            .as_children()
+            .switch_map(move |objects| {
+                let adapter = adapter.clone();
+                let devices = objects
+                    .into_iter()
+                    .filter(is_device)
+                    .map(bluez_device_summary_object);
+                source::combine_latest_vec(
+                    std::iter::once(bluez_adapter_summary_object(adapter))
+                        .chain(devices)
+                        .collect(),
+                )
+            })
+            .map(|objects| objects)
+            .distinct_until_changed()
+            .box_it()
+    })
+}
+
+fn bluez_detail_objects() -> Observable<Vec<BluezObject>> {
+    source::shared_by_key("rsynapse.bluez-detail-objects", BLUEZ_ADAPTER_PATH, || {
+        BLUEZ
+            .object(BLUEZ_ADAPTER_PATH)
+            .as_children()
+            .switch_map(|objects| {
+                source::combine_latest_vec(
+                    objects
+                        .into_iter()
+                        .filter(is_device)
+                        .map(bluez_detail_object)
+                        .collect(),
+                )
+            })
+            .map(|objects| objects)
+            .distinct_until_changed()
+            .box_it()
+    })
+}
+
+fn upower_devices() -> Observable<Vec<UpowerDevice>> {
+    source::shared_by_key("rsynapse.upower-devices", UPOWER_DEVICES_PATH, || {
+        UPOWER
+            .object(UPOWER_DEVICES_PATH)
+            .as_children()
+            .switch_map(|objects| {
+                source::combine_latest_vec(objects.into_iter().map(upower_device).collect())
+            })
+            .map(|devices| devices)
+            .distinct_until_changed()
+            .box_it()
+    })
 }
 
 fn bluez_adapter_summary_object(object: LocusPath) -> Observable<BluezObject> {
@@ -196,7 +231,7 @@ fn upower_device(object: LocusPath) -> Observable<UpowerDevice> {
 }
 
 fn properties(object: &LocusPath) -> LocusPath {
-    object.child("@properties")
+    object.clone()
 }
 
 fn bluetooth_view(bluez_objects: Vec<BluezObject>) -> BluetoothView {
@@ -332,7 +367,9 @@ fn device_view(device: &DeviceSnapshot) -> BluetoothDeviceView {
 }
 
 fn method_call_path(object: &LocusPath, method: &str) -> LocusPath {
-    object.child("@methods").child(method).prop("call")
+    BLUEZ
+        .method_for_object(object, method)
+        .expect("BlueZ method target must be under the BlueZ objects tree")
 }
 
 fn status_icon(powered: bool, discovering: bool, connected_count: u8) -> &'static str {

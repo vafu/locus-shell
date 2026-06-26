@@ -3,21 +3,14 @@ use shell_core::{
     source::{self, Observable, rx::Observable as _},
 };
 
+use super::window_source::window_snapshots;
+
 pub(super) type WorkspaceNode = WorkspaceEntry;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct WorkspaceEntry {
     pub(super) path: LocusPath,
     index: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct WindowEntry {
-    path: LocusPath,
-    workspace_id: Option<u32>,
-    column: u32,
-    row: u32,
-    id: u32,
 }
 
 pub(super) fn workspaces() -> Observable<Vec<WorkspaceNode>> {
@@ -60,13 +53,6 @@ fn selected_workspace() -> Observable<LocusPath> {
 }
 
 pub(super) fn selected_workspace_windows() -> Observable<Vec<LocusPath>> {
-    let windows = source::root()
-        .child("window")
-        .as_children()
-        .switch_map(|windows| {
-            source::combine_latest_vec(windows.into_iter().map(window_entry).collect())
-        });
-
     selected_workspace()
         .map(|workspace| {
             workspace
@@ -75,7 +61,7 @@ pub(super) fn selected_workspace_windows() -> Observable<Vec<LocusPath>> {
                 .and_then(|value| value.to_str())
                 .and_then(|value| value.parse::<u32>().ok())
         })
-        .combine_latest(windows, |selected_workspace_id, mut windows| {
+        .combine_latest(window_snapshots(), |selected_workspace_id, mut windows| {
             let Some(selected_workspace_id) = selected_workspace_id else {
                 return Vec::new();
             };
@@ -91,22 +77,4 @@ pub(super) fn selected_workspace_windows() -> Observable<Vec<LocusPath>> {
         })
         .distinct_until_changed()
         .box_it()
-}
-
-fn window_entry(window: LocusPath) -> Observable<WindowEntry> {
-    shell_rx_macros::combine_latest!(
-        window.observe_prop_or::<u32>("workspace-id", u32::MAX).map(Some),
-        window.observe_prop_or::<u32>("column", u32::MAX),
-        window.observe_prop_or::<u32>("row", u32::MAX),
-        window.observe_prop_or::<u32>("id", u32::MAX)
-            => move |(workspace_id, column, row, id)| WindowEntry {
-                path: window.clone(),
-                workspace_id,
-                column,
-                row,
-                id,
-            },
-    )
-    .distinct_until_changed()
-    .box_it()
 }

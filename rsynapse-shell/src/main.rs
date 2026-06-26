@@ -1,4 +1,5 @@
 mod desktop_icon;
+mod locusfs_paths;
 mod theme;
 mod widgets;
 

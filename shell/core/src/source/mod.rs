@@ -183,6 +183,23 @@ where
     combine_latest(observables)
 }
 
+/// Shares a derived source by a stable semantic descriptor.
+///
+/// Primitive locusfs sources already share by backend path. Use this for
+/// higher-level sources that rebuild the same `combine_latest`/`switch_map`
+/// graph for many widgets or rows. The descriptor is process-local and should
+/// be stable for equivalent work.
+pub fn shared_by_key<T>(
+    kind: &'static str,
+    key: impl Into<String>,
+    create: impl Fn() -> Observable<T> + Send + Sync + 'static,
+) -> Observable<T>
+where
+    T: Clone + Send + 'static,
+{
+    support::shared_by_key(kind, key, create)
+}
+
 /// State of a locusfs node path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NodeState {

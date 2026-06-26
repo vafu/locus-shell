@@ -1,3 +1,4 @@
+mod agent_sessions;
 mod audio;
 mod battery;
 mod bluetooth;
@@ -9,6 +10,7 @@ mod source_errors;
 mod system_stats;
 mod systray;
 mod time;
+mod window_source;
 mod window_tile;
 mod workspaces;
 

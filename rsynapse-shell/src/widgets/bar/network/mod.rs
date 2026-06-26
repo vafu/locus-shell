@@ -4,12 +4,13 @@ use shell_core::{
 };
 use shell_rx_macros::combine_latest;
 
+use crate::locusfs_paths::NETWORK_MANAGER;
+
 mod parse;
 
 use parse::parse_ssid;
 
-const NETWORK_MANAGER_OBJECT_PATH: &str = "dbus/networkmanager/object";
-const NETWORK_MANAGER_DEVICE_PATH: &str = "dbus/networkmanager/object/Devices";
+const NETWORK_MANAGER_DEVICES_PATH: &str = "Devices";
 
 const DEVICE_STATE_UNAVAILABLE: u32 = 20;
 const DEVICE_STATE_DISCONNECTED: u32 = 30;
@@ -76,33 +77,26 @@ struct AccessPoint {
 }
 
 pub(super) fn network_status() -> Observable<NetworkView> {
-    source::root()
-        .child(NETWORK_MANAGER_DEVICE_PATH)
-        .as_children()
-        .switch_map(|objects| {
-            let mut devices = objects;
-            devices.sort_by(|left, right| left.as_path().cmp(right.as_path()));
-            source::combine_latest_vec(devices.into_iter().map(network_object).collect())
-        })
-        .map(|devices| NetworkView {
-            wifi: wifi_status(&devices),
-            ethernet: ethernet_view(&devices),
-        })
-        .distinct_until_changed()
-        .box_it()
+    source::shared_by_key("rsynapse.network-status", "devices", || {
+        NETWORK_MANAGER
+            .object(NETWORK_MANAGER_DEVICES_PATH)
+            .as_children()
+            .switch_map(|objects| {
+                let mut devices = objects;
+                devices.sort_by(|left, right| left.as_path().cmp(right.as_path()));
+                source::combine_latest_vec(devices.into_iter().map(network_object).collect())
+            })
+            .map(|devices| NetworkView {
+                wifi: wifi_status(&devices),
+                ethernet: ethernet_view(&devices),
+            })
+            .distinct_until_changed()
+            .box_it()
+    })
 }
 
 fn networkmanager_object_path(dbus_path: &str) -> Option<LocusPath> {
-    if dbus_path == "/" {
-        return None;
-    }
-
-    let local = dbus_path.strip_prefix("/org/freedesktop/NetworkManager/")?;
-    Some(
-        source::root()
-            .child(NETWORK_MANAGER_OBJECT_PATH)
-            .child(local),
-    )
+    NETWORK_MANAGER.object_from_dbus_path(dbus_path)
 }
 
 fn network_object(object: LocusPath) -> Observable<NetworkObject> {
@@ -152,7 +146,7 @@ fn access_point_view(access_point: LocusPath) -> Observable<Option<AccessPoint>>
 }
 
 fn properties(object: &LocusPath) -> LocusPath {
-    object.child("@properties")
+    object.clone()
 }
 
 fn wifi_status(devices: &[NetworkObject]) -> WifiView {

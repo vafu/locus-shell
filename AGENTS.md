@@ -40,3 +40,31 @@ UI layout rule:
   height through padding, alignment, or natural sizing.
 
 When proposing or changing architecture, cross-reference `PLAN.md` and keep it updated if the roadmap changes.
+
+# Current Review And Refactor Prompt
+
+Run a non-interactive top-down review and implementation pass similar to the locusfs pass. The coordinator is the decision maker for this pass; user feedback comes at the end.
+
+Primary implementation goal: optimize observable paths. Too many duplicate observables are currently being created for equivalent locusfs paths/source descriptors. Design and implement a smart sharing strategy so equivalent source paths share upstream watch/read work, replay latest values, and stop upstream work when the last subscriber drops.
+
+Compatibility goal: adapt all shell source consumers to the latest locusfs generic D-Bus path layout:
+
+- Replace legacy `object`, `@properties`, `@methods`, and `@absolute` D-Bus path assumptions.
+- Use `/dbus/<service>/objects/...` for object property files.
+- Use `/dbus/<service>/methods/...` for callable method files.
+- Use `_absolute` for outside ObjectManager paths.
+
+Review grounds for each unit:
+
+- API: source API clarity, observable descriptor surface, replacement flexibility, and whether implementation details leak.
+- Redundancy: duplicated observable/source helpers, repeated path construction, repeated subscriptions/watch loops, and unnecessary abstraction layers.
+- Performance: duplicated watch/read work, allocation churn, hot-path cloning, lock contention, async/threading behavior, and fanout sharing.
+- Tidiness: docs, repo boundary alignment, and rust-guide fit.
+- Best practices: whether RxRust/shared observable primitives already cover the need before custom runtime code.
+- Domain-specific: locusfs paths should be readable, maintainable, and consistent with latest locusfs.
+
+For each review unit, write a detailed report/plan to `refactor/<unit>.md`.
+
+After reports are written, arbitrate and record decisions in `refactor/arbitration.md`. Execute the refactor, keep `refactor/implementation-log.md` with timestamps, decisions, validation commands, and final questions for user validation.
+
+Everything should be covered with focused tests and the whole project test suite should pass.

@@ -184,7 +184,7 @@ mod tests {
     fn semantic_children_filter_synthetic_entries() {
         assert!(is_semantic_child_name("019efced_2d_4376"));
         assert!(is_semantic_child_name("window"));
-        assert!(!is_semantic_child_name("@methods"));
-        assert!(!is_semantic_child_name("@properties"));
+        assert!(is_semantic_child_name("_absolute"));
+        assert!(!is_semantic_child_name("@internal"));
     }
 }

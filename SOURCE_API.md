@@ -135,6 +135,18 @@ Required v1 semantics:
   subscriber drops, and restarts for later subscribers.
 - Cancellation must be cooperative and owned by generated subscription handles.
 
+Current implementation status:
+
+- Shell-core uses RxRust's error channel for source failures; macro-generated
+  subscriptions turn those terminal errors into model messages.
+- Primitive locusfs sources share by normalized backend path, primitive kind,
+  and emitted type.
+- Derived semantic sources that would otherwise rebuild the same graph for many
+  callers should use `source::shared_by_key(kind, key, || ...)`.
+- Descriptor cache entries are weak while no observable/subscription holds the
+  shared source alive, so dynamic semantic keys do not need process-lifetime
+  strong retention.
+
 Useful operators for shell authors:
 
 - `map`
@@ -200,6 +212,20 @@ Consumer source modules own semantic collection helpers and UI view-model
 composition. Direct locusfs reads and watches stay behind shell-core Observable
 primitives. Nodes and relation targets are represented as `LocusPath`; this
 workspace no longer exposes schema descriptors or `NodeRef`.
+
+Current generic D-Bus paths come from locusfs and should be consumed through
+normal `LocusPath` composition:
+
+```text
+/dbus/<service>/objects/<relative-object-path>/<Property>
+/dbus/<service>/methods/<relative-object-path>/<Method>
+```
+
+If the object equals the service ObjectManager path, its properties live
+directly under `/dbus/<service>/objects`. Services whose ObjectManager path is
+`/` expose object paths relative to `objects`. Objects outside the configured
+ObjectManager root live under `_absolute`. Legacy `object`, `@properties`,
+`@methods`, and method `/call` suffix paths are not part of the current layout.
 
 ## Migration Notes
 

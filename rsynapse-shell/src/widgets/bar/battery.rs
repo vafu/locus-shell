@@ -1,7 +1,9 @@
 use shell_core::source::{self, Observable, rx::Observable as _};
 use shell_rx_macros::combine_latest;
 
-const BATTERY_PROPERTIES_PATH: &str = "dbus/upower/object/devices/battery_BAT1/@properties";
+use crate::locusfs_paths::UPOWER;
+
+const BATTERY_OBJECT_PATH: &str = "devices/battery_BAT1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BatteryView {
@@ -39,23 +41,25 @@ impl BatteryState {
 }
 
 pub(super) fn battery_status() -> Observable<BatteryView> {
-    let battery = source::root().child(BATTERY_PROPERTIES_PATH);
+    source::shared_by_key("rsynapse.battery-status", BATTERY_OBJECT_PATH, || {
+        let battery = UPOWER.object(BATTERY_OBJECT_PATH);
 
-    combine_latest!(
-        battery
-            .observe_prop_or::<bool>("IsPresent", false),
-        battery.observe_prop_or::<f64>("Percentage", 0.0).map(percent),
-        battery
-            .observe_prop_or::<u32>("State", 0)
-            .map(battery_state)
-            => |(present, percent, state)| BatteryView {
-                present,
-                percent,
-                state,
-            },
-    )
-    .distinct_until_changed()
-    .box_it()
+        combine_latest!(
+            battery
+                .observe_prop_or::<bool>("IsPresent", false),
+            battery.observe_prop_or::<f64>("Percentage", 0.0).map(percent),
+            battery
+                .observe_prop_or::<u32>("State", 0)
+                .map(battery_state)
+                => |(present, percent, state)| BatteryView {
+                    present,
+                    percent,
+                    state,
+                },
+        )
+        .distinct_until_changed()
+        .box_it()
+    })
 }
 
 fn percent(value: f64) -> u8 {

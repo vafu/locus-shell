@@ -5,7 +5,7 @@ use std::{
     io::{self, ErrorKind},
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -120,26 +120,56 @@ pub fn shared_source<T>(
 where
     T: Clone + Send + 'static,
 {
+    let path = crate::locus_path::LocusPath::new(path).into_path_buf();
     let key = SourceKey {
         kind,
         type_id: TypeId::of::<T>(),
-        path,
+        target: SourceKeyTarget::Path(path),
     };
+
+    shared_with_key(key, move |path| create(path))
+}
+
+pub fn shared_by_key<T>(
+    kind: &'static str,
+    key: impl Into<String>,
+    create: impl Fn() -> Observable<T> + Send + Sync + 'static,
+) -> Observable<T>
+where
+    T: Clone + Send + 'static,
+{
+    let key = SourceKey {
+        kind,
+        type_id: TypeId::of::<T>(),
+        target: SourceKeyTarget::Descriptor(key.into()),
+    };
+
+    shared_with_key(key, move |_| create())
+}
+
+fn shared_with_key<T>(
+    key: SourceKey,
+    create: impl Fn(PathBuf) -> Observable<T> + Send + Sync + 'static,
+) -> Observable<T>
+where
+    T: Clone + Send + 'static,
+{
+    let path = key.target.path().unwrap_or_default();
 
     let mut cache = source_cache().lock().expect("source cache lock poisoned");
     if let Some(hub) = cache
         .get(&key)
-        .and_then(|value| value.downcast_ref::<Arc<ShareReplayHub<T>>>())
+        .and_then(|value| value.downcast_ref::<Weak<ShareReplayHub<T>>>())
+        .and_then(Weak::upgrade)
     {
         trace_source_lifecycle("cache hit", &source_key_label(&key));
-        return share_replay_latest(hub.clone());
+        return share_replay_latest(hub);
     }
 
     trace_source_lifecycle("cache miss", &source_key_label(&key));
-    let label = format!("{}:{}", key.kind, key.path.display());
-    let path = key.path.clone();
+    let label = source_key_short_label(&key);
     let hub = Arc::new(ShareReplayHub::new(label, move || create(path.clone())));
-    cache.insert(key, Box::new(hub.clone()));
+    cache.insert(key, Box::new(Arc::downgrade(&hub)));
     share_replay_latest(hub)
 }
 
@@ -147,7 +177,22 @@ where
 struct SourceKey {
     kind: &'static str,
     type_id: TypeId,
-    path: PathBuf,
+    target: SourceKeyTarget,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum SourceKeyTarget {
+    Path(PathBuf),
+    Descriptor(String),
+}
+
+impl SourceKeyTarget {
+    fn path(&self) -> Option<PathBuf> {
+        match self {
+            Self::Path(path) => Some(path.clone()),
+            Self::Descriptor(_) => None,
+        }
+    }
 }
 
 fn source_cache() -> &'static Mutex<HashMap<SourceKey, Box<dyn Any + Send>>> {
@@ -156,7 +201,14 @@ fn source_cache() -> &'static Mutex<HashMap<SourceKey, Box<dyn Any + Send>>> {
 }
 
 fn source_key_label(key: &SourceKey) -> String {
-    format!("{}:{} type={:?}", key.kind, key.path.display(), key.type_id)
+    format!("{} type={:?}", source_key_short_label(key), key.type_id)
+}
+
+fn source_key_short_label(key: &SourceKey) -> String {
+    match &key.target {
+        SourceKeyTarget::Path(path) => format!("{}:{}", key.kind, path.display()),
+        SourceKeyTarget::Descriptor(descriptor) => format!("{}:{descriptor}", key.kind),
+    }
 }
 
 fn share_replay_latest<T>(hub: Arc<ShareReplayHub<T>>) -> Observable<T>
@@ -280,6 +332,7 @@ where
 
         ShareReplaySubscription {
             label: self.hub.label.clone(),
+            _hub: self.hub.clone(),
             state: self.hub.state.clone(),
             subject_subscription: Some(subject_subscription),
         }
@@ -326,6 +379,7 @@ where
 
 struct ShareReplaySubscription<T> {
     label: String,
+    _hub: Arc<ShareReplayHub<T>>,
     state: Arc<Mutex<ShareReplayState<T>>>,
     subject_subscription: Option<BoxedSubscriptionSend>,
 }
@@ -675,10 +729,11 @@ fn nearest_watchable_ancestor(path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::{
+        convert::Infallible,
         path::Path,
         pin::Pin,
         sync::{
-            Arc,
+            Arc, Mutex,
             atomic::{AtomicUsize, Ordering},
         },
         task::{Context as TaskContext, Poll},
@@ -693,8 +748,8 @@ mod tests {
     use crate::source::{WatchAction, WatchChange, WatchEvent, WatchState};
 
     use super::{
-        ShareReplayState, ShareReplaySubscription, ancestor_event_may_affect_path,
-        from_stream_result,
+        ShareReplayHub, ShareReplayState, ShareReplaySubscription, ancestor_event_may_affect_path,
+        from_stream_result, shared_by_key,
     };
 
     #[derive(Clone, Default)]
@@ -732,6 +787,7 @@ mod tests {
 
         let subscription = ShareReplaySubscription {
             label: "test:/source".to_owned(),
+            _hub: unused_i32_hub(),
             state: state.clone(),
             subject_subscription: Some(subject_subscription.clone().into_boxed()),
         };
@@ -761,6 +817,7 @@ mod tests {
 
         let subscription = ShareReplaySubscription {
             label: "test:/source".to_owned(),
+            _hub: unused_i32_hub(),
             state: state.clone(),
             subject_subscription: Some(subject_subscription.clone().into_boxed()),
         };
@@ -774,6 +831,67 @@ mod tests {
         assert_eq!(state.subscribers, 1);
         assert_eq!(state.latest, Some(1));
         assert!(state.connection.is_some());
+    }
+
+    #[test]
+    fn shared_by_key_reuses_active_semantic_source() {
+        let create_count = Arc::new(AtomicUsize::new(0));
+        let mut subject = Shared::subject::<u32, String>();
+        let first_values = Arc::new(Mutex::new(Vec::new()));
+        let second_values = Arc::new(Mutex::new(Vec::new()));
+
+        let first = shared_by_key("test-derived", "same", {
+            let create_count = create_count.clone();
+            let subject = subject.clone();
+            move || {
+                create_count.fetch_add(1, Ordering::SeqCst);
+                subject.clone().box_it()
+            }
+        });
+        let second = shared_by_key("test-derived", "same", {
+            let create_count = create_count.clone();
+            let subject = subject.clone();
+            move || {
+                create_count.fetch_add(1, Ordering::SeqCst);
+                subject.clone().box_it()
+            }
+        });
+
+        let _first_subscription = first.subscribe_with(CollectU32(first_values.clone()));
+        let _second_subscription = second.subscribe_with(CollectU32(second_values.clone()));
+
+        assert_eq!(create_count.load(Ordering::SeqCst), 1);
+
+        subject.next(7);
+
+        assert_eq!(first_values.lock().unwrap().as_slice(), &[7]);
+        assert_eq!(second_values.lock().unwrap().as_slice(), &[7]);
+    }
+
+    fn unused_i32_hub() -> Arc<ShareReplayHub<i32>> {
+        Arc::new(ShareReplayHub::new("test:/source".to_owned(), || {
+            Shared::<()>::of(0)
+                .map_err(|error: Infallible| match error {})
+                .box_it()
+        }))
+    }
+
+    struct CollectU32(Arc<Mutex<Vec<u32>>>);
+
+    impl Observer<u32, String> for CollectU32 {
+        fn next(&mut self, value: u32) {
+            self.0.lock().unwrap().push(value);
+        }
+
+        fn error(self, error: String) {
+            panic!("unexpected observable error: {error}");
+        }
+
+        fn complete(self) {}
+
+        fn is_closed(&self) -> bool {
+            false
+        }
     }
 
     #[test]
