@@ -13,3 +13,10 @@
 
 Implement in the consumer crate or runtime binary. Do not move command names or
 product policy into `shell-core`.
+
+## Status
+
+Initial implementation exists in `rsynapse-shell`: the binary has a
+Unix-socket `request` client/server for `scheme-toggle` and `hints` commands.
+Future approval/search commands can reuse the same consumer-local request
+module when those UI surfaces are ported.

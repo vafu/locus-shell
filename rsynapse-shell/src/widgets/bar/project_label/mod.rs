@@ -9,7 +9,7 @@ use shell_core::{
 use self::source::{ProjectLabelVm, project_label_vm};
 
 use super::WorkspaceNode;
-use crate::widgets::material_icon;
+use crate::{hints::hints_active, widgets::material_icon};
 
 #[derive(Debug)]
 #[shell_macros::model(module = project_label_sources)]
@@ -18,6 +18,9 @@ pub(super) struct ProjectLabel {
 
     #[source(project_label_vm(workspace.path.clone()))]
     pub vm: ProjectLabelVm,
+
+    #[source(hints_active())]
+    pub hints_active: bool,
 }
 
 #[shell_macros::component(
@@ -135,6 +138,20 @@ impl SimpleComponent for ProjectLabel {
                         }
                     }
                 }
+            },
+
+            add_overlay = &gtk::Label {
+                add_css_class: "barblock-badge",
+                add_css_class: "workspace-number-badge",
+
+                #[watch]
+                set_label: workspace_badge_label(model.vm.index).as_str(),
+
+                #[watch]
+                set_visible: model.hints_active,
+
+                set_halign: gtk::Align::End,
+                set_valign: gtk::Align::Start,
             }
         }
     }
@@ -149,8 +166,6 @@ impl SimpleComponent for ProjectLabel {
         icon.set_css_classes(project_icon_classes(&model.vm));
         icon.set_icon_name(Some(project_icon_name(&model.vm).as_str()));
         let widgets = view_output!();
-
-        root.add_overlay(&workspace_badge(model.vm.index));
 
         ComponentParts { model, widgets }
     }
@@ -275,12 +290,6 @@ fn non_empty_text(value: &str) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
-fn workspace_badge(sort_index: u32) -> gtk::Label {
-    let badge = gtk::Label::new(Some(&sort_index.to_string()));
-    badge.set_halign(gtk::Align::End);
-    badge.set_valign(gtk::Align::Start);
-    badge.add_css_class("barblock-badge");
-    badge.add_css_class("workspace-number-badge");
-    badge.set_visible(false);
-    badge
+fn workspace_badge_label(sort_index: u32) -> String {
+    sort_index.to_string()
 }

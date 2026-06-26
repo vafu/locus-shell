@@ -66,6 +66,10 @@ Framework crates own:
 - `rsynapse-shell` currently runs the bar and OSD as multiple layer-shell
   windows in one binary; do not split OSD back into a separate binary unless
   that consumer policy changes again.
+- `rsynapse-shell` owns its Unix-socket request CLI for consumer runtime
+  commands such as theme switching and Super-key hints. Do not move command
+  names or product policy into `shell-core` unless another consumer needs the
+  same transport contract.
 
 ### 4. Locusfs Source Integration
 
@@ -184,6 +188,9 @@ Framework crates own:
   layout, with `.call` method files, instead of legacy service-local
   `object`, `@properties`, `@methods`, ObjectManager-relative, and method
   `/call` paths.
+- Completed in `rsynapse-shell`: app-local request CLI/server for
+  `scheme-toggle` and `hints active|show|hide|toggle`, matching the useful AGS
+  request-handler behavior without adding a framework-level command bus.
 - Replace ad hoc consumer source code with user-authored observable source functions where it improves ergonomics.
 
 ## Next Concrete Step

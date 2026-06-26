@@ -1,7 +1,11 @@
 mod desktop_icon;
+mod hints;
 mod locusfs_paths;
+mod request;
 mod theme;
 mod widgets;
+
+use std::ffi::OsStr;
 
 use shell_core::{ShellApp, css::CssPriority};
 use tracing_subscriber::EnvFilter;
@@ -9,6 +13,12 @@ use tracing_subscriber::EnvFilter;
 use widgets::{MainBar, MainBarInit};
 
 fn main() {
+    let mut args = std::env::args_os();
+    let _binary = args.next();
+    if args.next().as_deref() == Some(OsStr::new("request")) {
+        std::process::exit(request::run_cli(args));
+    }
+
     init_tracing();
 
     let _ = relm4::RELM_THREADS.set(4);

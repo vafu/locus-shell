@@ -50,6 +50,7 @@ use self::time::{ClockView, clock};
 use self::window_tile::WindowTile;
 use self::workspaces::{WorkspaceNode, selected_workspace_windows, workspaces};
 use super::{OsdInit, OsdWindow};
+use crate::{hints, request, theme};
 
 type WindowNode = LocusPath;
 
@@ -64,6 +65,7 @@ pub enum MainBarInput {
     Media(MediaAction),
     ToggleBluetooth,
     CyclePowerProfile,
+    Request(request::PendingRequest),
 }
 
 impl From<sources::Msg> for MainBarInput {
@@ -82,6 +84,7 @@ pub enum MediaAction {
 #[shell_macros::model]
 pub struct MainBar {
     _osd: AsyncController<OsdWindow>,
+    _request_server: Option<request::RequestServer>,
 
     #[source(workspaces())]
     project_labels: Vec<WorkspaceNode>,
@@ -668,7 +671,18 @@ impl SimpleAsyncComponent for MainBar {
             })
             .detach();
 
-        let model = MainBar::new(osd);
+        let request_sender = sender.input_sender().clone();
+        let request_server = match request::start_server(move |request| {
+            request_sender.emit(MainBarInput::Request(request));
+        }) {
+            Ok(server) => Some(server),
+            Err(error) => {
+                eprintln!("[request] failed to start request server: {error}");
+                None
+            }
+        };
+
+        let model = MainBar::new(osd, request_server);
         let widgets = view_output!();
         widgets.clock_button.connect_clicked(|_| {
             thread::spawn(|| {
@@ -801,8 +815,22 @@ impl SimpleAsyncComponent for MainBar {
             MainBarInput::CyclePowerProfile => {
                 power_profile::cycle_power_profile(&self.power_profile.profile)
             }
+            MainBarInput::Request(request) => handle_request(request),
         }
     }
+}
+
+fn handle_request(request: request::PendingRequest) {
+    let response = match request.request {
+        request::ShellRequest::SchemeToggle => theme::toggle_color_scheme()
+            .map(|_| request::RequestResponse::Ok)
+            .unwrap_or_else(request::RequestResponse::Error),
+        request::ShellRequest::Hints(action) => {
+            hints::apply(action);
+            request::RequestResponse::Ok
+        }
+    };
+    request.respond(response);
 }
 
 fn bar_window_config() -> WindowConfig {
@@ -898,7 +926,6 @@ fn mpris_classes(mpris: &MprisView) -> Vec<&'static str> {
     }
     classes
 }
-
 
 fn launch_playerctl(action: MediaAction, player_name: &str) {
     let player_name = player_name.trim().to_owned();
