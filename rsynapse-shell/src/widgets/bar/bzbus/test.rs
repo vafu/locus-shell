@@ -9,7 +9,7 @@ use super::{
 fn offline_view_reports_offline() {
     let view = view::view(false, Vec::new());
 
-    assert_eq!(view.label, "offline");
+    assert!(!view.progress_visible);
     assert_eq!(view.icon, "cloud_off");
     assert!(view.classes.contains(&"offline"));
 }
@@ -40,9 +40,9 @@ fn active_invocation_uses_progress_and_failures() {
     );
 
     assert_eq!(view.icon, "build_circle");
-    assert!(view.label.starts_with("running"));
-    assert!(view.label.contains("3/9 · 12a/4r"));
-    assert!(view.label.contains("2!"));
+    assert_eq!(view.progress_percent, 33);
+    assert!(view.progress_visible);
+    assert!(view.tooltip.contains("progress: 3/9 · 12a/4r"));
     assert!(view.classes.contains(&"running"));
 }
 
@@ -69,7 +69,7 @@ fn latest_active_invocation_wins_over_finished() {
 
     let view = view::view(true, vec![finished, running]);
 
-    assert!(view.label.starts_with("running"));
+    assert!(!view.progress_visible);
     assert!(view.tooltip.contains("invocation: running"));
 }
 

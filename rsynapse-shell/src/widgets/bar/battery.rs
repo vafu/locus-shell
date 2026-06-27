@@ -3,7 +3,7 @@ use shell_rx_macros::combine_latest;
 
 use crate::locusfs_paths::DBUS_SYSTEM;
 
-const BATTERY_OBJECT_PATH: &str = "/org/freedesktop/UPower/devices/battery_BAT1";
+const BATTERY_OBJECT_PATH: &str = "/org/freedesktop/UPower/devices/DisplayDevice";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BatteryView {

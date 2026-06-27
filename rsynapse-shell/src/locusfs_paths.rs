@@ -73,10 +73,10 @@ mod tests {
     fn maps_full_system_object_path_under_system_bus_root() {
         assert_eq!(
             DBUS_SYSTEM
-                .object("/org/freedesktop/UPower/devices/battery_BAT1")
+                .object("/org/freedesktop/UPower/devices/DisplayDevice")
                 .as_path(),
             source::root()
-                .child("dbus/system/org/freedesktop/UPower/devices/battery_BAT1")
+                .child("dbus/system/org/freedesktop/UPower/devices/DisplayDevice")
                 .as_path()
         );
     }

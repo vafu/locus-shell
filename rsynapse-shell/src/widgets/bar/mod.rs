@@ -164,24 +164,47 @@ impl SimpleAsyncComponent for MainBar {
                         set_spacing: 4,
                     },
 
-                    gtk::Box {
-                        #[watch]
-                        set_css_classes: &model.bzbus.classes,
+                    gtk::Overlay {
+                        add_css_class: "bzbus-progress-frame",
                         #[watch]
                         set_tooltip_text: Some(model.bzbus.tooltip.as_str()),
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_spacing: 4,
 
-                        gtk::Image {
-                            add_css_class: "materialicon",
+                        gtk::Box {
                             #[watch]
-                            set_icon_name: Some(material_icon::icon_name(model.bzbus.icon).as_str()),
+                            set_css_classes: &model.bzbus.classes,
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 4,
+
+                            gtk::Image {
+                                add_css_class: "materialicon",
+                                #[watch]
+                                set_icon_name: Some(material_icon::icon_name(model.bzbus.icon).as_str()),
+                            }
                         },
 
-                        gtk::Label {
-                            add_css_class: "bzbus-status",
+                        add_overlay = &gtk::DrawingArea {
                             #[watch]
-                            set_label: model.bzbus.label.as_str(),
+                            set_visible: model.bzbus.progress_visible,
+                            set_css_classes: bzbus::progress_track_classes(),
+                            set_halign: gtk::Align::Fill,
+                            set_valign: gtk::Align::Fill,
+                            set_hexpand: true,
+                            set_vexpand: true,
+                            set_can_target: false,
+                            set_draw_func: bzbus::progress_track_draw_func(),
+                        },
+
+                        add_overlay = &gtk::DrawingArea {
+                            #[watch]
+                            set_visible: model.bzbus.progress_visible,
+                            set_css_classes: bzbus::progress_level_classes(),
+                            set_halign: gtk::Align::Fill,
+                            set_valign: gtk::Align::Fill,
+                            set_hexpand: true,
+                            set_vexpand: true,
+                            set_can_target: false,
+                            #[watch]
+                            set_draw_func: bzbus::progress_level_draw_func(model.bzbus.progress_percent),
                         }
                     }
                 },

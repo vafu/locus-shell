@@ -156,15 +156,28 @@ $outline-offset: $label-margin * 0.5;
   opacity: 0.78;
 }
 
-.bzbus-widget {
-  padding: 0 8px;
-
-  .materialicon {
-    margin-right: 4px;
+.bzbus-progress-frame {
+  >.track,
+  >.level {
+    margin-top: 4px;
+    margin-left: 8px;
+    margin-right: 8px;
   }
 
-  .bzbus-status {
-    font-weight: 700;
+  >.track {
+    color: color-mix(in srgb, #{$fg} 20%, transparent);
+  }
+
+  >.level {
+    color: #{$accent_color};
+  }
+}
+
+.bzbus-widget {
+  padding: 0 7px;
+
+  .materialicon {
+    margin: 0;
   }
 
   &.idle {
@@ -173,10 +186,6 @@ $outline-offset: $label-margin * 0.5;
 
   &.offline {
     color: color-mix(in srgb, #{$fg} 60%, #{$bg});
-  }
-
-  &.running .materialicon {
-    animation: bzbus-spin 1.2s linear infinite;
   }
 
   &.failed {
