@@ -1,10 +1,4 @@
-use std::{
-    cell::RefCell,
-    fs, io,
-    os::unix::fs::symlink,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{cell::RefCell, path::PathBuf, process::Command};
 
 use shell_core::gtk::{self, gio, prelude::*};
 
@@ -82,15 +76,7 @@ fn sync_accent_color() {
 
 fn update_gtk_theme(settings: &gio::Settings, color_scheme: &str) -> Result<(), String> {
     let current_theme = settings.string("gtk-theme");
-    let (theme, style) = theme_for_scheme(current_theme.as_str(), color_scheme);
-    let (source, target) = niri_theme_paths(&config_home(), style);
-    replace_symlink(&source, &target).map_err(|error| {
-        format!(
-            "link niri theme {} -> {}: {error}",
-            target.display(),
-            source.display()
-        )
-    })?;
+    let theme = theme_for_scheme(current_theme.as_str(), color_scheme);
     settings
         .set_string("gtk-theme", &theme)
         .map_err(|error| format!("set gtk-theme to {theme}: {error}"))
@@ -113,21 +99,12 @@ fn sync_accent(color: &str) -> Result<(), String> {
     }
 }
 
-fn replace_symlink(source: &Path, target: &Path) -> io::Result<()> {
-    match fs::remove_file(target) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    symlink(source, target)
-}
-
-fn theme_for_scheme(current_theme: &str, color_scheme: &str) -> (String, ThemeStyle) {
+fn theme_for_scheme(current_theme: &str, color_scheme: &str) -> String {
     let base = current_theme.replace("-dark", "");
     if color_scheme == DARK_SCHEME {
-        (format!("{base}-dark"), ThemeStyle::Dark)
+        format!("{base}-dark")
     } else {
-        (base, ThemeStyle::Light)
+        base
     }
 }
 
@@ -137,18 +114,6 @@ fn toggled_color_scheme(current: &str) -> &'static str {
     } else {
         LIGHT_SCHEME
     }
-}
-
-fn niri_theme_paths(config_home: &Path, style: ThemeStyle) -> (PathBuf, PathBuf) {
-    let style = match style {
-        ThemeStyle::Light => "light",
-        ThemeStyle::Dark => "dark",
-    };
-    let niri = config_home.join("niri");
-    (
-        niri.join(format!("theme_{style}.kdl")),
-        niri.join("theme.kdl"),
-    )
 }
 
 fn interface_settings() -> gio::Settings {
@@ -173,12 +138,6 @@ fn config_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".config"))
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ThemeStyle {
-    Light,
-    Dark,
-}
-
 thread_local! {
     static SETTINGS: RefCell<Option<gio::Settings>> = const { RefCell::new(None) };
     static ACCENT_SETTINGS: RefCell<Option<gio::Settings>> = const { RefCell::new(None) };
@@ -186,9 +145,7 @@ thread_local! {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use super::{ThemeStyle, niri_theme_paths, theme_for_scheme, toggled_color_scheme};
+    use super::{theme_for_scheme, toggled_color_scheme};
 
     #[test]
     fn toggles_color_scheme_like_ags() {
@@ -199,21 +156,7 @@ mod tests {
 
     #[test]
     fn derives_gtk_theme_name_from_scheme() {
-        assert_eq!(
-            theme_for_scheme("Adwaita", "prefer-dark"),
-            ("Adwaita-dark".to_owned(), ThemeStyle::Dark)
-        );
-        assert_eq!(
-            theme_for_scheme("Adwaita-dark", "prefer-light"),
-            ("Adwaita".to_owned(), ThemeStyle::Light)
-        );
-    }
-
-    #[test]
-    fn derives_niri_theme_symlink_paths() {
-        let (source, target) = niri_theme_paths(Path::new("/tmp/config"), ThemeStyle::Dark);
-
-        assert_eq!(source, Path::new("/tmp/config/niri/theme_dark.kdl"));
-        assert_eq!(target, Path::new("/tmp/config/niri/theme.kdl"));
+        assert_eq!(theme_for_scheme("Adwaita", "prefer-dark"), "Adwaita-dark");
+        assert_eq!(theme_for_scheme("Adwaita-dark", "prefer-light"), "Adwaita");
     }
 }
