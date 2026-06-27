@@ -145,7 +145,7 @@ $outline-offset: $label-margin * 0.5;
 }
 
 .system-cluster {
-  margin-right: 8px;
+  margin-right: 0;
 }
 
 .network-icon,
@@ -355,6 +355,10 @@ $outline-offset: $label-margin * 0.5;
 
 .bt-battery-indicator {
   margin-left: 2px;
+}
+
+.bar .barblock.clock-widget {
+  margin-right: 0;
 }
 
 .clock-widget {
