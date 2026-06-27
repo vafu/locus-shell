@@ -188,6 +188,10 @@ $outline-offset: $label-margin * 0.5;
     color: color-mix(in srgb, #{$fg} 60%, #{$bg});
   }
 
+  &.running .materialicon {
+    animation: bzbus-spin 1.2s linear infinite;
+  }
+
   &.failed {
     color: color-mix(in srgb, #{$ws_urgent} 78%, #{$fg});
   }
