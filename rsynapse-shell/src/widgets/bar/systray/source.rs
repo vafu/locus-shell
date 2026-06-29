@@ -45,6 +45,8 @@ pub(crate) struct TrayMenuItemVm {
     pub(super) enabled: bool,
     pub(super) separator: bool,
     pub(super) position: u32,
+    pub(super) toggle_type: String,
+    pub(super) toggle_state: i32,
 }
 
 impl Default for TrayMenuItemVm {
@@ -56,6 +58,8 @@ impl Default for TrayMenuItemVm {
             enabled: false,
             separator: false,
             position: u32::MAX,
+            toggle_type: String::new(),
+            toggle_state: -1,
         }
     }
 }
@@ -154,21 +158,12 @@ fn tray_icon_pixmap(width: u32, height: u32, argb32_hex: String) -> Option<TrayI
     })
 }
 
-pub(super) fn tray_menu_items(item: LocusPath) -> Observable<Vec<LocusPath>> {
-    combine_latest!(
-        item.observe_prop_or::<String>("service-name", String::new()),
-        item.observe_prop_or::<String>("menu-path", String::new()),
-        dbusmenu_items()
-            => |(service, menu_path, items)| dbusmenu_items_for_menu(service.as_str(), menu_path.as_str(), items),
-    )
-    .distinct_until_changed()
-    .box_it()
-}
-
-fn dbusmenu_items() -> Observable<Vec<LocusPath>> {
-    source::shared_by_key("rsynapse.dbusmenu-items", "all", || {
-        source::root().child("dbusmenu/item").as_children()
-    })
+pub(super) fn tray_menu_items(menu: LocusPath) -> Observable<Vec<LocusPath>> {
+    menu.child("item")
+        .as_children()
+        .map(sort_paths)
+        .distinct_until_changed()
+        .box_it()
 }
 
 pub(super) fn tray_menu_item_vm(item: LocusPath) -> Observable<TrayMenuItemVm> {
@@ -177,20 +172,61 @@ pub(super) fn tray_menu_item_vm(item: LocusPath) -> Observable<TrayMenuItemVm> {
         item.observe_prop_or::<bool>("enabled", true),
         item.observe_prop_or::<bool>("visible", true),
         item.observe_prop_or::<String>("type", String::new()),
-        item.observe_prop_or::<u32>("position", u32::MAX)
-            => move |(label, enabled, visible, item_type, position)| {
+        item.observe_prop_or::<u32>("position", u32::MAX),
+        item.observe_prop_or::<String>("toggle-type", String::new()),
+        item.observe_prop_or::<i32>("toggle-state", -1)
+            => move |(label, enabled, visible, item_type, position, toggle_type, toggle_state)| {
                 TrayMenuItemVm {
                     path: item.clone(),
                     visible,
-                    label,
+                    label: clean_menu_label(label.as_str()),
                     enabled,
                     separator: item_type == "separator",
                     position,
+                    toggle_type,
+                    toggle_state,
                 }
             },
     )
     .distinct_until_changed()
     .box_it()
+}
+
+pub(super) fn tray_menu_item_children(item: LocusPath) -> Observable<Vec<LocusPath>> {
+    item.child("child")
+        .as_children()
+        .map(sort_paths)
+        .distinct_until_changed()
+        .box_it()
+}
+
+pub(super) fn clean_menu_label(label: &str) -> String {
+    let mut cleaned = String::with_capacity(label.len());
+    let mut chars = label.chars().peekable();
+    while let Some(char) = chars.next() {
+        if char != '_' {
+            cleaned.push(char);
+            continue;
+        }
+
+        match chars.peek().copied() {
+            Some('_') => {
+                cleaned.push('_');
+                chars.next();
+            }
+            Some(next) if !next.is_whitespace() => {
+                cleaned.push(next);
+                chars.next();
+            }
+            _ => cleaned.push(char),
+        }
+    }
+    cleaned
+}
+
+fn sort_paths(mut paths: Vec<LocusPath>) -> Vec<LocusPath> {
+    paths.sort_by(|left, right| left.as_path().cmp(right.as_path()));
+    paths
 }
 
 fn tooltip(title: &str, status: &str, category: &str) -> String {
@@ -206,7 +242,7 @@ fn non_empty(value: &str) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
-fn dbusmenu_path(service: &str, menu_path: &str) -> Option<LocusPath> {
+pub(super) fn dbusmenu_path(service: &str, menu_path: &str) -> Option<LocusPath> {
     let service = non_empty(service)?;
     let menu_path = non_empty(menu_path)?;
     Some(
@@ -214,28 +250,6 @@ fn dbusmenu_path(service: &str, menu_path: &str) -> Option<LocusPath> {
             .child("dbusmenu/menu")
             .encoded_child(dbusmenu_local_id(service, menu_path)),
     )
-}
-
-fn dbusmenu_items_for_menu(
-    service: &str,
-    menu_path: &str,
-    mut items: Vec<LocusPath>,
-) -> Vec<LocusPath> {
-    let Some(service) = non_empty(service) else {
-        return Vec::new();
-    };
-    let Some(menu_path) = non_empty(menu_path) else {
-        return Vec::new();
-    };
-    let prefix = format!("{}:", dbusmenu_local_id(service, menu_path));
-    items.retain(|item| {
-        item.as_path()
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with(prefix.as_str()))
-    });
-    items.sort_by(|left, right| left.as_path().cmp(right.as_path()));
-    items
 }
 
 fn dbusmenu_local_id(service: &str, path: &str) -> String {

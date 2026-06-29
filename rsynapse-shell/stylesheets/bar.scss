@@ -305,6 +305,23 @@ $outline-offset: $label-margin * 0.5;
       font-weight: 400;
     }
   }
+
+  .tray-menu-group {
+    opacity: 0.88;
+  }
+
+  .tray-submenu {
+    margin-top: 2px;
+    margin-bottom: 2px;
+  }
+
+  .tray-menu-separator {
+    margin: 4px 8px;
+  }
+
+  .tray-menu-indicator {
+    min-width: 14px;
+  }
 }
 
 .levelindicator {

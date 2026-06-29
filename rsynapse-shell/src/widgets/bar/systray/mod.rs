@@ -14,7 +14,8 @@ use shell_core::{
 };
 
 use self::source::{
-    TrayIconPixmap, TrayItemVm, TrayMenuItemVm, tray_item_vm, tray_menu_item_vm, tray_menu_items,
+    TrayIconPixmap, TrayItemVm, TrayMenuItemVm, dbusmenu_path, tray_item_vm,
+    tray_menu_item_children, tray_menu_item_vm, tray_menu_items,
 };
 
 pub(super) use self::source::tray_items as systray_items;
@@ -145,6 +146,9 @@ pub(crate) struct TrayMenuItem {
 
     #[source(tray_menu_item_vm(item.clone()))]
     pub vm: TrayMenuItemVm,
+
+    #[source(tray_menu_item_children(item.clone()))]
+    pub children: Vec<LocusPath>,
 }
 
 #[shell_macros::component(
@@ -159,45 +163,200 @@ impl SimpleComponent for TrayMenuItem {
 
     view! {
         #[root]
-        gtk::Button {
-            add_css_class: "flat",
-            add_css_class: "tray-menu-row",
+        gtk::Box {
+            add_css_class: "tray-menu-item",
+            set_orientation: gtk::Orientation::Vertical,
             #[watch]
-            set_sensitive: model.vm.enabled,
-            #[watch]
-            set_visible: model.vm.visible && !model.vm.separator,
+            set_visible: model.vm.visible,
 
-            gtk::Label {
-                set_halign: gtk::Align::Start,
+            #[name = "leaf_button"]
+            gtk::Button {
+                add_css_class: "flat",
+                add_css_class: "tray-menu-row",
                 #[watch]
-                set_label: model.vm.label.as_str(),
+                set_sensitive: model.vm.enabled,
+                #[watch]
+                set_visible: model.vm.visible && !model.vm.separator && model.children.is_empty(),
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 8,
+
+                    gtk::Image {
+                        add_css_class: "tray-menu-indicator",
+                        #[watch]
+                        set_visible: tray_menu_indicator(&model.vm).is_some(),
+                        #[watch]
+                        set_icon_name: tray_menu_indicator(&model.vm),
+                    },
+
+                    gtk::Label {
+                        set_hexpand: true,
+                        set_halign: gtk::Align::Start,
+                        #[watch]
+                        set_label: model.vm.label.as_str(),
+                    }
+                }
+            },
+
+            gtk::Box {
+                add_css_class: "tray-menu-row",
+                add_css_class: "tray-menu-group",
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 8,
+                #[watch]
+                set_visible: model.vm.visible && !model.vm.separator && !model.children.is_empty(),
+
+                gtk::Label {
+                    set_hexpand: true,
+                    set_halign: gtk::Align::Start,
+                    #[watch]
+                    set_label: model.vm.label.as_str(),
+                },
+
+                gtk::Image {
+                    set_icon_name: Some("pan-end-symbolic"),
+                }
+            },
+
+            gtk::Separator {
+                add_css_class: "tray-menu-separator",
+                set_orientation: gtk::Orientation::Horizontal,
+                #[watch]
+                set_visible: model.vm.visible && model.vm.separator,
+            },
+
+            gtk::Box {
+                add_css_class: "tray-submenu",
+                set_orientation: gtk::Orientation::Vertical,
+                set_margin_start: 12,
+                #[watch]
+                set_visible: model.vm.visible && !model.children.is_empty(),
+
+                #[bind_list(children, row = TraySubmenuItem)]
+                children -> gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                }
             }
         }
     }
 
     fn init(
         init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = TrayMenuItem::new(init);
         let widgets = view_output!();
-        let item = model.item.clone();
-        let root_button = root.clone();
-
-        root.connect_clicked(move |_| {
-            if let Some(popover) = root_button
-                .ancestor(gtk::Popover::static_type())
-                .and_then(|widget| widget.downcast::<gtk::Popover>().ok())
-            {
-                popover.popdown();
-            }
-
-            activate_menu_item(item.clone());
-        });
+        connect_menu_item_activation(&widgets.leaf_button, model.item.clone());
 
         ComponentParts { model, widgets }
     }
+}
+
+#[derive(Debug)]
+#[shell_macros::model(module = tray_submenu_item_sources)]
+pub(crate) struct TraySubmenuItem {
+    pub item: LocusPath,
+
+    #[source(tray_menu_item_vm(item.clone()))]
+    pub vm: TrayMenuItemVm,
+}
+
+#[shell_macros::component(
+    module = tray_submenu_item_sources,
+    model = TraySubmenuItem
+)]
+#[relm4::component(pub(crate))]
+impl SimpleComponent for TraySubmenuItem {
+    type Init = LocusPath;
+    type Input = tray_submenu_item_sources::Msg;
+    type Output = ();
+
+    view! {
+        #[root]
+        gtk::Box {
+            add_css_class: "tray-menu-item",
+            set_orientation: gtk::Orientation::Vertical,
+            #[watch]
+            set_visible: model.vm.visible,
+
+            #[name = "leaf_button"]
+            gtk::Button {
+                add_css_class: "flat",
+                add_css_class: "tray-menu-row",
+                #[watch]
+                set_sensitive: model.vm.enabled,
+                #[watch]
+                set_visible: model.vm.visible && !model.vm.separator,
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 8,
+
+                    gtk::Image {
+                        add_css_class: "tray-menu-indicator",
+                        #[watch]
+                        set_visible: tray_menu_indicator(&model.vm).is_some(),
+                        #[watch]
+                        set_icon_name: tray_menu_indicator(&model.vm),
+                    },
+
+                    gtk::Label {
+                        set_hexpand: true,
+                        set_halign: gtk::Align::Start,
+                        #[watch]
+                        set_label: model.vm.label.as_str(),
+                    }
+                }
+            },
+
+            gtk::Separator {
+                add_css_class: "tray-menu-separator",
+                set_orientation: gtk::Orientation::Horizontal,
+                #[watch]
+                set_visible: model.vm.visible && model.vm.separator,
+            }
+        }
+    }
+
+    fn init(
+        init: Self::Init,
+        _root: Self::Root,
+        _sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = TraySubmenuItem::new(init);
+        let widgets = view_output!();
+        connect_menu_item_activation(&widgets.leaf_button, model.item.clone());
+
+        ComponentParts { model, widgets }
+    }
+}
+
+fn tray_menu_indicator(vm: &TrayMenuItemVm) -> Option<&'static str> {
+    if vm.toggle_state <= 0 {
+        return None;
+    }
+    match vm.toggle_type.as_str() {
+        "checkmark" => Some("object-select-symbolic"),
+        "radio" => Some("media-record-symbolic"),
+        _ => None,
+    }
+}
+
+fn connect_menu_item_activation(button: &gtk::Button, item: LocusPath) {
+    let button_for_signal = button.clone();
+    let button_for_lookup = button.clone();
+    button_for_signal.connect_clicked(move |_| {
+        if let Some(popover) = button_for_lookup
+            .ancestor(gtk::Popover::static_type())
+            .and_then(|widget| widget.downcast::<gtk::Popover>().ok())
+        {
+            popover.popdown();
+        }
+
+        activate_menu_item(item.clone());
+    });
 }
 
 fn tray_item_classes(vm: &TrayItemVm) -> Vec<&'static str> {
@@ -315,6 +474,18 @@ fn activate_menu_item(item: LocusPath) {
     });
 }
 
+fn dbusmenu_path_for_status_item(item: &LocusPath) -> Option<LocusPath> {
+    let service = read_locus_prop(item, "service-name")?;
+    let menu_path = read_locus_prop(item, "menu-path")?;
+    dbusmenu_path(service.as_str(), menu_path.as_str())
+}
+
+fn read_locus_prop(item: &LocusPath, prop: &str) -> Option<String> {
+    let value = fs::read_to_string(item.prop(prop).as_path()).ok()?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 fn mount_tray_menu(
     popover: &gtk::Popover,
     mount: &gtk::Box,
@@ -323,7 +494,10 @@ fn mount_tray_menu(
 ) {
     if popover.is_visible() {
         if controller.borrow().is_none() {
-            let launched = TrayMenu::builder().launch(item).detach();
+            let Some(menu) = dbusmenu_path_for_status_item(&item) else {
+                return;
+            };
+            let launched = TrayMenu::builder().launch(menu).detach();
             let widget = <gtk::Box as AsRef<gtk::Widget>>::as_ref(launched.widget()).clone();
             mount.append(&widget);
             *controller.borrow_mut() = Some(launched);
