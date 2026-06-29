@@ -10,6 +10,8 @@ use super::{
 };
 use crate::widgets::material_icon;
 
+const NOTIFICATION_CENTER_ROW_WIDTH: i32 = 420;
+
 #[derive(Debug)]
 pub(crate) struct NotificationCenterRow {
     row: NotificationCenterRowVm,
@@ -31,17 +33,21 @@ impl SimpleComponent for NotificationCenterRow {
                 add_css_class: "notification-group-header",
                 #[watch]
                 set_visible: row_is_header(&model.row),
+                set_width_request: NOTIFICATION_CENTER_ROW_WIDTH,
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
 
                 gtk::Label {
                     add_css_class: "notification-group-app",
-                    set_hexpand: true,
                     set_halign: gtk::Align::Start,
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
                     set_max_width_chars: 36,
                     #[watch]
                     set_label: center_header_app(&model.row).as_str(),
+                },
+
+                gtk::Box {
+                    set_hexpand: true,
                 },
 
                 gtk::Label {
@@ -56,6 +62,7 @@ impl SimpleComponent for NotificationCenterRow {
                 set_css_classes: &center_row_card_classes(&model.row),
                 #[watch]
                 set_visible: row_notification(&model.row).is_some(),
+                set_width_request: NOTIFICATION_CENTER_ROW_WIDTH,
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 8,
 

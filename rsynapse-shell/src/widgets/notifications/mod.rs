@@ -88,6 +88,7 @@ impl SimpleAsyncComponent for NotificationsWindow {
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         window::apply_layer_shell_config(&root, notifications_window_config());
+        root.set_resizable(false);
         root.set_title(Some(init.title));
 
         let notification_center_builder = NotificationCenterWindow::builder();
@@ -133,6 +134,7 @@ pub struct NotificationCenterInit {
 #[derive(Debug)]
 #[shell_macros::model(module = notification_center_sources)]
 pub struct NotificationCenterWindow {
+    _root: gtk::Window,
     open: bool,
 
     #[source(notification_center_rows())]
@@ -188,9 +190,12 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
 
                         gtk::Label {
                             add_css_class: "notification-center-title",
-                            set_hexpand: true,
                             set_halign: gtk::Align::Start,
                             set_label: "Notifications",
+                        },
+
+                        gtk::Box {
+                            set_hexpand: true,
                         },
 
                         #[name = "center_discard_all_button"]
@@ -198,6 +203,7 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
                             add_css_class: "flat",
                             add_css_class: "circular",
                             add_css_class: "notification-close",
+                            add_css_class: "notification-center-control",
                             set_tooltip_text: Some("Discard all"),
 
                             gtk::Image {
@@ -211,6 +217,7 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
                             add_css_class: "flat",
                             add_css_class: "circular",
                             add_css_class: "notification-close",
+                            add_css_class: "notification-center-control",
                             set_tooltip_text: Some("Close"),
 
                             gtk::Image {
@@ -222,6 +229,7 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
 
                     gtk::Label {
                         add_css_class: "notification-empty",
+                        set_halign: gtk::Align::Center,
                         #[watch]
                         set_visible: model.rows.is_empty(),
                         set_label: "No notifications",
@@ -244,9 +252,10 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
         sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         window::apply_layer_shell_config(&root, notification_center_window_config());
+        root.set_resizable(false);
         root.set_title(Some(init.title));
 
-        let model = NotificationCenterWindow::new(false);
+        let model = NotificationCenterWindow::new(root.clone(), false);
         let widgets = view_output!();
         widgets.center_discard_all_button.connect_clicked(move |_| {
             discard_all_notifications();
@@ -271,12 +280,31 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
 
     async fn update(&mut self, msg: Self::Input, _sender: AsyncComponentSender<Self>) {
         match msg {
-            NotificationCenterInput::Source(msg) => NotificationCenterWindow::update(self, msg),
-            NotificationCenterInput::Toggle => self.open = !self.open,
-            NotificationCenterInput::SetOpen(open) => self.open = open,
-            NotificationCenterInput::Close => self.open = false,
+            NotificationCenterInput::Source(msg) => {
+                NotificationCenterWindow::update(self, msg);
+                queue_content_resize(&self._root);
+            }
+            NotificationCenterInput::Toggle => {
+                self.open = !self.open;
+                queue_content_resize(&self._root);
+            }
+            NotificationCenterInput::SetOpen(open) => {
+                self.open = open;
+                queue_content_resize(&self._root);
+            }
+            NotificationCenterInput::Close => {
+                self.open = false;
+                queue_content_resize(&self._root);
+            }
         }
     }
+}
+
+fn queue_content_resize(root: &gtk::Window) {
+    let root = root.clone();
+    gtk::glib::idle_add_local_once(move || {
+        root.queue_resize();
+    });
 }
 
 fn handle_notification_request(
