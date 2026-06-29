@@ -199,23 +199,31 @@ impl SimpleComponent for TrayMenuItem {
                 }
             },
 
-            gtk::Box {
+            #[name = "submenu_button"]
+            gtk::Button {
+                add_css_class: "flat",
                 add_css_class: "tray-menu-row",
                 add_css_class: "tray-menu-group",
-                set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 8,
+                #[watch]
+                set_sensitive: model.vm.enabled,
                 #[watch]
                 set_visible: model.vm.visible && !model.vm.separator && !model.children.is_empty(),
 
-                gtk::Label {
-                    set_hexpand: true,
-                    set_halign: gtk::Align::Start,
-                    #[watch]
-                    set_label: model.vm.label.as_str(),
-                },
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 8,
 
-                gtk::Image {
-                    set_icon_name: Some("pan-end-symbolic"),
+                    gtk::Label {
+                        set_hexpand: true,
+                        set_halign: gtk::Align::Start,
+                        #[watch]
+                        set_label: model.vm.label.as_str(),
+                    },
+
+                    #[name = "submenu_arrow"]
+                    gtk::Image {
+                        set_icon_name: Some("pan-end-symbolic"),
+                    }
                 }
             },
 
@@ -226,16 +234,22 @@ impl SimpleComponent for TrayMenuItem {
                 set_visible: model.vm.visible && model.vm.separator,
             },
 
-            gtk::Box {
-                add_css_class: "tray-submenu",
-                set_orientation: gtk::Orientation::Vertical,
-                set_margin_start: 12,
+            #[name = "submenu_revealer"]
+            gtk::Revealer {
+                set_reveal_child: false,
+                set_transition_type: gtk::RevealerTransitionType::SlideDown,
                 #[watch]
                 set_visible: model.vm.visible && !model.children.is_empty(),
 
-                #[bind_list(children, row = TraySubmenuItem)]
-                children -> gtk::Box {
+                gtk::Box {
+                    add_css_class: "tray-submenu",
                     set_orientation: gtk::Orientation::Vertical,
+                    set_margin_start: 12,
+
+                    #[bind_list(children, row = TraySubmenuItem)]
+                    children -> gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                    }
                 }
             }
         }
@@ -249,6 +263,11 @@ impl SimpleComponent for TrayMenuItem {
         let model = TrayMenuItem::new(init);
         let widgets = view_output!();
         connect_menu_item_activation(&widgets.leaf_button, model.item.clone());
+        connect_submenu_toggle(
+            &widgets.submenu_button,
+            &widgets.submenu_revealer,
+            &widgets.submenu_arrow,
+        );
 
         ComponentParts { model, widgets }
     }
@@ -331,6 +350,27 @@ impl SimpleComponent for TraySubmenuItem {
 
         ComponentParts { model, widgets }
     }
+}
+
+fn connect_submenu_toggle(button: &gtk::Button, revealer: &gtk::Revealer, arrow: &gtk::Image) {
+    let button_for_signal = button.clone();
+    let revealer = revealer.clone();
+    let arrow = arrow.clone();
+    button_for_signal.connect_clicked(move |button| {
+        let open = !revealer.reveals_child();
+        revealer.set_reveal_child(open);
+        arrow.set_icon_name(Some(if open {
+            "pan-down-symbolic"
+        } else {
+            "pan-end-symbolic"
+        }));
+
+        if open {
+            button.add_css_class("open");
+        } else {
+            button.remove_css_class("open");
+        }
+    });
 }
 
 fn tray_menu_indicator(vm: &TrayMenuItemVm) -> Option<&'static str> {

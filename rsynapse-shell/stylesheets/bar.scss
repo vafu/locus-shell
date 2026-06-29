@@ -307,12 +307,17 @@ $outline-offset: $label-margin * 0.5;
   }
 
   .tray-menu-group {
-    opacity: 0.88;
+    opacity: 0.92;
+
+    &.open {
+      background-color: color-mix(in srgb, #{$fg} 8%, transparent);
+    }
   }
 
   .tray-submenu {
     margin-top: 2px;
     margin-bottom: 2px;
+    border-left: 1px solid color-mix(in srgb, #{$fg} 14%, transparent);
   }
 
   .tray-menu-separator {
