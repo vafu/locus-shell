@@ -23,6 +23,8 @@ use crate::request;
 
 pub(crate) use self::source::has_notification_items;
 
+const NOTIFICATION_CENTER_WIDTH: i32 = 420;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NotificationsInit {
     pub title: &'static str,
@@ -175,6 +177,7 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
 
                 gtk::Box {
                     add_css_class: "notification-center",
+                    set_width_request: NOTIFICATION_CENTER_WIDTH,
                     set_orientation: gtk::Orientation::Vertical,
                     set_spacing: 10,
 

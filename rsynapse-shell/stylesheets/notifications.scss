@@ -25,9 +25,15 @@ window.notification-center-window,
 }
 
 .notification-center {
-  min-width: 380px;
-  padding: 0;
-  background-color: transparent;
+  min-width: 420px;
+  padding: 10px;
+  border-radius: 12px;
+  background-color: #{$bg_tint};
+  outline: 1px solid color-mix(in srgb, #{$fg} 8%, transparent);
+  outline-offset: -1px;
+  transition: background-color 100ms;
+
+  @include elevation-1;
 }
 
 .notification-center-header {
@@ -57,7 +63,7 @@ window.notification-center-window,
 }
 
 .notification-center-card {
-  min-width: 356px;
+  min-width: 0;
   background-color: #{$bg_tint};
 }
 

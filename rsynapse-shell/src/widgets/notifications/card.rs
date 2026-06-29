@@ -82,8 +82,13 @@ pub(super) fn mount_actions(actions_box: &gtk::Box, actions: &[NotificationActio
         .iter()
         .filter(|action| !action.label.trim().is_empty())
     {
-        let button = gtk::Button::with_label(action.label.as_str());
+        let label = gtk::Label::new(Some(action.label.as_str()));
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        label.set_max_width_chars(24);
+
+        let button = gtk::Button::new();
         button.add_css_class("notification-action");
+        button.set_child(Some(&label));
         if action.is_default {
             button.add_css_class("default");
         }
