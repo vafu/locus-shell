@@ -12,6 +12,7 @@ pub(crate) struct BzBusView {
     pub(in crate::widgets::bar) classes: Vec<&'static str>,
     pub(in crate::widgets::bar) tooltip: String,
     pub(in crate::widgets::bar) icon: &'static str,
+    pub(in crate::widgets::bar) progress_level_classes: Vec<&'static str>,
     pub(in crate::widgets::bar) progress_percent: u8,
     pub(in crate::widgets::bar) progress_visible: bool,
 }
@@ -22,6 +23,7 @@ impl Default for BzBusView {
             classes: classes_for(false, None),
             tooltip: "bzbus offline".to_owned(),
             icon: "cloud_off",
+            progress_level_classes: progress_level_classes_for(false, None),
             progress_percent: 0,
             progress_visible: false,
         }
@@ -59,6 +61,7 @@ pub(super) fn view(active: bool, mut invocations: Vec<Invocation>) -> BzBusView 
         classes: classes_for(true, invocation),
         tooltip: tooltip(invocation),
         icon: icon_for(active, invocation),
+        progress_level_classes: progress_level_classes_for(true, invocation),
         progress_percent: progress_percent(invocation).unwrap_or(0),
         progress_visible: progress_percent(invocation).is_some(),
     }
@@ -194,22 +197,30 @@ fn icon_for(active: bool, invocation: Option<&Invocation>) -> &'static str {
 
 fn classes_for(active: bool, invocation: Option<&Invocation>) -> Vec<&'static str> {
     let mut classes = vec!["barblock", "bzbus-widget"];
+    classes.push(state_class_for(active, invocation));
+    classes
+}
+
+fn progress_level_classes_for(active: bool, invocation: Option<&Invocation>) -> Vec<&'static str> {
+    vec!["level", state_class_for(active, invocation)]
+}
+
+fn state_class_for(active: bool, invocation: Option<&Invocation>) -> &'static str {
     if !active {
-        classes.push("offline");
+        "offline"
     } else if let Some(invocation) = invocation {
         if is_failed(invocation) {
-            classes.push("failed");
+            "failed"
         } else if is_finished(invocation) {
-            classes.push("finished");
+            "finished"
         } else if is_ended(invocation) || is_stale(invocation) {
-            classes.push("idle");
+            "idle"
         } else {
-            classes.push("running");
+            "running"
         }
     } else {
-        classes.push("idle");
+        "idle"
     }
-    classes
 }
 
 fn command_text(invocation: &Invocation) -> &str {
@@ -246,16 +257,11 @@ fn invocation_end(invocation: &Invocation) -> i64 {
 }
 
 const PROGRESS_TRACK_CLASSES: &[&str] = &["track"];
-const PROGRESS_LEVEL_CLASSES: &[&str] = &["level"];
 const PROGRESS_PERIMETER_THICKNESS: f64 = 2.0;
 const PROGRESS_PERIMETER_RADIUS: f64 = 12.0;
 
 pub(in crate::widgets::bar) fn progress_track_classes() -> &'static [&'static str] {
     PROGRESS_TRACK_CLASSES
-}
-
-pub(in crate::widgets::bar) fn progress_level_classes() -> &'static [&'static str] {
-    PROGRESS_LEVEL_CLASSES
 }
 
 pub(in crate::widgets::bar) fn progress_track_draw_func()

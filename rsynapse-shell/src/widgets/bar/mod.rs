@@ -201,7 +201,8 @@ impl SimpleAsyncComponent for MainBar {
                         add_overlay = &gtk::DrawingArea {
                             #[watch]
                             set_visible: model.bzbus.progress_visible,
-                            set_css_classes: bzbus::progress_level_classes(),
+                            #[watch]
+                            set_css_classes: &model.bzbus.progress_level_classes,
                             set_halign: gtk::Align::Fill,
                             set_valign: gtk::Align::Fill,
                             set_hexpand: true,

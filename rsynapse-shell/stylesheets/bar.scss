@@ -169,7 +169,20 @@ $outline-offset: $label-margin * 0.5;
   }
 
   >.level {
-    color: #{$accent_color};
+    color: #{$fg};
+
+    &.idle,
+    &.offline {
+      color: color-mix(in srgb, #{$fg} 60%, #{$bg});
+    }
+
+    &.failed {
+      color: color-mix(in srgb, #{$ws_urgent} 78%, #{$fg});
+    }
+
+    &.finished {
+      color: color-mix(in srgb, #{$sys_ok} 74%, #{$fg});
+    }
   }
 }
 

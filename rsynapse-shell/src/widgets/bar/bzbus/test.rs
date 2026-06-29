@@ -12,6 +12,7 @@ fn offline_view_reports_offline() {
     assert!(!view.progress_visible);
     assert_eq!(view.icon, "cloud_off");
     assert!(view.classes.contains(&"offline"));
+    assert_eq!(view.progress_level_classes, vec!["level", "offline"]);
 }
 
 #[test]
@@ -44,6 +45,7 @@ fn active_invocation_uses_progress_and_failures() {
     assert!(view.progress_visible);
     assert!(view.tooltip.contains("progress: 3/9 · 12a/4r"));
     assert!(view.classes.contains(&"running"));
+    assert_eq!(view.progress_level_classes, vec!["level", "running"]);
 }
 
 #[test]
