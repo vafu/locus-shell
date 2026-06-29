@@ -378,6 +378,15 @@ $outline-offset: $label-margin * 0.5;
   .clock-label {
     font-weight: 700;
   }
+
+  .notification-dot {
+    min-width: 7px;
+    min-height: 7px;
+    margin-top: -2px;
+    margin-right: -4px;
+    border-radius: 999px;
+    background-color: #{$sys_danger};
+  }
 }
 
 .projects-list {

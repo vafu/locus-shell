@@ -22,7 +22,7 @@ use std::{
     thread,
 };
 
-use relm4::component::ComponentController;
+use relm4::component::{AsyncComponentController, ComponentController};
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
@@ -51,7 +51,10 @@ use self::systray::{TrayItem, systray_items};
 use self::time::{ClockView, clock};
 use self::window_tile::WindowTile;
 use self::workspaces::{WorkspaceNode, selected_workspace_windows, workspaces};
-use super::{OsdInit, OsdWindow};
+use super::{
+    NotificationCenterInit, NotificationCenterInput, NotificationCenterWindow, NotificationsInit,
+    NotificationsWindow, OsdInit, OsdWindow, has_notification_items,
+};
 use crate::{hints, request, theme};
 
 type WindowNode = LocusPath;
@@ -67,6 +70,7 @@ pub enum MainBarInput {
     Media(MediaAction),
     ToggleBluetooth,
     CyclePowerProfile,
+    ToggleNotificationCenter,
     Request(request::PendingRequest),
 }
 
@@ -86,6 +90,8 @@ pub enum MediaAction {
 #[shell_macros::model]
 pub struct MainBar {
     _osd: AsyncController<OsdWindow>,
+    _notifications: AsyncController<NotificationsWindow>,
+    _notification_center: AsyncController<NotificationCenterWindow>,
     _request_server: Option<request::RequestServer>,
 
     #[source(workspaces())]
@@ -123,6 +129,9 @@ pub struct MainBar {
 
     #[source(clock())]
     clock: ClockView,
+
+    #[source(has_notification_items())]
+    has_notifications: bool,
 
     #[source(source_error_count())]
     source_error_count: u64,
@@ -693,10 +702,20 @@ impl SimpleAsyncComponent for MainBar {
                         #[watch]
                         set_tooltip_text: Some(model.clock.date.as_str()),
 
-                        gtk::Label {
-                            add_css_class: "clock-label",
-                            #[watch]
-                            set_label: model.clock.time.as_str(),
+                        gtk::Overlay {
+                            gtk::Label {
+                                add_css_class: "clock-label",
+                                #[watch]
+                                set_label: model.clock.time.as_str(),
+                            },
+
+                            add_overlay = &gtk::Box {
+                                add_css_class: "notification-dot",
+                                #[watch]
+                                set_visible: model.has_notifications,
+                                set_halign: gtk::Align::End,
+                                set_valign: gtk::Align::Start,
+                            }
                         }
                     }
                 }
@@ -720,6 +739,22 @@ impl SimpleAsyncComponent for MainBar {
             })
             .detach();
 
+        let notifications_builder = NotificationsWindow::builder();
+        relm4::main_application().add_window(&notifications_builder.root);
+        let notifications = notifications_builder
+            .launch(NotificationsInit {
+                title: "Rsynapse Notifications",
+            })
+            .detach();
+
+        let notification_center_builder = NotificationCenterWindow::builder();
+        relm4::main_application().add_window(&notification_center_builder.root);
+        let notification_center = notification_center_builder
+            .launch(NotificationCenterInit {
+                title: "Rsynapse Notification Center",
+            })
+            .detach();
+
         let request_sender = sender.input_sender().clone();
         let request_server = match request::start_server(move |request| {
             request_sender.emit(MainBarInput::Request(request));
@@ -731,12 +766,11 @@ impl SimpleAsyncComponent for MainBar {
             }
         };
 
-        let model = MainBar::new(osd, request_server);
+        let model = MainBar::new(osd, notifications, notification_center, request_server);
         let widgets = view_output!();
-        widgets.clock_button.connect_clicked(|_| {
-            thread::spawn(|| {
-                let _ = Command::new("swaync-client").arg("-t").status();
-            });
+        let input_sender = sender.input_sender().clone();
+        widgets.clock_button.connect_clicked(move |_| {
+            input_sender.emit(MainBarInput::ToggleNotificationCenter);
         });
         let input_sender = sender.input_sender().clone();
         widgets.mpris_previous_button.connect_clicked(move |_| {
@@ -864,6 +898,9 @@ impl SimpleAsyncComponent for MainBar {
             MainBarInput::CyclePowerProfile => {
                 power_profile::cycle_power_profile(&self.power_profile.profile)
             }
+            MainBarInput::ToggleNotificationCenter => self
+                ._notification_center
+                .emit(NotificationCenterInput::Toggle),
             MainBarInput::Request(request) => handle_request(request),
         }
     }

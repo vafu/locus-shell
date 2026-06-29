@@ -1,0 +1,115 @@
+window.notifications-window,
+.notifications-window,
+window.notification-center-window,
+.notification-center-window {
+  background-color: transparent;
+}
+
+.notifications-stack {
+  margin: 0;
+}
+
+.notification-card {
+  @include elevation-2;
+  min-width: 320px;
+  border-radius: 8px;
+  padding: 12px;
+  background-color: color-mix(in srgb, #{$bg_tint} 90%, transparent);
+  border-left: 3px solid color-mix(in srgb, #{$fg} 28%, transparent);
+
+  &.low {
+    opacity: 0.86;
+  }
+
+  &.critical {
+    border-left-color: #{$sys_danger};
+    background-color: color-mix(in srgb, #{$sys_danger} 12%, #{$bg_tint});
+  }
+}
+
+.notification-center {
+  @include elevation-3;
+  min-width: 380px;
+  padding: 12px;
+  border-radius: 10px;
+  background-color: color-mix(in srgb, #{$bg} 86%, transparent);
+}
+
+.notification-center-header {
+  padding: 0 2px 2px;
+}
+
+.notification-center-title {
+  font-weight: 800;
+}
+
+.notification-center-list {
+  margin: 0;
+}
+
+.notification-group-header {
+  margin: 6px 2px 0;
+}
+
+.notification-group-app {
+  opacity: 0.72;
+  font-weight: 800;
+}
+
+.notification-group-count {
+  opacity: 0.52;
+  font-weight: 700;
+}
+
+.notification-center-card {
+  min-width: 356px;
+  background-color: color-mix(in srgb, #{$bg_tint} 84%, transparent);
+}
+
+.notification-empty {
+  opacity: 0.58;
+  padding: 18px 8px;
+}
+
+.notification-image {
+  min-width: 42px;
+  min-height: 42px;
+  opacity: 0.9;
+}
+
+.notification-app {
+  opacity: 0.62;
+  font-size: 0.86em;
+  font-weight: 700;
+}
+
+.notification-summary {
+  font-weight: 800;
+}
+
+.notification-body {
+  opacity: 0.78;
+}
+
+.notification-close {
+  min-width: 0;
+  padding: 0;
+
+  image,
+  .materialicon {
+    opacity: 0.62;
+  }
+}
+
+.notification-actions {
+  margin-top: 2px;
+}
+
+.notification-action {
+  border-radius: 8px;
+  padding: 2px 10px;
+
+  &.default {
+    font-weight: 700;
+  }
+}
