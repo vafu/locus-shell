@@ -11,9 +11,17 @@ const FALLBACK_ICON: &str = "application-x-executable-symbolic";
 pub(crate) struct TrayItemVm {
     pub(super) visible: bool,
     pub(super) icon: String,
+    pub(super) icon_pixmap: Option<TrayIconPixmap>,
     pub(super) tooltip: String,
     pub(super) needs_attention: bool,
     pub(super) menu: Option<LocusPath>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct TrayIconPixmap {
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) argb32_hex: String,
 }
 
 impl Default for TrayItemVm {
@@ -21,6 +29,7 @@ impl Default for TrayItemVm {
         Self {
             visible: false,
             icon: FALLBACK_ICON.to_owned(),
+            icon_pixmap: None,
             tooltip: String::new(),
             needs_attention: false,
             menu: None,
@@ -74,10 +83,20 @@ pub(super) fn tray_item_vm(item: LocusPath) -> Observable<TrayItemVm> {
         item.observe_prop_or::<String>("attention-icon-name", String::new()),
         item.observe_prop_or::<String>("category", String::new()),
         item.observe_prop_or::<String>("service-name", String::new()),
-        item.observe_prop_or::<String>("menu-path", String::new())
-            => move |(state, title, status, icon, attention_icon, category, service, menu_path)| {
+        item.observe_prop_or::<String>("menu-path", String::new()),
+        tray_item_pixmap(item.clone())
+            => move |(state, title, status, icon, attention_icon, category, service, menu_path, icon_pixmap)| {
                 match state {
-                    NodeState::Present => tray_item_view(title, status, icon, attention_icon, category, service, menu_path),
+                    NodeState::Present => tray_item_view(
+                        title,
+                        status,
+                        icon,
+                        attention_icon,
+                        category,
+                        service,
+                        menu_path,
+                        icon_pixmap,
+                    ),
                     NodeState::Missing => TrayItemVm::default(),
                 }
             },
@@ -94,6 +113,7 @@ fn tray_item_view(
     category: String,
     service: String,
     menu_path: String,
+    icon_pixmap: Option<TrayIconPixmap>,
 ) -> TrayItemVm {
     let needs_attention = status == "NeedsAttention";
     let icon = if needs_attention && !attention_icon.trim().is_empty() {
@@ -107,10 +127,31 @@ fn tray_item_view(
     TrayItemVm {
         visible: status.trim() != "Passive",
         icon,
+        icon_pixmap,
         tooltip,
         needs_attention,
         menu: dbusmenu_path(service.as_str(), menu_path.as_str()),
     }
+}
+
+fn tray_item_pixmap(item: LocusPath) -> Observable<Option<TrayIconPixmap>> {
+    combine_latest!(
+        item.observe_prop_or::<u32>("icon-pixmap-width", 0),
+        item.observe_prop_or::<u32>("icon-pixmap-height", 0),
+        item.observe_prop_or::<String>("icon-pixmap-argb32", String::new())
+            => |(width, height, argb32_hex)| tray_icon_pixmap(width, height, argb32_hex),
+    )
+    .distinct_until_changed()
+    .box_it()
+}
+
+fn tray_icon_pixmap(width: u32, height: u32, argb32_hex: String) -> Option<TrayIconPixmap> {
+    let argb32_hex = non_empty(argb32_hex.as_str())?;
+    (width > 0 && height > 0).then(|| TrayIconPixmap {
+        width,
+        height,
+        argb32_hex: argb32_hex.to_owned(),
+    })
 }
 
 pub(super) fn tray_menu_items(item: LocusPath) -> Observable<Vec<LocusPath>> {

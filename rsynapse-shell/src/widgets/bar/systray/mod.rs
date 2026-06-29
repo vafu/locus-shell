@@ -1,5 +1,8 @@
 mod source;
 
+#[cfg(test)]
+mod test;
+
 use std::{cell::RefCell, fs, rc::Rc, thread};
 
 use relm4::prelude::*;
@@ -10,7 +13,9 @@ use shell_core::{
     locus_path::LocusPath,
 };
 
-use self::source::{TrayItemVm, TrayMenuItemVm, tray_item_vm, tray_menu_item_vm, tray_menu_items};
+use self::source::{
+    TrayIconPixmap, TrayItemVm, TrayMenuItemVm, tray_item_vm, tray_menu_item_vm, tray_menu_items,
+};
 
 pub(super) use self::source::tray_items as systray_items;
 
@@ -203,16 +208,103 @@ fn tray_item_classes(vm: &TrayItemVm) -> Vec<&'static str> {
     classes
 }
 
-fn tray_icon(vm: &TrayItemVm) -> gtk::gio::ThemedIcon {
-    let mut names = vec![vm.icon.as_str()];
-    let symbolic_base = vm.icon.strip_suffix("-symbolic");
-    if let Some(icon) = symbolic_base {
-        names.push(icon);
+fn tray_icon(vm: &TrayItemVm) -> gtk::gio::Icon {
+    if let Some(texture) = tray_pixmap_texture(vm.icon_pixmap.as_ref()) {
+        return texture.upcast();
     }
-    if vm.icon != "application-x-executable-symbolic" {
-        names.push("application-x-executable-symbolic");
+
+    let names = tray_icon_names(vm.icon.as_str());
+    let names = names.iter().map(String::as_str).collect::<Vec<_>>();
+    gtk::gio::ThemedIcon::from_names(&names).upcast()
+}
+
+fn tray_icon_names(icon: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    push_icon_name(&mut names, icon);
+    for alias in tray_icon_aliases(icon) {
+        push_icon_name(&mut names, alias);
     }
-    gtk::gio::ThemedIcon::from_names(&names)
+    if let Some(symbolic_base) = icon.strip_suffix("-symbolic") {
+        push_icon_name(&mut names, symbolic_base);
+    } else if !icon.is_empty() {
+        push_icon_name(&mut names, format!("{icon}-symbolic"));
+    }
+    push_icon_name(&mut names, "application-x-executable-symbolic");
+    names
+}
+
+fn tray_icon_aliases(icon: &str) -> &'static [&'static str] {
+    match icon {
+        "nm-device-wired" | "nm-device-wired-secure" => {
+            &["network-wired-symbolic", "network-wired"]
+        }
+        "nm-device-wired-autoip" | "nm-device-wired-acquiring" => {
+            &["network-wired-acquiring-symbolic", "network-wired"]
+        }
+        "nm-device-wired-disconnected" => &[
+            "network-wired-disconnected-symbolic",
+            "network-offline-symbolic",
+        ],
+        "nm-no-connection" | "nm-no-connection-symbolic" => {
+            &["network-offline-symbolic", "network-error-symbolic"]
+        }
+        "nm-vpn-active-lock" | "nm-vpn-lock" => &["network-vpn-symbolic"],
+        "nm-signal-100" | "nm-signal-100-secure" => &["network-wireless-signal-excellent-symbolic"],
+        "nm-signal-75" | "nm-signal-75-secure" => &["network-wireless-signal-good-symbolic"],
+        "nm-signal-50" | "nm-signal-50-secure" => &["network-wireless-signal-ok-symbolic"],
+        "nm-signal-25" | "nm-signal-25-secure" => &["network-wireless-signal-weak-symbolic"],
+        "nm-signal-00" | "nm-signal-0" | "nm-signal-00-secure" => {
+            &["network-wireless-signal-none-symbolic"]
+        }
+        _ => &[],
+    }
+}
+
+fn push_icon_name(names: &mut Vec<String>, name: impl AsRef<str>) {
+    let name = name.as_ref().trim();
+    if !name.is_empty() && !names.iter().any(|existing| existing == name) {
+        names.push(name.to_owned());
+    }
+}
+
+fn tray_pixmap_texture(pixmap: Option<&TrayIconPixmap>) -> Option<gtk::gdk::MemoryTexture> {
+    let pixmap = pixmap?;
+    let bytes = decode_hex(pixmap.argb32_hex.as_str())?;
+    let stride = pixmap.width.checked_mul(4)? as usize;
+    let expected = stride.checked_mul(pixmap.height as usize)?;
+    if bytes.len() != expected {
+        return None;
+    }
+
+    let bytes = gtk::glib::Bytes::from_owned(bytes);
+    Some(gtk::gdk::MemoryTexture::new(
+        pixmap.width.try_into().ok()?,
+        pixmap.height.try_into().ok()?,
+        gtk::gdk::MemoryFormat::B8g8r8a8,
+        &bytes,
+        stride,
+    ))
+}
+
+fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    let value = value.trim();
+    if value.len() % 2 != 0 {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| Some((hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?))
+        .collect()
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn activate_menu_item(item: LocusPath) {
