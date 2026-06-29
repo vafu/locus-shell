@@ -1,3 +1,5 @@
+$shell-surface-opacity: 0.86;
+
 /* base */
 @define-color bg @theme_bg_color;
 @define-color fg @theme_fg_color;
@@ -39,7 +41,8 @@
 @define-color bg_mixed_yellow mix(@theme_bg_color, @yellow_1, 0.3);
 @define-color bg_mixed_green mix(@theme_bg_color, @green_1, 0.2);
 
-@define-color bg_tint alpha(@bg, 0.6);
+@define-color bg_tint alpha(@bg, #{$shell-surface-opacity});
+@define-color osd_bg_tint alpha(@osd_bg, #{$shell-surface-opacity});
 
 @define-color shadow #22262d8a;
 @define-color shadow_active #0003;
@@ -83,6 +86,7 @@ $player_stopped: "@player_stopped";
 $bg_mixed_red: "@bg_mixed_red";
 $bg_mixed_yellow: "@bg_mixed_yellow";
 $bg_mixed_green: "@bg_mixed_green";
-$bg_tint: "@bg_tint";
+$bg_tint: "alpha(@bg, #{$shell-surface-opacity})";
+$osd_bg_tint: "alpha(@osd_bg, #{$shell-surface-opacity})";
 $shadow: "@shadow";
 $shadow_active: "@shadow_active";

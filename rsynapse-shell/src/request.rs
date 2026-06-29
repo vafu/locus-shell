@@ -13,10 +13,17 @@ use std::{
 pub(crate) enum ShellRequest {
     SchemeToggle,
     Hints(HintsAction),
+    Notifications(NotificationCenterAction),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum HintsAction {
+    Set(bool),
+    Toggle,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NotificationCenterAction {
     Set(bool),
     Toggle,
 }
@@ -204,7 +211,23 @@ fn parse_request(args: &[String]) -> Result<ShellRequest, String> {
             }
         }
         "hints" => parse_hints_request(&args[1..]).map(ShellRequest::Hints),
+        "notifications" | "notification-center" => {
+            parse_notification_center_request(&args[1..]).map(ShellRequest::Notifications)
+        }
         _ => Err(format!("unknown request command: {command}")),
+    }
+}
+
+fn parse_notification_center_request(args: &[String]) -> Result<NotificationCenterAction, String> {
+    match args {
+        [action] if action == "toggle" => Ok(NotificationCenterAction::Toggle),
+        [action] if action == "show" => Ok(NotificationCenterAction::Set(true)),
+        [action] if action == "hide" => Ok(NotificationCenterAction::Set(false)),
+        [key, value] if key == "open" || key == "active" => {
+            parse_bool(value).map(NotificationCenterAction::Set)
+        }
+        [] => Err("notifications requires open <bool>, show, hide, or toggle".to_owned()),
+        _ => Err("invalid notifications request".to_owned()),
     }
 }
 
@@ -285,8 +308,8 @@ fn runtime_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        HintsAction, RequestResponse, ShellRequest, decode_args, encode_args, parse_request,
-        parse_response,
+        HintsAction, NotificationCenterAction, RequestResponse, ShellRequest, decode_args,
+        encode_args, parse_request, parse_response,
     };
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -318,6 +341,22 @@ mod tests {
         assert_eq!(
             parse_request(&args(&["hints", "toggle"])).unwrap(),
             ShellRequest::Hints(HintsAction::Toggle)
+        );
+    }
+
+    #[test]
+    fn parses_notifications_actions() {
+        assert_eq!(
+            parse_request(&args(&["notifications", "toggle"])).unwrap(),
+            ShellRequest::Notifications(NotificationCenterAction::Toggle)
+        );
+        assert_eq!(
+            parse_request(&args(&["notifications", "show"])).unwrap(),
+            ShellRequest::Notifications(NotificationCenterAction::Set(true))
+        );
+        assert_eq!(
+            parse_request(&args(&["notification-center", "hide"])).unwrap(),
+            ShellRequest::Notifications(NotificationCenterAction::Set(false))
         );
     }
 

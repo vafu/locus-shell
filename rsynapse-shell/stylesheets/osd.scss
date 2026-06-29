@@ -5,7 +5,7 @@ window.OSD,
   .osd-shell {
     @include elevation-2;
     border-radius: 24px;
-    background-color: color-mix(in srgb, #{$osd_bg} 82%, transparent);
+    background-color: #{$osd_bg_tint};
     padding: 13px 16px;
     margin: 50px;
   }

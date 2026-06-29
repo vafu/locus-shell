@@ -901,18 +901,32 @@ impl SimpleAsyncComponent for MainBar {
             MainBarInput::ToggleNotificationCenter => self
                 ._notification_center
                 .emit(NotificationCenterInput::Toggle),
-            MainBarInput::Request(request) => handle_request(request),
+            MainBarInput::Request(request) => handle_request(request, &self._notification_center),
         }
     }
 }
 
-fn handle_request(request: request::PendingRequest) {
+fn handle_request(
+    request: request::PendingRequest,
+    notification_center: &AsyncController<NotificationCenterWindow>,
+) {
     let response = match request.request {
         request::ShellRequest::SchemeToggle => theme::toggle_color_scheme()
             .map(|_| request::RequestResponse::Ok)
             .unwrap_or_else(request::RequestResponse::Error),
         request::ShellRequest::Hints(action) => {
             hints::apply(action);
+            request::RequestResponse::Ok
+        }
+        request::ShellRequest::Notifications(action) => {
+            match action {
+                request::NotificationCenterAction::Set(open) => {
+                    notification_center.emit(NotificationCenterInput::SetOpen(open));
+                }
+                request::NotificationCenterAction::Toggle => {
+                    notification_center.emit(NotificationCenterInput::Toggle);
+                }
+            }
             request::RequestResponse::Ok
         }
     };

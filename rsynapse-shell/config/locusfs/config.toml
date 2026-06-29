@@ -30,3 +30,6 @@ enabled = true
 
 [plugins.dbusmenu]
 enabled = true
+
+[plugins.notifyd]
+enabled = true

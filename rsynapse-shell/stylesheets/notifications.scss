@@ -10,33 +10,28 @@ window.notification-center-window,
 }
 
 .notification-card {
-  @include elevation-2;
+  @include elevation-1;
   min-width: 320px;
   border-radius: 8px;
   padding: 12px;
-  background-color: color-mix(in srgb, #{$bg_tint} 90%, transparent);
-  border-left: 3px solid color-mix(in srgb, #{$fg} 28%, transparent);
-
-  &.low {
-    opacity: 0.86;
-  }
+  background-color: #{$bg_tint};
+  outline: 1px solid color-mix(in srgb, #{$fg} 10%, transparent);
+  outline-offset: -1px;
 
   &.critical {
-    border-left-color: #{$sys_danger};
-    background-color: color-mix(in srgb, #{$sys_danger} 12%, #{$bg_tint});
+    background-color: color-mix(in srgb, #{$sys_danger} 14%, #{$bg_tint});
+    outline-color: color-mix(in srgb, #{$sys_danger} 42%, transparent);
   }
 }
 
 .notification-center {
-  @include elevation-3;
   min-width: 380px;
-  padding: 12px;
-  border-radius: 10px;
-  background-color: color-mix(in srgb, #{$bg} 86%, transparent);
+  padding: 0;
+  background-color: transparent;
 }
 
 .notification-center-header {
-  padding: 0 2px 2px;
+  padding: 0 4px 2px;
 }
 
 .notification-center-title {
@@ -63,7 +58,7 @@ window.notification-center-window,
 
 .notification-center-card {
   min-width: 356px;
-  background-color: color-mix(in srgb, #{$bg_tint} 84%, transparent);
+  background-color: #{$bg_tint};
 }
 
 .notification-empty {
