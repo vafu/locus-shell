@@ -105,7 +105,7 @@ fn tray_item_view(
     let tooltip = tooltip(title.as_str(), status.as_str(), category.as_str());
 
     TrayItemVm {
-        visible: true,
+        visible: status.trim() != "Passive",
         icon,
         tooltip,
         needs_attention,
