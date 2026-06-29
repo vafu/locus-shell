@@ -22,7 +22,7 @@ use std::{
     thread,
 };
 
-use relm4::component::{AsyncComponentController, ComponentController};
+use relm4::component::ComponentController;
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
@@ -51,10 +51,7 @@ use self::systray::{TrayItem, systray_items};
 use self::time::{ClockView, clock};
 use self::window_tile::WindowTile;
 use self::workspaces::{WorkspaceNode, selected_workspace_windows, workspaces};
-use super::{
-    NotificationCenterInit, NotificationCenterInput, NotificationCenterWindow, NotificationsInit,
-    NotificationsWindow, OsdInit, OsdWindow, has_notification_items,
-};
+use super::{OsdInit, OsdWindow, has_notification_items};
 use crate::{hints, request, theme};
 
 type WindowNode = LocusPath;
@@ -90,8 +87,6 @@ pub enum MediaAction {
 #[shell_macros::model]
 pub struct MainBar {
     _osd: AsyncController<OsdWindow>,
-    _notifications: AsyncController<NotificationsWindow>,
-    _notification_center: AsyncController<NotificationCenterWindow>,
     _request_server: Option<request::RequestServer>,
 
     #[source(workspaces())]
@@ -739,34 +734,19 @@ impl SimpleAsyncComponent for MainBar {
             })
             .detach();
 
-        let notifications_builder = NotificationsWindow::builder();
-        relm4::main_application().add_window(&notifications_builder.root);
-        let notifications = notifications_builder
-            .launch(NotificationsInit {
-                title: "Rsynapse Notifications",
-            })
-            .detach();
-
-        let notification_center_builder = NotificationCenterWindow::builder();
-        relm4::main_application().add_window(&notification_center_builder.root);
-        let notification_center = notification_center_builder
-            .launch(NotificationCenterInit {
-                title: "Rsynapse Notification Center",
-            })
-            .detach();
-
         let request_sender = sender.input_sender().clone();
-        let request_server = match request::start_server(move |request| {
-            request_sender.emit(MainBarInput::Request(request));
-        }) {
-            Ok(server) => Some(server),
-            Err(error) => {
-                eprintln!("[request] failed to start request server: {error}");
-                None
-            }
-        };
+        let request_server =
+            match request::start_server(request::RequestTarget::Shell, move |request| {
+                request_sender.emit(MainBarInput::Request(request));
+            }) {
+                Ok(server) => Some(server),
+                Err(error) => {
+                    eprintln!("[request] failed to start request server: {error}");
+                    None
+                }
+            };
 
-        let model = MainBar::new(osd, notifications, notification_center, request_server);
+        let model = MainBar::new(osd, request_server);
         let widgets = view_output!();
         let input_sender = sender.input_sender().clone();
         widgets.clock_button.connect_clicked(move |_| {
@@ -898,18 +878,13 @@ impl SimpleAsyncComponent for MainBar {
             MainBarInput::CyclePowerProfile => {
                 power_profile::cycle_power_profile(&self.power_profile.profile)
             }
-            MainBarInput::ToggleNotificationCenter => self
-                ._notification_center
-                .emit(NotificationCenterInput::Toggle),
-            MainBarInput::Request(request) => handle_request(request, &self._notification_center),
+            MainBarInput::ToggleNotificationCenter => request_notification_center_toggle(),
+            MainBarInput::Request(request) => handle_request(request),
         }
     }
 }
 
-fn handle_request(
-    request: request::PendingRequest,
-    notification_center: &AsyncController<NotificationCenterWindow>,
-) {
+fn handle_request(request: request::PendingRequest) {
     let response = match request.request {
         request::ShellRequest::SchemeToggle => theme::toggle_color_scheme()
             .map(|_| request::RequestResponse::Ok)
@@ -918,19 +893,25 @@ fn handle_request(
             hints::apply(action);
             request::RequestResponse::Ok
         }
-        request::ShellRequest::Notifications(action) => {
-            match action {
-                request::NotificationCenterAction::Set(open) => {
-                    notification_center.emit(NotificationCenterInput::SetOpen(open));
-                }
-                request::NotificationCenterAction::Toggle => {
-                    notification_center.emit(NotificationCenterInput::Toggle);
-                }
-            }
-            request::RequestResponse::Ok
-        }
+        request::ShellRequest::Notifications(_) => request::RequestResponse::Error(
+            "notification requests are handled by rsynapse-notifications".to_owned(),
+        ),
     };
     request.respond(response);
+}
+
+fn request_notification_center_toggle() {
+    thread::spawn(|| {
+        match request::send_notification_center_action(request::NotificationCenterAction::Toggle) {
+            Ok(request::RequestResponse::Ok) => {}
+            Ok(request::RequestResponse::Error(error)) => {
+                eprintln!("[notifications/request] {error}");
+            }
+            Err(error) => {
+                eprintln!("[notifications/request] {error}");
+            }
+        }
+    });
 }
 
 fn bar_window_config() -> WindowConfig {

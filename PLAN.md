@@ -63,13 +63,19 @@ Framework crates own:
 - Use `rsynapse-shell` as the in-repository consumer for framework ergonomics.
 - Keep widget policy, source composition, CSS, and AGS migration behavior in
   `rsynapse-shell`, not in framework crates.
-- `rsynapse-shell` currently runs the bar and OSD as multiple layer-shell
-  windows in one binary; do not split OSD back into a separate binary unless
-  that consumer policy changes again.
+- The `rsynapse-shell` package currently builds two process binaries:
+  `rsynapse-shell` for the bar and OSD, and `rsynapse-notifications` for
+  notification popups plus the notification center.
+- Keep the bar and OSD in the main `rsynapse-shell` binary; do not split OSD
+  back into a separate binary unless that consumer policy changes again.
 - `rsynapse-shell` owns its Unix-socket request CLI for consumer runtime
-  commands such as theme switching and Super-key hints. Do not move command
-  names or product policy into `shell-core` unless another consumer needs the
-  same transport contract.
+  commands such as theme switching, Super-key hints, and notification-center
+  control. Notification-center commands route to the `rsynapse-notifications`
+  socket; command names and product policy stay out of `shell-core` unless
+  another consumer needs the same transport contract.
+- Shared product bootstrap such as rsynapse stylesheet/theme setup lives in the
+  `rsynapse-shell` library. Only generic app lifecycle setup, including Relm4
+  worker-thread configuration, belongs in `shell-core`.
 
 ### 4. LocusFS Source Integration
 
@@ -152,9 +158,9 @@ Framework crates own:
 - Create actual shell widgets outside this framework boundary.
 - Use `rsynapse-shell` as the in-repository AGS migration playground and
   framework stress test, while keeping product policy out of framework crates.
-- Current in-repository consumer: `rsynapse-shell`, with bar and OSD windows in
-  one process.
-- Then notifications.
+- Current in-repository consumer package: `rsynapse-shell`, with bar and OSD
+  windows in `rsynapse-shell` and notification windows in
+  `rsynapse-notifications`.
 - These crates depend on `shell-core` and `shell-macros`; graph data should come
   from Observable source functions over locusfs.
 

@@ -19,6 +19,7 @@ use self::{
         NotificationCenterRowVm, NotificationVm, notification_center_rows, popup_notifications,
     },
 };
+use crate::request;
 
 pub(crate) use self::source::has_notification_items;
 
@@ -30,6 +31,9 @@ pub struct NotificationsInit {
 #[derive(Debug)]
 #[shell_macros::model(module = notification_sources)]
 pub struct NotificationsWindow {
+    _notification_center: AsyncController<NotificationCenterWindow>,
+    _request_server: Option<request::RequestServer>,
+
     #[source(popup_notifications())]
     notifications: Vec<NotificationVm>,
 }
@@ -37,6 +41,7 @@ pub struct NotificationsWindow {
 #[derive(Debug)]
 pub enum NotificationsInput {
     Source(notification_sources::Msg),
+    Request(request::PendingRequest),
 }
 
 impl From<notification_sources::Msg> for NotificationsInput {
@@ -78,12 +83,32 @@ impl SimpleAsyncComponent for NotificationsWindow {
     async fn init(
         init: Self::Init,
         root: Self::Root,
-        _sender: AsyncComponentSender<Self>,
+        sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         window::apply_layer_shell_config(&root, notifications_window_config());
         root.set_title(Some(init.title));
 
-        let model = NotificationsWindow::new();
+        let notification_center_builder = NotificationCenterWindow::builder();
+        relm4::main_application().add_window(&notification_center_builder.root);
+        let notification_center = notification_center_builder
+            .launch(NotificationCenterInit {
+                title: "Rsynapse Notification Center",
+            })
+            .detach();
+
+        let request_sender = sender.input_sender().clone();
+        let request_server =
+            match request::start_server(request::RequestTarget::Notifications, move |request| {
+                request_sender.emit(NotificationsInput::Request(request));
+            }) {
+                Ok(server) => Some(server),
+                Err(error) => {
+                    eprintln!("[notifications/request] failed to start request server: {error}");
+                    None
+                }
+            };
+
+        let model = NotificationsWindow::new(notification_center, request_server);
         let widgets = view_output!();
         AsyncComponentParts { model, widgets }
     }
@@ -91,6 +116,9 @@ impl SimpleAsyncComponent for NotificationsWindow {
     async fn update(&mut self, msg: Self::Input, _sender: AsyncComponentSender<Self>) {
         match msg {
             NotificationsInput::Source(msg) => NotificationsWindow::update(self, msg),
+            NotificationsInput::Request(request) => {
+                handle_notification_request(request, &self._notification_center);
+            }
         }
     }
 }
@@ -244,6 +272,39 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
             NotificationCenterInput::Toggle => self.open = !self.open,
             NotificationCenterInput::SetOpen(open) => self.open = open,
             NotificationCenterInput::Close => self.open = false,
+        }
+    }
+}
+
+fn handle_notification_request(
+    request: request::PendingRequest,
+    notification_center: &AsyncController<NotificationCenterWindow>,
+) {
+    let response = match request.request {
+        request::ShellRequest::Notifications(action) => {
+            apply_notification_center_action(notification_center, action);
+            request::RequestResponse::Ok
+        }
+        request::ShellRequest::SchemeToggle | request::ShellRequest::Hints(_) => {
+            request::RequestResponse::Error(
+                "request is handled by the rsynapse-shell process".to_owned(),
+            )
+        }
+    };
+
+    request.respond(response);
+}
+
+fn apply_notification_center_action(
+    notification_center: &AsyncController<NotificationCenterWindow>,
+    action: request::NotificationCenterAction,
+) {
+    match action {
+        request::NotificationCenterAction::Set(open) => {
+            notification_center.emit(NotificationCenterInput::SetOpen(open));
+        }
+        request::NotificationCenterAction::Toggle => {
+            notification_center.emit(NotificationCenterInput::Toggle);
         }
     }
 }

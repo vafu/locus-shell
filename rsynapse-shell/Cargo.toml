@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[[bin]]
+name = "rsynapse-notifications"
+path = "src/bin/rsynapse-notifications.rs"
+
 [dependencies]
 async-channel = "2.5.0"
 futures-util = "0.3.32"

@@ -9,32 +9,62 @@ use std::{
     time::Duration,
 };
 
+/// Runtime process that can receive rsynapse shell requests.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RequestTarget {
+    Shell,
+    Notifications,
+}
+
+impl RequestTarget {
+    const fn socket_dir(self) -> &'static str {
+        match self {
+            Self::Shell => "rsynapse-shell",
+            Self::Notifications => "rsynapse-notifications",
+        }
+    }
+}
+
+/// Product-level request understood by one of the rsynapse shell processes.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ShellRequest {
+pub enum ShellRequest {
     SchemeToggle,
     Hints(HintsAction),
     Notifications(NotificationCenterAction),
 }
 
+impl ShellRequest {
+    pub const fn target(&self) -> RequestTarget {
+        match self {
+            Self::SchemeToggle | Self::Hints(_) => RequestTarget::Shell,
+            Self::Notifications(_) => RequestTarget::Notifications,
+        }
+    }
+}
+
+/// Super-key hints request action.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum HintsAction {
+pub enum HintsAction {
     Set(bool),
     Toggle,
 }
 
+/// Notification center request action.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NotificationCenterAction {
+pub enum NotificationCenterAction {
     Set(bool),
     Toggle,
 }
 
+/// Response returned over the local request socket.
 #[derive(Debug)]
-pub(crate) enum RequestResponse {
+pub enum RequestResponse {
     Ok,
     Error(String),
 }
 
-pub(crate) struct PendingRequest {
+/// Request plus a one-shot response channel owned by a request server.
+pub struct PendingRequest {
     pub(crate) request: ShellRequest,
     response: mpsc::Sender<RequestResponse>,
 }
@@ -44,7 +74,7 @@ impl PendingRequest {
         Self { request, response }
     }
 
-    pub(crate) fn respond(self, response: RequestResponse) {
+    pub fn respond(self, response: RequestResponse) {
         let _ = self.response.send(response);
     }
 }
@@ -58,7 +88,8 @@ impl fmt::Debug for PendingRequest {
     }
 }
 
-pub(crate) struct RequestServer {
+/// Long-lived local request socket server.
+pub struct RequestServer {
     path: PathBuf,
     _thread: JoinHandle<()>,
 }
@@ -78,10 +109,12 @@ impl Drop for RequestServer {
     }
 }
 
-pub(crate) fn start_server(
+/// Start a local request server for the selected process.
+pub fn start_server(
+    target: RequestTarget,
     dispatch: impl Fn(PendingRequest) + Send + 'static,
 ) -> Result<RequestServer, String> {
-    let path = socket_path();
+    let path = socket_path(target);
     let parent = path
         .parent()
         .ok_or_else(|| format!("request socket path has no parent: {}", path.display()))?;
@@ -115,7 +148,8 @@ pub(crate) fn start_server(
     })
 }
 
-pub(crate) fn run_cli(args: impl IntoIterator<Item = OsString>) -> i32 {
+/// Handle `rsynapse-shell request ...` style command-line invocations.
+pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> i32 {
     let args = match os_args_to_strings(args) {
         Ok(args) if !args.is_empty() => args,
         Ok(_) => {
@@ -128,12 +162,15 @@ pub(crate) fn run_cli(args: impl IntoIterator<Item = OsString>) -> i32 {
         }
     };
 
-    if let Err(error) = parse_request(&args) {
-        eprintln!("{error}");
-        return 2;
-    }
+    let request = match parse_request(&args) {
+        Ok(request) => request,
+        Err(error) => {
+            eprintln!("{error}");
+            return 2;
+        }
+    };
 
-    match send_request(&args) {
+    match send_request(request.target(), &args) {
         Ok(RequestResponse::Ok) => {
             println!("ok");
             0
@@ -147,6 +184,16 @@ pub(crate) fn run_cli(args: impl IntoIterator<Item = OsString>) -> i32 {
             1
         }
     }
+}
+
+/// Send a notification center action to the notifications process.
+pub fn send_notification_center_action(
+    action: NotificationCenterAction,
+) -> Result<RequestResponse, String> {
+    send_request(
+        RequestTarget::Notifications,
+        &notification_center_request_args(action),
+    )
 }
 
 fn accept_requests(listener: UnixListener, dispatch: impl Fn(PendingRequest)) {
@@ -172,8 +219,8 @@ fn handle_connection(stream: &mut UnixStream, dispatch: &impl Fn(PendingRequest)
     let _ = stream.write_all(response_line(&response).as_bytes());
 }
 
-fn send_request(args: &[String]) -> Result<RequestResponse, String> {
-    let path = socket_path();
+fn send_request(target: RequestTarget, args: &[String]) -> Result<RequestResponse, String> {
+    let path = socket_path(target);
     let mut stream = UnixStream::connect(&path)
         .map_err(|error| format!("connect request socket {}: {error}", path.display()))?;
     stream
@@ -188,6 +235,16 @@ fn send_request(args: &[String]) -> Result<RequestResponse, String> {
         .read_to_string(&mut response)
         .map_err(|error| format!("read response: {error}"))?;
     parse_response(&response)
+}
+
+fn notification_center_request_args(action: NotificationCenterAction) -> Vec<String> {
+    let action = match action {
+        NotificationCenterAction::Set(true) => "show",
+        NotificationCenterAction::Set(false) => "hide",
+        NotificationCenterAction::Toggle => "toggle",
+    };
+
+    vec!["notifications".to_owned(), action.to_owned()]
 }
 
 fn read_request(stream: &mut UnixStream) -> Result<Vec<String>, String> {
@@ -295,8 +352,8 @@ fn os_args_to_strings(args: impl IntoIterator<Item = OsString>) -> Result<Vec<St
         .collect()
 }
 
-fn socket_path() -> PathBuf {
-    runtime_dir().join("rsynapse-shell/request.sock")
+fn socket_path(target: RequestTarget) -> PathBuf {
+    runtime_dir().join(target.socket_dir()).join("request.sock")
 }
 
 fn runtime_dir() -> PathBuf {
@@ -308,8 +365,9 @@ fn runtime_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        HintsAction, NotificationCenterAction, RequestResponse, ShellRequest, decode_args,
-        encode_args, parse_request, parse_response,
+        HintsAction, NotificationCenterAction, RequestResponse, RequestTarget, ShellRequest,
+        decode_args, encode_args, notification_center_request_args, parse_request, parse_response,
+        socket_path,
     };
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -357,6 +415,49 @@ mod tests {
         assert_eq!(
             parse_request(&args(&["notification-center", "hide"])).unwrap(),
             ShellRequest::Notifications(NotificationCenterAction::Set(false))
+        );
+    }
+
+    #[test]
+    fn routes_requests_to_process_targets() {
+        assert_eq!(
+            parse_request(&args(&["scheme-toggle"])).unwrap().target(),
+            RequestTarget::Shell
+        );
+        assert_eq!(
+            parse_request(&args(&["hints", "toggle"])).unwrap().target(),
+            RequestTarget::Shell
+        );
+        assert_eq!(
+            parse_request(&args(&["notifications", "toggle"]))
+                .unwrap()
+                .target(),
+            RequestTarget::Notifications
+        );
+    }
+
+    #[test]
+    fn builds_notification_center_request_args() {
+        assert_eq!(
+            notification_center_request_args(NotificationCenterAction::Toggle),
+            args(&["notifications", "toggle"])
+        );
+        assert_eq!(
+            notification_center_request_args(NotificationCenterAction::Set(true)),
+            args(&["notifications", "show"])
+        );
+        assert_eq!(
+            notification_center_request_args(NotificationCenterAction::Set(false)),
+            args(&["notifications", "hide"])
+        );
+    }
+
+    #[test]
+    fn separates_socket_paths_by_target() {
+        assert!(socket_path(RequestTarget::Shell).ends_with("rsynapse-shell/request.sock"),);
+        assert!(
+            socket_path(RequestTarget::Notifications)
+                .ends_with("rsynapse-notifications/request.sock"),
         );
     }
 

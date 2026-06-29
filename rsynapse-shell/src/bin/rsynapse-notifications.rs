@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 
 use rsynapse_shell::{
     init_tracing, request, rsynapse_app,
-    widgets::{MainBar, MainBarInit},
+    widgets::notifications::{NotificationsInit, NotificationsWindow},
 };
 
 fn main() {
@@ -14,7 +14,9 @@ fn main() {
 
     init_tracing();
 
-    rsynapse_app("io.github.Locus.RsynapseShell").run_async::<MainBar>(MainBarInit {
-        title: "Rsynapse Shell",
-    });
+    rsynapse_app("io.github.Locus.RsynapseNotifications").run_async::<NotificationsWindow>(
+        NotificationsInit {
+            title: "Rsynapse Notifications",
+        },
+    );
 }

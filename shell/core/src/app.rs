@@ -15,6 +15,7 @@ pub struct ShellApp {
     watch_stylesheets: bool,
     sass_config: SassConfig,
     startup_handlers: Vec<StartupHandler>,
+    relm_threads: Option<usize>,
 }
 
 impl ShellApp {
@@ -25,6 +26,7 @@ impl ShellApp {
             watch_stylesheets: false,
             sass_config: SassConfig::default(),
             startup_handlers: Vec::new(),
+            relm_threads: None,
         }
     }
 
@@ -94,6 +96,12 @@ impl ShellApp {
         self
     }
 
+    /// Configure the size of Relm4's worker thread pool before the app starts.
+    pub const fn with_relm_threads(mut self, threads: usize) -> Self {
+        self.relm_threads = Some(threads);
+        self
+    }
+
     pub fn on_startup(mut self, handler: impl Fn(&gtk::Application) + 'static) -> Self {
         self.startup_handlers.push(Box::new(handler));
         self
@@ -111,8 +119,10 @@ impl ShellApp {
             watch_stylesheets,
             sass_config,
             startup_handlers,
+            relm_threads,
         } = self;
 
+        Self::configure_relm_threads(relm_threads);
         let app = RelmApp::<C::Input>::new(&app_id);
         let stylesheets = Self::prepare_stylesheets(stylesheets, sass_config)
             .expect("failed to initialize shell app stylesheets");
@@ -160,8 +170,10 @@ impl ShellApp {
             watch_stylesheets,
             sass_config,
             startup_handlers,
+            relm_threads,
         } = self;
 
+        Self::configure_relm_threads(relm_threads);
         let app = RelmApp::<C::Input>::new(&app_id);
         let stylesheets = Self::prepare_stylesheets(stylesheets, sass_config)
             .expect("failed to initialize shell app stylesheets");
@@ -215,6 +227,12 @@ impl ShellApp {
 
         Ok(stylesheets)
     }
+
+    fn configure_relm_threads(relm_threads: Option<usize>) {
+        if let Some(threads) = relm_threads {
+            let _ = relm4::RELM_THREADS.set(threads);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -234,6 +252,7 @@ impl Debug for ShellApp {
             .field("watch_stylesheets", &self.watch_stylesheets)
             .field("sass_config", &self.sass_config)
             .field("startup_handlers", &self.startup_handlers.len())
+            .field("relm_threads", &self.relm_threads)
             .finish()
     }
 }
