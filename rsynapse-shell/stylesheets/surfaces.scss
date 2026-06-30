@@ -14,6 +14,7 @@ $rsx-surface-radius: 12px !default;
 $rsx-surface-radius-large: 24px !default;
 $rsx-surface-radius-pill: 999px !default;
 $rsx-surface-outline-width: 0.5px !default;
+$rsx-selected-outline-width: 1px !default;
 
 @mixin rsx-elevation($level: 1) {
   @if $level == 0 {
@@ -47,16 +48,14 @@ $rsx-surface-outline-width: 0.5px !default;
 }
 
 @mixin rsx-surface-selected($outline: $rsx-selected-outline) {
-  border-color: #{$outline};
-  outline: 1px solid #{$outline};
-  outline-offset: 0;
+  border: $rsx-selected-outline-width solid #{$outline};
+  outline: none;
 }
 
 @mixin rsx-surface-danger {
   background-color: color-mix(in srgb, #{$rsx-error} 16%, #{$rsx-surface-container});
-  border-color: #{$rsx-error-outline};
-  outline: 1px solid #{$rsx-error-outline};
-  outline-offset: 0;
+  border: $rsx-selected-outline-width solid #{$rsx-error-outline};
+  outline: none;
 }
 
 .surface,
