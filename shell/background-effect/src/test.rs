@@ -1,6 +1,6 @@
 use crate::{
     BackgroundEffect, BackgroundEffectRegion,
-    region::{RegionRectangle, RegionShape, append_region_rectangles},
+    region::{RegionRectangle, RegionShape, RegionSize, append_region_rectangles},
 };
 
 #[test]
@@ -65,6 +65,27 @@ fn corner_guard_shrinks_only_corner_bands() {
             RegionRectangle::new(2, 18, 16, 1),
             RegionRectangle::new(4, 19, 12, 1),
         ]
+    );
+}
+
+#[test]
+fn translated_region_clips_to_surface() {
+    let surface_size = RegionSize {
+        width: 20,
+        height: 12,
+    };
+
+    assert_eq!(
+        RegionRectangle::new(2, 3, 10, 4).translated_and_clipped(5, 6, surface_size),
+        Some(RegionRectangle::new(7, 9, 10, 3))
+    );
+    assert_eq!(
+        RegionRectangle::new(0, 0, 10, 10).translated_and_clipped(-3, 8, surface_size),
+        Some(RegionRectangle::new(0, 8, 7, 4))
+    );
+    assert_eq!(
+        RegionRectangle::new(0, 0, 10, 10).translated_and_clipped(30, 0, surface_size),
+        None
     );
 }
 

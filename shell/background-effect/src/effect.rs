@@ -1,10 +1,20 @@
-use std::{env, error::Error, ffi::c_void, fmt::Write as _, time::Duration, time::Instant};
+use std::{
+    collections::{HashMap, HashSet, hash_map::Entry},
+    env,
+    error::Error,
+    ffi::c_void,
+    fmt::Write as _,
+    time::Duration,
+    time::Instant,
+};
 
 use gio::prelude::ListModelExt;
 use gtk::{
     gdk, gio,
     glib::{self, signal::SignalHandlerId, translate::ToGlibPtr},
-    prelude::{Cast, DisplayExtManual, IsA, NativeExt, ObjectExt, SurfaceExt, WidgetExt},
+    prelude::{
+        Cast, DisplayExtManual, IsA, NativeExt, ObjectExt, SurfaceExt, WidgetExt, WidgetExtManual,
+    },
 };
 use wayland_client::{
     Connection, Dispatch, EventQueue, Proxy, QueueHandle,
@@ -26,6 +36,8 @@ use crate::{
 const WINDOW_DATA_KEY: &str = "gtk4-background-effect";
 const TRACE_ENV: &str = "GTK4_BACKGROUND_EFFECT_TRACE";
 const LEGACY_TRACE_ENV: &str = "SHELL_CORE_BACKGROUND_EFFECT_TRACE";
+const LAYOUT_SETTLE_STABLE_FRAMES: u8 = 1;
+const LAYOUT_SETTLE_MAX_FRAMES: u8 = 45;
 
 unsafe extern "C" {
     fn gdk_wayland_display_get_wl_display(display: *mut gdk::ffi::GdkDisplay) -> *mut c_void;
@@ -151,6 +163,8 @@ fn install_dynamic_region_refresh(window: &gtk::Window, region: BackgroundEffect
 }
 
 fn queue_installed_blur_region_refresh(window: &gtk::Window) {
+    start_layout_settle_tick(window);
+
     let should_queue = unsafe {
         let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
             return;
@@ -178,25 +192,96 @@ fn queue_installed_blur_region_refresh(window: &gtk::Window) {
     });
 }
 
-fn refresh_installed_blur_region(window: &gtk::Window) -> Result<bool, Box<dyn Error>> {
+fn queue_layout_tree_refresh(window: &gtk::Window) {
+    unsafe {
+        if let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) {
+            handle.as_mut().layout_refresh_dirty = true;
+        }
+    }
+    queue_installed_blur_region_refresh(window);
+}
+
+fn start_layout_settle_tick(window: &gtk::Window) {
+    unsafe {
+        let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
+            return;
+        };
+        let handle = handle.as_mut();
+        handle.layout_settle_stable_frames = 0;
+        handle.layout_settle_frames_remaining = LAYOUT_SETTLE_MAX_FRAMES;
+        if handle.layout_settle_tick_callback.is_some() {
+            return;
+        }
+
+        let tick_callback =
+            window.add_tick_callback(|window, _| match refresh_installed_blur_region(window) {
+                Ok(Some(changed)) => update_layout_settle_tick(window, changed),
+                Ok(None) => {
+                    clear_layout_settle_tick(window);
+                    glib::ControlFlow::Break
+                }
+                Err(error) => {
+                    eprintln!("[gtk4-background-effect] failed to refresh blur region: {error}");
+                    clear_layout_settle_tick(window);
+                    glib::ControlFlow::Break
+                }
+            });
+        handle.layout_settle_tick_callback = Some(tick_callback);
+    }
+}
+
+fn update_layout_settle_tick(window: &gtk::Window, changed: bool) -> glib::ControlFlow {
+    unsafe {
+        let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
+            return glib::ControlFlow::Break;
+        };
+        let handle = handle.as_mut();
+        handle.layout_settle_frames_remaining =
+            handle.layout_settle_frames_remaining.saturating_sub(1);
+        handle.layout_settle_stable_frames = if changed {
+            0
+        } else {
+            handle.layout_settle_stable_frames.saturating_add(1)
+        };
+
+        if handle.layout_settle_frames_remaining == 0
+            || handle.layout_settle_stable_frames >= LAYOUT_SETTLE_STABLE_FRAMES
+        {
+            handle.layout_settle_tick_callback = None;
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
+    }
+}
+
+fn clear_layout_settle_tick(window: &gtk::Window) {
+    unsafe {
+        if let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) {
+            handle.as_mut().layout_settle_tick_callback = None;
+        }
+    }
+}
+
+fn refresh_installed_blur_region(window: &gtk::Window) -> Result<Option<bool>, Box<dyn Error>> {
     let Some(gdk_surface) = window.surface() else {
         clear_refresh_pending(window);
-        return Ok(false);
+        return Ok(None);
     };
 
     unsafe {
         let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
-            return Ok(false);
+            return Ok(None);
         };
         let handle = handle.as_mut();
         handle.refresh_pending = false;
-        if handle.region.needs_layout_refresh() {
+        if handle.region.needs_layout_refresh() && handle.layout_refresh_dirty {
             handle.layout_refresh = Some(LayoutRefresh::new(window));
+            handle.layout_refresh_dirty = false;
         }
-        handle.update_blur_region(window, &gdk_surface)?;
+        let changed = handle.update_blur_region(window, &gdk_surface)?;
+        Ok(Some(changed))
     }
-
-    Ok(true)
 }
 
 fn clear_refresh_pending(window: &gtk::Window) {
@@ -211,21 +296,39 @@ fn blur_region_rectangles(
     window: &gtk::Window,
     surface: &gdk::Surface,
     region: BackgroundEffectRegion,
-) -> Vec<RegionRectangle> {
+    geometry_cache: &mut RegionGeometryCache,
+) -> RegionBuildResult {
     let surface_size = RegionSize {
         width: surface.width().max(window.width()).max(1),
         height: surface.height().max(window.height()).max(1),
     };
 
     let mut rectangles = Vec::new();
-    append_blur_region_rectangles(window, surface_size, region, &mut rectangles);
-    rectangles
+    let mut used_shapes = HashSet::new();
+    let mut stats = RegionBuildStats::default();
+    append_blur_region_rectangles(
+        window,
+        surface_size,
+        region,
+        geometry_cache,
+        &mut used_shapes,
+        &mut stats,
+        &mut rectangles,
+    );
+    geometry_cache
+        .local_shapes
+        .retain(|key, _| used_shapes.contains(key));
+
+    RegionBuildResult { rectangles, stats }
 }
 
 fn append_blur_region_rectangles(
     window: &gtk::Window,
     surface_size: RegionSize,
     region: BackgroundEffectRegion,
+    geometry_cache: &mut RegionGeometryCache,
+    used_shapes: &mut HashSet<RegionShapeCacheKey>,
+    stats: &mut RegionBuildStats,
     rectangles: &mut Vec<RegionRectangle>,
 ) {
     match region {
@@ -243,6 +346,9 @@ fn append_blur_region_rectangles(
                 surface_size,
                 classes,
                 RegionShape::Rectangle,
+                geometry_cache,
+                used_shapes,
+                stats,
                 rectangles,
             )
         }
@@ -256,6 +362,9 @@ fn append_blur_region_rectangles(
                     inset: 0,
                     corner_guard: 0,
                 },
+                geometry_cache,
+                used_shapes,
+                stats,
                 rectangles,
             )
         }
@@ -272,6 +381,9 @@ fn append_blur_region_rectangles(
                 inset: 0,
                 corner_guard,
             },
+            geometry_cache,
+            used_shapes,
+            stats,
             rectangles,
         ),
         BackgroundEffectRegion::InsetRoundedCssClasses {
@@ -287,11 +399,22 @@ fn append_blur_region_rectangles(
                 inset,
                 corner_guard: 0,
             },
+            geometry_cache,
+            used_shapes,
+            stats,
             rectangles,
         ),
         BackgroundEffectRegion::Regions(regions) => {
             for region in regions {
-                append_blur_region_rectangles(window, surface_size, *region, rectangles);
+                append_blur_region_rectangles(
+                    window,
+                    surface_size,
+                    *region,
+                    geometry_cache,
+                    used_shapes,
+                    stats,
+                    rectangles,
+                );
             }
         }
     }
@@ -302,10 +425,23 @@ fn collect_blur_region_rectangles_for_css_classes(
     surface_size: RegionSize,
     classes: &[&str],
     shape: RegionShape,
+    geometry_cache: &mut RegionGeometryCache,
+    used_shapes: &mut HashSet<RegionShapeCacheKey>,
+    stats: &mut RegionBuildStats,
     rectangles: &mut Vec<RegionRectangle>,
 ) {
     let root = window.upcast_ref::<gtk::Widget>();
-    collect_css_class_rectangles(root, root, surface_size, classes, shape, rectangles);
+    collect_css_class_rectangles(
+        root,
+        root,
+        surface_size,
+        classes,
+        shape,
+        geometry_cache,
+        used_shapes,
+        stats,
+        rectangles,
+    );
 }
 
 fn collect_css_class_rectangles(
@@ -314,6 +450,9 @@ fn collect_css_class_rectangles(
     surface_size: RegionSize,
     classes: &[&str],
     shape: RegionShape,
+    geometry_cache: &mut RegionGeometryCache,
+    used_shapes: &mut HashSet<RegionShapeCacheKey>,
+    stats: &mut RegionBuildStats,
     rectangles: &mut Vec<RegionRectangle>,
 ) {
     if widget.is_drawable()
@@ -321,16 +460,145 @@ fn collect_css_class_rectangles(
             .iter()
             .any(|css_class| widget.has_css_class(css_class))
         && let Some(bounds) = widget.compute_bounds(root)
-        && let Some(rectangle) = RegionRectangle::from_bounds(&bounds, surface_size)
+        && let Some(bounds) = WidgetRegionBounds::from_bounds(&bounds)
     {
-        append_region_rectangles(rectangle, shape, rectangles);
+        append_cached_widget_region_rectangles(
+            bounds,
+            surface_size,
+            shape,
+            geometry_cache,
+            used_shapes,
+            stats,
+            rectangles,
+        );
     }
 
     let mut child = widget.first_child();
     while let Some(widget) = child {
         child = widget.next_sibling();
-        collect_css_class_rectangles(&widget, root, surface_size, classes, shape, rectangles);
+        collect_css_class_rectangles(
+            &widget,
+            root,
+            surface_size,
+            classes,
+            shape,
+            geometry_cache,
+            used_shapes,
+            stats,
+            rectangles,
+        );
     }
+}
+
+fn append_cached_widget_region_rectangles(
+    bounds: WidgetRegionBounds,
+    surface_size: RegionSize,
+    shape: RegionShape,
+    geometry_cache: &mut RegionGeometryCache,
+    used_shapes: &mut HashSet<RegionShapeCacheKey>,
+    stats: &mut RegionBuildStats,
+    rectangles: &mut Vec<RegionRectangle>,
+) {
+    let key = RegionShapeCacheKey {
+        width: bounds.width,
+        height: bounds.height,
+        shape,
+    };
+    used_shapes.insert(key);
+
+    let local_rectangles = match geometry_cache.local_shapes.entry(key) {
+        Entry::Occupied(entry) => {
+            stats.shape_cache_hits += 1;
+            entry.into_mut()
+        }
+        Entry::Vacant(entry) => {
+            stats.shape_cache_misses += 1;
+            entry.insert(local_region_rectangles(bounds.width, bounds.height, shape))
+        }
+    };
+
+    rectangles.extend(local_rectangles.iter().filter_map(|rectangle| {
+        rectangle.translated_and_clipped(bounds.x, bounds.y, surface_size)
+    }));
+}
+
+fn local_region_rectangles(width: i32, height: i32, shape: RegionShape) -> Vec<RegionRectangle> {
+    let mut rectangles = Vec::new();
+    append_region_rectangles(
+        RegionRectangle {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        shape,
+        &mut rectangles,
+    );
+    rectangles
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WidgetRegionBounds {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+impl WidgetRegionBounds {
+    fn from_bounds(bounds: &gtk::graphene::Rect) -> Option<Self> {
+        let x = bounds.x();
+        let y = bounds.y();
+        let width = bounds.width();
+        let height = bounds.height();
+        if !x.is_finite()
+            || !y.is_finite()
+            || !width.is_finite()
+            || !height.is_finite()
+            || width <= 0.0
+            || height <= 0.0
+        {
+            return None;
+        }
+
+        let left = x.floor() as i32;
+        let top = y.floor() as i32;
+        let right = (x + width).ceil() as i32;
+        let bottom = (y + height).ceil() as i32;
+        if right <= left || bottom <= top {
+            return None;
+        }
+
+        Some(Self {
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
+        })
+    }
+}
+
+#[derive(Default)]
+struct RegionGeometryCache {
+    local_shapes: HashMap<RegionShapeCacheKey, Vec<RegionRectangle>>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
+struct RegionShapeCacheKey {
+    width: i32,
+    height: i32,
+    shape: RegionShape,
+}
+
+struct RegionBuildResult {
+    rectangles: Vec<RegionRectangle>,
+    stats: RegionBuildStats,
+}
+
+#[derive(Clone, Copy, Default)]
+struct RegionBuildStats {
+    shape_cache_hits: usize,
+    shape_cache_misses: usize,
 }
 
 fn force_next_surface_commit(surface: &gdk::Surface) {
@@ -373,7 +641,7 @@ impl LayoutRefresh {
         let window_weak = window.downgrade();
         let signal_id = children.connect_items_changed(move |_, _, _, _| {
             if let Some(window) = window_weak.upgrade() {
-                queue_installed_blur_region_refresh(&window);
+                queue_layout_tree_refresh(&window);
             }
         });
         self.child_models.push(ChildModelSignal {
@@ -459,8 +727,13 @@ struct BackgroundEffectHandle {
     surface: Option<ExtBackgroundEffectSurfaceV1>,
     region: BackgroundEffectRegion,
     last_rectangles: Option<Vec<RegionRectangle>>,
+    geometry_cache: RegionGeometryCache,
     refresh_pending: bool,
     layout_refresh: Option<LayoutRefresh>,
+    layout_refresh_dirty: bool,
+    layout_settle_tick_callback: Option<gtk::TickCallbackId>,
+    layout_settle_stable_frames: u8,
+    layout_settle_frames_remaining: u8,
 }
 
 impl BackgroundEffectHandle {
@@ -482,8 +755,13 @@ impl BackgroundEffectHandle {
             surface: Some(surface),
             region,
             last_rectangles: None,
+            geometry_cache: RegionGeometryCache::default(),
             refresh_pending: false,
             layout_refresh: None,
+            layout_refresh_dirty: false,
+            layout_settle_tick_callback: None,
+            layout_settle_stable_frames: 0,
+            layout_settle_frames_remaining: 0,
         }
     }
 
@@ -491,16 +769,24 @@ impl BackgroundEffectHandle {
         &mut self,
         window: &gtk::Window,
         gdk_surface: &gdk::Surface,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<bool, Box<dyn Error>> {
         let trace_mode = TraceMode::from_env();
         let generation_started_at = (trace_mode != TraceMode::Off).then(Instant::now);
-        let rectangles = blur_region_rectangles(window, gdk_surface, self.region);
+        let build_result =
+            blur_region_rectangles(window, gdk_surface, self.region, &mut self.geometry_cache);
         let generation_elapsed = generation_started_at.map(|started_at| started_at.elapsed());
+        let rectangles = build_result.rectangles;
         if self.last_rectangles.as_ref() == Some(&rectangles) {
             if trace_mode == TraceMode::All {
-                trace_blur_region("unchanged", &rectangles, generation_elapsed, None);
+                trace_blur_region(
+                    "unchanged",
+                    &rectangles,
+                    build_result.stats,
+                    generation_elapsed,
+                    None,
+                );
             }
-            return Ok(());
+            return Ok(false);
         }
 
         let apply_started_at = (trace_mode != TraceMode::Off).then(Instant::now);
@@ -517,10 +803,16 @@ impl BackgroundEffectHandle {
         force_next_surface_commit(gdk_surface);
         self.connection.flush()?;
         let apply_elapsed = apply_started_at.map(|started_at| started_at.elapsed());
-        trace_blur_region("changed", &rectangles, generation_elapsed, apply_elapsed);
+        trace_blur_region(
+            "changed",
+            &rectangles,
+            build_result.stats,
+            generation_elapsed,
+            apply_elapsed,
+        );
         self.last_rectangles = Some(rectangles);
 
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -545,6 +837,7 @@ impl TraceMode {
 fn trace_blur_region(
     state: &str,
     rectangles: &[RegionRectangle],
+    stats: RegionBuildStats,
     generation_elapsed: Option<Duration>,
     apply_elapsed: Option<Duration>,
 ) {
@@ -570,11 +863,13 @@ fn trace_blur_region(
     let sample = rectangle_sample(rectangles);
 
     eprintln!(
-        "[gtk4-background-effect] blur region {state}: rectangles={}, area={}px, bounds={}, sample=[{}], generate={}us, apply={}us",
+        "[gtk4-background-effect] blur region {state}: rectangles={}, area={}px, bounds={}, sample=[{}], shape-cache={}/{}, generate={}us, apply={}us",
         rectangles.len(),
         area,
         bounds,
         sample,
+        stats.shape_cache_hits,
+        stats.shape_cache_misses,
         generation_elapsed.as_micros(),
         apply_us,
     );
@@ -625,6 +920,9 @@ fn rectangle_sample(rectangles: &[RegionRectangle]) -> String {
 
 impl Drop for BackgroundEffectHandle {
     fn drop(&mut self) {
+        if let Some(tick_callback) = self.layout_settle_tick_callback.take() {
+            tick_callback.remove();
+        }
         self.layout_refresh = None;
 
         if let Some(surface) = self.surface.take() {

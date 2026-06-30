@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 pub(crate) enum RegionShape {
     Rectangle,
     Rounded {
@@ -31,40 +31,6 @@ impl RegionRectangle {
             width,
             height,
         }
-    }
-
-    pub(crate) fn from_bounds(
-        bounds: &gtk::graphene::Rect,
-        surface_size: RegionSize,
-    ) -> Option<Self> {
-        let x = bounds.x();
-        let y = bounds.y();
-        let width = bounds.width();
-        let height = bounds.height();
-        if !x.is_finite()
-            || !y.is_finite()
-            || !width.is_finite()
-            || !height.is_finite()
-            || width <= 0.0
-            || height <= 0.0
-        {
-            return None;
-        }
-
-        let left = (x.floor() as i32).clamp(0, surface_size.width);
-        let top = (y.floor() as i32).clamp(0, surface_size.height);
-        let right = ((x + width).ceil() as i32).clamp(0, surface_size.width);
-        let bottom = ((y + height).ceil() as i32).clamp(0, surface_size.height);
-        if right <= left || bottom <= top {
-            return None;
-        }
-
-        Some(Self {
-            x: left,
-            y: top,
-            width: right - left,
-            height: bottom - top,
-        })
     }
 
     pub(crate) fn rounded_rectangles_with_corner_guard(
@@ -126,6 +92,39 @@ impl RegionRectangle {
             y: self.y + inset,
             width: self.width - removed,
             height: self.height - removed,
+        })
+    }
+
+    pub(crate) fn translated_and_clipped(
+        self,
+        x: i32,
+        y: i32,
+        surface_size: RegionSize,
+    ) -> Option<Self> {
+        if self.width <= 0 || self.height <= 0 {
+            return None;
+        }
+
+        let surface_width = i64::from(surface_size.width.max(0));
+        let surface_height = i64::from(surface_size.height.max(0));
+        let left = i64::from(self.x) + i64::from(x);
+        let top = i64::from(self.y) + i64::from(y);
+        let right = left + i64::from(self.width);
+        let bottom = top + i64::from(self.height);
+
+        let left = left.clamp(0, surface_width);
+        let top = top.clamp(0, surface_height);
+        let right = right.clamp(0, surface_width);
+        let bottom = bottom.clamp(0, surface_height);
+        if right <= left || bottom <= top {
+            return None;
+        }
+
+        Some(Self {
+            x: left as i32,
+            y: top as i32,
+            width: (right - left) as i32,
+            height: (bottom - top) as i32,
         })
     }
 }
