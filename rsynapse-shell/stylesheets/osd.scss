@@ -3,9 +3,12 @@ window.OSD,
   background-color: transparent;
 
   .osd-shell {
-    @include elevation-2;
-    border-radius: 24px;
-    background-color: #{$osd_bg_tint};
+    @include rsx-surface(
+      $container: $osd_bg_tint,
+      $radius: $rsx-surface-radius-large,
+      $elevation: 2
+    );
+
     padding: 13px 16px;
     margin: 50px;
   }

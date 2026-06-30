@@ -14,15 +14,15 @@ $outline-offset: $label-margin * 0.5;
   min-height: 32px;
 
   .barblock {
-    background-color: #{$bg_tint};
-    transition: background-color 100ms;
-    border-radius: 12px;
+    @include rsx-surface;
+
+    transition:
+      background-color 100ms,
+      border-color 100ms;
     padding: 0 8px;
     margin-top: 4px;
     margin-left: 8px;
     margin-right: 8px;
-
-    @include elevation-1;
   }
 }
 
@@ -62,38 +62,36 @@ $outline-offset: $label-margin * 0.5;
 }
 
 .workspace-window-tile {
-  border-radius: 12px;
+  @include rsx-surface;
+
   padding: 0 8px;
-  background-color: #{$bg_tint};
   opacity: 1;
   transition:
     background-color 160ms,
+    border-color 160ms,
     opacity 160ms,
     outline-color 160ms;
 
-  @include elevation-1;
-
   &:not(.active):not(.urgent) {
-    opacity: 0.74;
+    opacity: 0.86;
   }
 
   &.active {
-    background-color: #{$bg_tint};
-    outline: 1px solid color-mix(in srgb, #{$ws_active} 72%, #{$fg});
-    outline-offset: 0;
+    @include rsx-surface-selected;
+
     opacity: 1;
   }
 
   &.urgent {
-    background-color: color-mix(in srgb, #{$sys_danger} 20%, #{$bg_tint});
-    outline: 1px solid color-mix(in srgb, #{$sys_danger} 55%, transparent);
+    @include rsx-surface-danger;
+
     opacity: 1;
   }
 
   &.workspace-window-agent {
     &.attention {
-      background-color: color-mix(in srgb, #{$sys_danger} 16%, #{$bg_tint});
-      outline: 1px solid color-mix(in srgb, #{$sys_danger} 50%, transparent);
+      @include rsx-surface-danger;
+
       opacity: 1;
     }
 
@@ -439,24 +437,21 @@ $outline-offset: $label-margin * 0.5;
 }
 
 .projects-project {
-  background-color: #{$bg_tint};
+  @include rsx-surface;
+
   transition:
     background-color 180ms,
+    border-color 180ms,
     opacity 180ms,
     outline-color 180ms;
-  border-radius: 12px;
-  outline: 1px solid transparent;
-  outline-offset: 0;
   margin-top: 4px;
 
-  @include elevation-1;
-
   &.current-workspace {
-    outline-color: color-mix(in srgb, #{$fg} 55%, transparent);
+    @include rsx-surface-selected;
   }
 
   &.is-empty:not(.current-workspace) {
-    opacity: 0.42;
+    opacity: 0.64;
   }
 
   .projects-collapsed-icon {

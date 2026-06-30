@@ -16,7 +16,7 @@ futures-util = "0.3.32"
 adw = { package = "libadwaita", version = "0.9.1" }
 gtk4-background-effect.workspace = true
 notify = "6.1.1"
-relm4.workspace = true
+relm4 = { workspace = true, features = ["libadwaita"] }
 shell-core.workspace = true
 shell-macros.workspace = true
 shell-rx-macros.workspace = true

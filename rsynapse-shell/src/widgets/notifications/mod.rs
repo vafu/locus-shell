@@ -25,6 +25,7 @@ use crate::request;
 pub(crate) use self::source::has_notification_items;
 
 const NOTIFICATION_CENTER_WIDTH: i32 = 420;
+const NOTIFICATION_CENTER_MAX_LIST_HEIGHT: i32 = 640;
 pub(super) const NOTIFICATION_CARD_BLUR_CLASS: &str = "notification-blur-card";
 const NOTIFICATION_CARD_BLUR_CLASSES: &[&str] = &[NOTIFICATION_CARD_BLUR_CLASS];
 const NOTIFICATION_CARD_BLUR_RADIUS: i32 = 8;
@@ -278,11 +279,27 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
                         set_label: "No notifications",
                     },
 
-                    #[bind_list(rows, row = NotificationCenterRow)]
-                    rows -> gtk::Box {
-                        add_css_class: "notification-center-list",
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 8,
+                    gtk::ScrolledWindow {
+                        add_css_class: "notification-center-scroll",
+                        set_hscrollbar_policy: gtk::PolicyType::Never,
+                        set_vscrollbar_policy: gtk::PolicyType::Automatic,
+                        set_propagate_natural_height: true,
+                        set_max_content_height: NOTIFICATION_CENTER_MAX_LIST_HEIGHT,
+                        #[watch]
+                        set_visible: !model.rows.is_empty(),
+
+                        adw::Clamp {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_maximum_size: NOTIFICATION_CENTER_WIDTH,
+                            set_tightening_threshold: NOTIFICATION_CENTER_WIDTH,
+
+                            #[bind_list(rows, row = NotificationCenterRow)]
+                            rows -> gtk::Box {
+                                add_css_class: "notification-center-list",
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 8,
+                            }
+                        }
                     }
                 }
             }

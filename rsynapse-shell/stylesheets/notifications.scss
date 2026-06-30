@@ -5,24 +5,18 @@ window.notification-center-window,
   background-color: transparent;
 }
 
-$notification-solid-rim: "color-mix(in srgb, #{$accent_color} 45%, #{$bg})";
-$notification-solid-rim-width: 0.5px;
-
 .notifications-stack {
   margin: 8px;
 }
 
 .notification-card {
+  @include rsx-surface($radius: $rsx-surface-radius-small);
+
   min-width: 320px;
-  border-radius: 8px;
-  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
   padding: 12px;
-  background-color: #{$bg_tint};
-  box-shadow: 0px 0px 8px 0px #{$shadow};
 
   &.critical {
-    background-color: color-mix(in srgb, #{$sys_danger} 14%, #{$bg_tint});
-    border-color: color-mix(in srgb, #{$sys_danger} 42%, #{$bg});
+    @include rsx-surface-danger;
   }
 }
 
@@ -37,11 +31,9 @@ $notification-solid-rim-width: 0.5px;
 }
 
 .notification-center-title {
+  @include rsx-surface;
+
   padding: 4px 10px;
-  border-radius: 12px;
-  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
-  background-color: #{$bg_tint};
-  box-shadow: 0px 0px 8px 0px #{$shadow};
   font-weight: 800;
 }
 
@@ -49,43 +41,42 @@ $notification-solid-rim-width: 0.5px;
   margin: 0;
 }
 
+.notification-center-scroll {
+  background-color: transparent;
+  min-width: 420px;
+
+  viewport {
+    background-color: transparent;
+  }
+}
+
 .notification-group-header {
   margin: 0;
 }
 
 .notification-group-app {
+  @include rsx-surface($radius: $rsx-surface-radius-pill);
+
   padding: 3px 9px;
-  border-radius: 999px;
-  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
-  background-color: #{$bg_tint};
-  box-shadow: 0px 0px 8px 0px #{$shadow};
-  opacity: 0.86;
   font-weight: 800;
 }
 
 .notification-group-count {
+  @include rsx-surface($radius: $rsx-surface-radius-pill);
+
   min-width: 12px;
   padding: 3px 8px;
-  border-radius: 999px;
-  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
-  background-color: #{$bg_tint};
-  box-shadow: 0px 0px 8px 0px #{$shadow};
-  opacity: 0.72;
   font-weight: 700;
 }
 
 .notification-center-card {
   min-width: 0;
-  background-color: #{$bg_tint};
 }
 
 .notification-empty {
+  @include rsx-surface;
+
   padding: 10px 14px;
-  border-radius: 12px;
-  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
-  background-color: #{$bg_tint};
-  box-shadow: 0px 0px 8px 0px #{$shadow};
-  opacity: 0.78;
 }
 
 .notification-image {
@@ -119,10 +110,9 @@ $notification-solid-rim-width: 0.5px;
 }
 
 .notification-center-control {
-  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
+  @include rsx-surface;
+
   padding: 4px;
-  background-color: #{$bg_tint};
-  box-shadow: 0px 0px 8px 0px #{$shadow};
 }
 
 .notification-actions {
