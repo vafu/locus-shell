@@ -1,11 +1,10 @@
 use std::{env, error::Error, ffi::c_void, fmt::Write as _, time::Duration, time::Instant};
 
+use gio::prelude::ListModelExt;
 use gtk::{
-    gdk,
-    glib::{self, translate::ToGlibPtr},
-    prelude::{
-        Cast, DisplayExtManual, IsA, NativeExt, ObjectExt, SurfaceExt, WidgetExt, WidgetExtManual,
-    },
+    gdk, gio,
+    glib::{self, signal::SignalHandlerId, translate::ToGlibPtr},
+    prelude::{Cast, DisplayExtManual, IsA, NativeExt, ObjectExt, SurfaceExt, WidgetExt},
 };
 use wayland_client::{
     Connection, Dispatch, EventQueue, Proxy, QueueHandle,
@@ -142,27 +141,46 @@ fn install_dynamic_region_refresh(window: &gtk::Window, region: BackgroundEffect
         return;
     }
 
-    let tick_callback =
-        window.add_tick_callback(|window, _| match update_installed_blur_region(window) {
-            Ok(true) => glib::ControlFlow::Continue,
-            Ok(false) => glib::ControlFlow::Break,
-            Err(error) => {
-                eprintln!("[gtk4-background-effect] failed to refresh blur region: {error}");
-                glib::ControlFlow::Break
-            }
-        });
-
     unsafe {
         let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
-            tick_callback.remove();
             return;
         };
-        handle.as_mut().tick_callback = Some(tick_callback);
+        handle.as_mut().layout_refresh = Some(LayoutRefresh::new(window));
     }
+    queue_installed_blur_region_refresh(window);
 }
 
-fn update_installed_blur_region(window: &gtk::Window) -> Result<bool, Box<dyn Error>> {
+fn queue_installed_blur_region_refresh(window: &gtk::Window) {
+    let should_queue = unsafe {
+        let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
+            return;
+        };
+        let handle = handle.as_mut();
+        if handle.refresh_pending {
+            false
+        } else {
+            handle.refresh_pending = true;
+            true
+        }
+    };
+    if !should_queue {
+        return;
+    }
+
+    let window = window.downgrade();
+    glib::idle_add_local_once(move || {
+        let Some(window) = window.upgrade() else {
+            return;
+        };
+        if let Err(error) = refresh_installed_blur_region(&window) {
+            eprintln!("[gtk4-background-effect] failed to refresh blur region: {error}");
+        }
+    });
+}
+
+fn refresh_installed_blur_region(window: &gtk::Window) -> Result<bool, Box<dyn Error>> {
     let Some(gdk_surface) = window.surface() else {
+        clear_refresh_pending(window);
         return Ok(false);
     };
 
@@ -170,10 +188,23 @@ fn update_installed_blur_region(window: &gtk::Window) -> Result<bool, Box<dyn Er
         let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
             return Ok(false);
         };
-        handle.as_mut().update_blur_region(window, &gdk_surface)?;
+        let handle = handle.as_mut();
+        handle.refresh_pending = false;
+        if handle.region.needs_layout_refresh() {
+            handle.layout_refresh = Some(LayoutRefresh::new(window));
+        }
+        handle.update_blur_region(window, &gdk_surface)?;
     }
 
     Ok(true)
+}
+
+fn clear_refresh_pending(window: &gtk::Window) {
+    unsafe {
+        if let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) {
+            handle.as_mut().refresh_pending = false;
+        }
+    }
 }
 
 fn blur_region_rectangles(
@@ -309,6 +340,96 @@ fn force_next_surface_commit(surface: &gdk::Surface) {
     surface.queue_render();
 }
 
+#[derive(Default)]
+struct LayoutRefresh {
+    widget_signals: Vec<WidgetSignal>,
+    child_models: Vec<ChildModelSignal>,
+}
+
+impl LayoutRefresh {
+    fn new(window: &gtk::Window) -> Self {
+        let mut refresh = Self::default();
+        refresh.watch_widget_tree(window.upcast_ref::<gtk::Widget>(), window);
+        refresh
+    }
+
+    fn watch_widget_tree(&mut self, widget: &gtk::Widget, window: &gtk::Window) {
+        self.watch_widget(widget, window);
+
+        let mut child = widget.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            self.watch_widget_tree(&widget, window);
+        }
+    }
+
+    fn watch_widget(&mut self, widget: &gtk::Widget, window: &gtk::Window) {
+        self.watch_widget_property(widget, window, "width");
+        self.watch_widget_property(widget, window, "height");
+        self.watch_widget_property(widget, window, "visible");
+        self.watch_widget_property(widget, window, "css-classes");
+
+        let children = widget.observe_children();
+        let window_weak = window.downgrade();
+        let signal_id = children.connect_items_changed(move |_, _, _, _| {
+            if let Some(window) = window_weak.upgrade() {
+                queue_installed_blur_region_refresh(&window);
+            }
+        });
+        self.child_models.push(ChildModelSignal {
+            model: children,
+            signal_id: Some(signal_id),
+        });
+    }
+
+    fn watch_widget_property(
+        &mut self,
+        widget: &gtk::Widget,
+        window: &gtk::Window,
+        property: &'static str,
+    ) {
+        let window_weak = window.downgrade();
+        let signal_id = widget.connect_notify_local(Some(property), move |_, _| {
+            if let Some(window) = window_weak.upgrade() {
+                queue_installed_blur_region_refresh(&window);
+            }
+        });
+        self.widget_signals.push(WidgetSignal {
+            widget: widget.downgrade(),
+            signal_id: Some(signal_id),
+        });
+    }
+}
+
+struct WidgetSignal {
+    widget: glib::WeakRef<gtk::Widget>,
+    signal_id: Option<SignalHandlerId>,
+}
+
+impl Drop for WidgetSignal {
+    fn drop(&mut self) {
+        let Some(signal_id) = self.signal_id.take() else {
+            return;
+        };
+        if let Some(widget) = self.widget.upgrade() {
+            widget.disconnect(signal_id);
+        }
+    }
+}
+
+struct ChildModelSignal {
+    model: gio::ListModel,
+    signal_id: Option<SignalHandlerId>,
+}
+
+impl Drop for ChildModelSignal {
+    fn drop(&mut self) {
+        if let Some(signal_id) = self.signal_id.take() {
+            self.model.disconnect(signal_id);
+        }
+    }
+}
+
 #[derive(Debug)]
 struct BackgroundEffectState;
 
@@ -338,7 +459,8 @@ struct BackgroundEffectHandle {
     surface: Option<ExtBackgroundEffectSurfaceV1>,
     region: BackgroundEffectRegion,
     last_rectangles: Option<Vec<RegionRectangle>>,
-    tick_callback: Option<gtk::TickCallbackId>,
+    refresh_pending: bool,
+    layout_refresh: Option<LayoutRefresh>,
 }
 
 impl BackgroundEffectHandle {
@@ -360,7 +482,8 @@ impl BackgroundEffectHandle {
             surface: Some(surface),
             region,
             last_rectangles: None,
-            tick_callback: None,
+            refresh_pending: false,
+            layout_refresh: None,
         }
     }
 
@@ -502,9 +625,7 @@ fn rectangle_sample(rectangles: &[RegionRectangle]) -> String {
 
 impl Drop for BackgroundEffectHandle {
     fn drop(&mut self) {
-        if let Some(tick_callback) = self.tick_callback.take() {
-            tick_callback.remove();
-        }
+        self.layout_refresh = None;
 
         if let Some(surface) = self.surface.take() {
             surface.destroy();
