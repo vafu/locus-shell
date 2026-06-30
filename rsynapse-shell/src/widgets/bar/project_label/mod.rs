@@ -9,7 +9,10 @@ use shell_core::{
 use self::source::{ProjectLabelVm, project_label_vm};
 
 use super::WorkspaceNode;
-use crate::{hints::hints_active, widgets::material_icon};
+use crate::{
+    hints::hints_active,
+    widgets::{BACKGROUND_BLUR_CLASS, material_icon},
+};
 
 #[derive(Debug)]
 #[shell_macros::model(module = project_label_sources)]
@@ -192,6 +195,7 @@ const ROOT_BUTTON_OPEN_CLASSES: &[&str] = &[
 fn project_group_classes(vm: &ProjectLabelVm) -> Vec<&'static str> {
     let mut classes = vec![
         "projects-project",
+        BACKGROUND_BLUR_CLASS,
         "workspaces-workspace",
         "button-subgroup-expand-right",
     ];

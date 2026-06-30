@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "shell/core",
+    "shell/background-effect",
     "rsynapse-shell",
     "shell/macros",
     "shell/rx-macros",
@@ -14,9 +15,12 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 gtk = { package = "gtk4", version = "0.11.3" }
+gtk4-background-effect = { path = "shell/background-effect" }
 gtk4-layer-shell = "0.8.0"
 relm4 = "0.11.0"
 rxrust = "1.0.0-rc.5"
 shell-core = { path = "shell/core" }
 shell-macros = { path = "shell/macros" }
 shell-rx-macros = { path = "shell/rx-macros" }
+wayland-client = { version = "0.31.14", features = ["system"] }
+wayland-protocols = { version = "0.32.12", features = ["client", "staging"] }

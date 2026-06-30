@@ -1,6 +1,7 @@
 mod config;
 mod layer;
 
+pub use gtk4_background_effect::{BackgroundEffect, BackgroundEffectRegion};
 pub use layer::{apply_layer_shell_config, create_layer_window};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -52,6 +53,7 @@ pub struct WindowConfig {
     /// should use CSS margins/padding for spacing inside the GTK window.
     pub surface_margins: SurfaceMargins,
     pub exclusive_zone: ExclusiveZone,
+    pub background_effect: BackgroundEffect,
     pub namespace: Option<&'static str>,
     pub keyboard_interactive: bool,
 }

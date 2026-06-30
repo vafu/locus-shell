@@ -2,6 +2,7 @@ mod source;
 
 use std::time::Duration;
 
+use gtk4_background_effect::BackgroundEffectRegion;
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, glib, prelude::*},
@@ -9,8 +10,11 @@ use shell_core::{
 };
 
 use self::source::{OsdLevel, osd_level};
+use crate::widgets::BACKGROUND_BLUR_CLASS;
 
 const OSD_HIDE_DELAY: Duration = Duration::from_secs(1);
+const OSD_BACKGROUND_BLUR_CLASSES: &[&str] = &[BACKGROUND_BLUR_CLASS];
+const OSD_BACKGROUND_BLUR_RADIUS: i32 = 24;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OsdInit {
@@ -67,6 +71,7 @@ impl SimpleAsyncComponent for OsdWindow {
 
                 gtk::Box {
                     add_css_class: "osd-shell",
+                    add_css_class: BACKGROUND_BLUR_CLASS,
                     set_orientation: gtk::Orientation::Vertical,
 
                     gtk::Image {
@@ -127,6 +132,10 @@ impl SimpleAsyncComponent for OsdWindow {
 fn osd_window_config() -> WindowConfig {
     WindowConfig::new(Layer::Overlay)
         .with_anchors(Anchors::NONE.with_edge(Edge::Bottom))
+        .with_background_blur_region(BackgroundEffectRegion::RoundedCssClasses {
+            classes: OSD_BACKGROUND_BLUR_CLASSES,
+            radius: OSD_BACKGROUND_BLUR_RADIUS,
+        })
         .with_namespace("OSD")
 }
 

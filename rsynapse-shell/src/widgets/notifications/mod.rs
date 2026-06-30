@@ -4,6 +4,7 @@ mod popup;
 mod source;
 use std::{fs, thread};
 
+use gtk4_background_effect::BackgroundEffectRegion;
 use relm4::prelude::*;
 use shell_core::{
     gtk::{self, prelude::*},
@@ -24,6 +25,44 @@ use crate::request;
 pub(crate) use self::source::has_notification_items;
 
 const NOTIFICATION_CENTER_WIDTH: i32 = 420;
+pub(super) const NOTIFICATION_CARD_BLUR_CLASS: &str = "notification-blur-card";
+const NOTIFICATION_CARD_BLUR_CLASSES: &[&str] = &[NOTIFICATION_CARD_BLUR_CLASS];
+const NOTIFICATION_CARD_BLUR_RADIUS: i32 = 8;
+const NOTIFICATION_CARD_BLUR_CORNER_GUARD: i32 = 2;
+const NOTIFICATION_CONTROL_BLUR_CLASS: &str = "notification-blur-control";
+const NOTIFICATION_CONTROL_BLUR_CLASSES: &[&str] = &[NOTIFICATION_CONTROL_BLUR_CLASS];
+const NOTIFICATION_CONTROL_BLUR_RADIUS: i32 = 8;
+const NOTIFICATION_CONTROL_BLUR_CORNER_GUARD: i32 = 1;
+pub(super) const NOTIFICATION_PILL_BLUR_CLASS: &str = "notification-blur-pill";
+const NOTIFICATION_PILL_BLUR_CLASSES: &[&str] = &[NOTIFICATION_PILL_BLUR_CLASS];
+const NOTIFICATION_PILL_BLUR_RADIUS: i32 = 999;
+const NOTIFICATION_PILL_BLUR_CORNER_GUARD: i32 = 1;
+const NOTIFICATION_SURFACE_BLUR_CLASS: &str = "notification-blur-surface";
+const NOTIFICATION_SURFACE_BLUR_CLASSES: &[&str] = &[NOTIFICATION_SURFACE_BLUR_CLASS];
+const NOTIFICATION_SURFACE_BLUR_RADIUS: i32 = 12;
+const NOTIFICATION_SURFACE_BLUR_CORNER_GUARD: i32 = 2;
+const NOTIFICATION_BACKGROUND_BLUR_REGIONS: &[BackgroundEffectRegion] = &[
+    BackgroundEffectRegion::CornerGuardRoundedCssClasses {
+        classes: NOTIFICATION_CARD_BLUR_CLASSES,
+        radius: NOTIFICATION_CARD_BLUR_RADIUS,
+        corner_guard: NOTIFICATION_CARD_BLUR_CORNER_GUARD,
+    },
+    BackgroundEffectRegion::CornerGuardRoundedCssClasses {
+        classes: NOTIFICATION_CONTROL_BLUR_CLASSES,
+        radius: NOTIFICATION_CONTROL_BLUR_RADIUS,
+        corner_guard: NOTIFICATION_CONTROL_BLUR_CORNER_GUARD,
+    },
+    BackgroundEffectRegion::CornerGuardRoundedCssClasses {
+        classes: NOTIFICATION_PILL_BLUR_CLASSES,
+        radius: NOTIFICATION_PILL_BLUR_RADIUS,
+        corner_guard: NOTIFICATION_PILL_BLUR_CORNER_GUARD,
+    },
+    BackgroundEffectRegion::CornerGuardRoundedCssClasses {
+        classes: NOTIFICATION_SURFACE_BLUR_CLASSES,
+        radius: NOTIFICATION_SURFACE_BLUR_RADIUS,
+        corner_guard: NOTIFICATION_SURFACE_BLUR_CORNER_GUARD,
+    },
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NotificationsInit {
@@ -190,6 +229,7 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
 
                         gtk::Label {
                             add_css_class: "notification-center-title",
+                            add_css_class: NOTIFICATION_SURFACE_BLUR_CLASS,
                             set_halign: gtk::Align::Start,
                             set_label: "Notifications",
                         },
@@ -200,6 +240,7 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
 
                         #[name = "center_discard_all_button"]
                         gtk::Button {
+                            add_css_class: NOTIFICATION_CONTROL_BLUR_CLASS,
                             add_css_class: "flat",
                             add_css_class: "circular",
                             add_css_class: "notification-close",
@@ -214,6 +255,7 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
 
                         #[name = "center_close_button"]
                         gtk::Button {
+                            add_css_class: NOTIFICATION_CONTROL_BLUR_CLASS,
                             add_css_class: "flat",
                             add_css_class: "circular",
                             add_css_class: "notification-close",
@@ -229,6 +271,7 @@ impl SimpleAsyncComponent for NotificationCenterWindow {
 
                     gtk::Label {
                         add_css_class: "notification-empty",
+                        add_css_class: NOTIFICATION_SURFACE_BLUR_CLASS,
                         set_halign: gtk::Align::Center,
                         #[watch]
                         set_visible: model.rows.is_empty(),
@@ -353,10 +396,13 @@ fn notifications_window_config() -> WindowConfig {
     WindowConfig::new(Layer::Overlay)
         .with_anchors(Anchors::NONE.with_edge(Edge::Bottom).with_edge(Edge::Right))
         .with_surface_margins(SurfaceMargins {
-            bottom: 24,
-            right: 16,
+            bottom: 16,
+            right: 8,
             ..SurfaceMargins::ZERO
         })
+        .with_background_blur_region(BackgroundEffectRegion::Regions(
+            NOTIFICATION_BACKGROUND_BLUR_REGIONS,
+        ))
         .with_namespace("rsynapse-notifications")
 }
 
@@ -364,10 +410,13 @@ fn notification_center_window_config() -> WindowConfig {
     WindowConfig::new(Layer::Overlay)
         .with_anchors(Anchors::NONE.with_edge(Edge::Bottom).with_edge(Edge::Right))
         .with_surface_margins(SurfaceMargins {
-            bottom: 52,
-            right: 16,
+            bottom: 44,
+            right: 8,
             ..SurfaceMargins::ZERO
         })
+        .with_background_blur_region(BackgroundEffectRegion::Regions(
+            NOTIFICATION_BACKGROUND_BLUR_REGIONS,
+        ))
         .with_namespace("rsynapse-notification-center")
         .with_keyboard_interactivity(true)
 }

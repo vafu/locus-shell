@@ -35,6 +35,7 @@ pub(in crate::widgets::bar) fn agent_sessions() -> Observable<Vec<AgentSessionSn
 }
 
 fn agent_session_children(children: Vec<LocusPath>) -> Vec<LocusPath> {
+    tracing::debug!("new {children:?}");
     children
         .into_iter()
         .filter(is_agent_session_child)

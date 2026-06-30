@@ -36,8 +36,12 @@ Framework crates own:
 
 ### 1. Foundation: Workspace And Boundaries
 
-- Current workspace crates are `shell/core`, `shell/macros`,
-  `shell/rx-macros`, and `rsynapse-shell`.
+- Current workspace crates are `shell/core`, `shell/background-effect`,
+  `shell/macros`, `shell/rx-macros`, and `rsynapse-shell`.
+- `shell/background-effect` provides a small reusable GTK4 helper for Wayland
+  `ext-background-effect-v1` blur regions. `shell-core` re-exports its config
+  enums for `WindowConfig`; external GTK apps can depend on the crate directly
+  without taking the rest of shell-core.
 - `shell-core` exposes generic framework primitives plus the small Observable
   source facade used by generated code and handwritten sources.
 - `shell-macros` subscribes to Observable-compatible source expressions through `shell_core::source`.

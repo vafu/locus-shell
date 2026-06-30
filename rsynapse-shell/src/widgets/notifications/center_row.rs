@@ -2,9 +2,11 @@ use relm4::prelude::*;
 use shell_core::gtk::{self, prelude::*};
 
 use super::{
+    NOTIFICATION_PILL_BLUR_CLASS,
     card::{
-        center_card_classes, connect_command, mount_actions, notification_app_name,
-        notification_summary, set_notification_image,
+        NOTIFICATION_APP_MAX_CHARS, NOTIFICATION_TEXT_MAX_CHARS, center_card_classes,
+        connect_command, mount_actions, notification_app_name, notification_summary,
+        set_notification_image,
     },
     source::{NotificationCenterRowVm, NotificationVm},
 };
@@ -39,6 +41,7 @@ impl SimpleComponent for NotificationCenterRow {
 
                 gtk::Label {
                     add_css_class: "notification-group-app",
+                    add_css_class: NOTIFICATION_PILL_BLUR_CLASS,
                     set_halign: gtk::Align::Start,
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
                     set_max_width_chars: 36,
@@ -52,6 +55,7 @@ impl SimpleComponent for NotificationCenterRow {
 
                 gtk::Label {
                     add_css_class: "notification-group-count",
+                    add_css_class: NOTIFICATION_PILL_BLUR_CLASS,
                     #[watch]
                     set_label: center_header_count(&model.row).as_str(),
                 }
@@ -91,7 +95,7 @@ impl SimpleComponent for NotificationCenterRow {
                                 set_halign: gtk::Align::Start,
                                 set_hexpand: true,
                                 set_ellipsize: gtk::pango::EllipsizeMode::End,
-                                set_max_width_chars: 30,
+                                set_max_width_chars: NOTIFICATION_APP_MAX_CHARS,
                                 #[watch]
                                 set_label: center_row_app_name(&model.row).as_str(),
                             },
@@ -115,7 +119,7 @@ impl SimpleComponent for NotificationCenterRow {
                             set_halign: gtk::Align::Start,
                             set_wrap: true,
                             set_wrap_mode: gtk::pango::WrapMode::WordChar,
-                            set_max_width_chars: 42,
+                            set_max_width_chars: NOTIFICATION_TEXT_MAX_CHARS,
                             #[watch]
                             set_label: center_row_summary(&model.row).as_str(),
                         },
@@ -125,7 +129,7 @@ impl SimpleComponent for NotificationCenterRow {
                             set_halign: gtk::Align::Start,
                             set_wrap: true,
                             set_wrap_mode: gtk::pango::WrapMode::WordChar,
-                            set_max_width_chars: 42,
+                            set_max_width_chars: NOTIFICATION_TEXT_MAX_CHARS,
                             #[watch]
                             set_visible: center_row_body_visible(&model.row),
                             #[watch]

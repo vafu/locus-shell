@@ -34,6 +34,7 @@ locus/
 ├── Cargo.toml
 ├── shell/
 │   ├── core/        # package: shell-core
+│   ├── background-effect/ # package: gtk4-background-effect
 │   ├── macros/      # package: shell-macros
 │   └── rx-macros/   # package: shell-rx-macros
 ├── rsynapse-shell/  # package: rsynapse-shell, AGS migration playground
@@ -230,6 +231,8 @@ Responsibilities:
 `PLAN.md` is the live roadmap. At a high level, the current workspace already has:
 
 - `shell/core` for app startup, CSS/SCSS loading, and generic layer-shell windows.
+- `shell/background-effect` for reusable GTK4 `ext-background-effect-v1`
+  background blur setup.
 - `shell/macros` for Relm4 source/model bindings.
 - `shell/rx-macros` for lightweight RxRust composition macros.
 - `shell/core::source` for the current Observable binding facade.

@@ -10,6 +10,7 @@ use self::{
 };
 use super::WindowNode;
 use crate::widgets::{
+    BACKGROUND_BLUR_CLASS,
     level_indicator::{self, LevelRenderStyle, LevelStage, LineStyle},
     material_icon,
 };
@@ -152,11 +153,16 @@ fn window_tile_classes(vm: &Option<ViewModel>) -> Vec<&'static str> {
         return vec![
             "workspace-window-frame",
             "workspace-window-tile",
+            BACKGROUND_BLUR_CLASS,
             "workspace-window-plain",
         ];
     };
 
-    let mut classes = vec!["workspace-window-frame", "workspace-window-tile"];
+    let mut classes = vec![
+        "workspace-window-frame",
+        "workspace-window-tile",
+        BACKGROUND_BLUR_CLASS,
+    ];
     classes.push(match vm.kind {
         Kind::Plain => "workspace-window-plain",
         Kind::Neovim => "workspace-window-neovim",

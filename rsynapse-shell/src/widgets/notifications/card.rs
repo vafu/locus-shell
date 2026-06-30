@@ -2,16 +2,26 @@ use std::{fs, path::Path, thread};
 
 use shell_core::gtk::{self, prelude::*};
 
+use super::NOTIFICATION_CARD_BLUR_CLASS;
 use super::source::{NotificationActionVm, NotificationUrgency, NotificationVm};
 
+pub(super) const NOTIFICATION_APP_MAX_CHARS: i32 = 30;
+pub(super) const NOTIFICATION_TEXT_MAX_CHARS: i32 = 42;
+
+const NOTIFICATION_ACTION_MAX_CHARS: i32 = 24;
+
 pub(super) fn notification_card_classes(notification: &NotificationVm) -> Vec<&'static str> {
-    let mut classes = vec!["notification-card"];
+    let mut classes = vec!["notification-card", NOTIFICATION_CARD_BLUR_CLASS];
     append_notification_state_classes(&mut classes, notification);
     classes
 }
 
 pub(super) fn center_card_classes(notification: &NotificationVm) -> Vec<&'static str> {
-    let mut classes = vec!["notification-card", "notification-center-card"];
+    let mut classes = vec![
+        "notification-card",
+        NOTIFICATION_CARD_BLUR_CLASS,
+        "notification-center-card",
+    ];
     append_notification_state_classes(&mut classes, notification);
     classes
 }
@@ -84,7 +94,7 @@ pub(super) fn mount_actions(actions_box: &gtk::Box, actions: &[NotificationActio
     {
         let label = gtk::Label::new(Some(action.label.as_str()));
         label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        label.set_max_width_chars(24);
+        label.set_max_width_chars(NOTIFICATION_ACTION_MAX_CHARS);
 
         let button = gtk::Button::new();
         button.add_css_class("notification-action");

@@ -3,12 +3,15 @@ use shell_core::gtk::{self, prelude::*};
 
 use super::{
     card::{
-        connect_command, mount_actions, notification_app_name, notification_card_classes,
-        notification_summary, set_notification_image,
+        NOTIFICATION_APP_MAX_CHARS, NOTIFICATION_TEXT_MAX_CHARS, connect_command, mount_actions,
+        notification_app_name, notification_card_classes, notification_summary,
+        set_notification_image,
     },
     source::NotificationVm,
 };
 use crate::widgets::material_icon;
+
+const POPUP_NOTIFICATION_CARD_WIDTH: i32 = 380;
 
 #[derive(Debug)]
 pub(crate) struct NotificationCard {
@@ -38,7 +41,7 @@ impl SimpleComponent for NotificationCard {
                 #[watch]
                 set_css_classes: &notification_card_classes(&model.notification),
                 set_orientation: gtk::Orientation::Vertical,
-                set_width_request: 380,
+                set_width_request: POPUP_NOTIFICATION_CARD_WIDTH,
                 set_spacing: 8,
 
                 gtk::Box {
@@ -66,6 +69,7 @@ impl SimpleComponent for NotificationCard {
                                 set_halign: gtk::Align::Start,
                                 set_hexpand: true,
                                 set_ellipsize: gtk::pango::EllipsizeMode::End,
+                                set_max_width_chars: NOTIFICATION_APP_MAX_CHARS,
                                 set_label: notification_app_name(&model.notification).as_str(),
                             },
 
@@ -88,6 +92,7 @@ impl SimpleComponent for NotificationCard {
                             set_halign: gtk::Align::Start,
                             set_wrap: true,
                             set_wrap_mode: gtk::pango::WrapMode::WordChar,
+                            set_max_width_chars: NOTIFICATION_TEXT_MAX_CHARS,
                             set_label: notification_summary(&model.notification).as_str(),
                         },
 
@@ -96,6 +101,7 @@ impl SimpleComponent for NotificationCard {
                             set_halign: gtk::Align::Start,
                             set_wrap: true,
                             set_wrap_mode: gtk::pango::WrapMode::WordChar,
+                            set_max_width_chars: NOTIFICATION_TEXT_MAX_CHARS,
                             set_visible: !model.notification.body.trim().is_empty(),
                             set_label: model.notification.body.as_str(),
                         }

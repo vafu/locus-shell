@@ -14,6 +14,7 @@ path = "src/bin/rsynapse-notifications.rs"
 async-channel = "2.5.0"
 futures-util = "0.3.32"
 adw = { package = "libadwaita", version = "0.9.1" }
+gtk4-background-effect.workspace = true
 notify = "6.1.1"
 relm4.workspace = true
 shell-core.workspace = true

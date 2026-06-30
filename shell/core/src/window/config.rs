@@ -1,4 +1,7 @@
-use super::{Anchors, Edge, ExclusiveZone, Layer, SurfaceMargins, WindowConfig};
+use super::{
+    Anchors, BackgroundEffect, BackgroundEffectRegion, Edge, ExclusiveZone, Layer, SurfaceMargins,
+    WindowConfig,
+};
 
 impl SurfaceMargins {
     pub const ZERO: Self = Self {
@@ -60,6 +63,7 @@ impl WindowConfig {
             anchors: Anchors::NONE,
             surface_margins: SurfaceMargins::ZERO,
             exclusive_zone: ExclusiveZone::None,
+            background_effect: BackgroundEffect::None,
             namespace: None,
             keyboard_interactive: false,
         }
@@ -87,6 +91,39 @@ impl WindowConfig {
 
     pub const fn with_auto_exclusive_zone(mut self) -> Self {
         self.exclusive_zone = ExclusiveZone::Auto;
+        self
+    }
+
+    pub const fn with_background_effect(mut self, background_effect: BackgroundEffect) -> Self {
+        self.background_effect = background_effect;
+        self
+    }
+
+    pub const fn with_background_blur_region(mut self, region: BackgroundEffectRegion) -> Self {
+        self.background_effect = BackgroundEffect::Blur(region);
+        self
+    }
+
+    pub const fn with_background_blur(self) -> Self {
+        self.with_background_blur_region(BackgroundEffectRegion::Surface)
+    }
+
+    pub const fn with_background_blur_for_css_classes(
+        mut self,
+        classes: &'static [&'static str],
+    ) -> Self {
+        self.background_effect =
+            BackgroundEffect::Blur(BackgroundEffectRegion::CssClasses(classes));
+        self
+    }
+
+    pub const fn with_rounded_background_blur_for_css_classes(
+        mut self,
+        classes: &'static [&'static str],
+        radius: i32,
+    ) -> Self {
+        self.background_effect =
+            BackgroundEffect::Blur(BackgroundEffectRegion::RoundedCssClasses { classes, radius });
         self
     }
 

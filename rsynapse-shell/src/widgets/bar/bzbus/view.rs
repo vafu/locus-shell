@@ -5,6 +5,8 @@ use std::{
 
 use shell_core::gtk::{self, prelude::*};
 
+use crate::widgets::BACKGROUND_BLUR_CLASS;
+
 const ACTIVE_STALE_MS: i64 = 2 * 60 * 60 * 1000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -196,7 +198,7 @@ fn icon_for(active: bool, invocation: Option<&Invocation>) -> &'static str {
 }
 
 fn classes_for(active: bool, invocation: Option<&Invocation>) -> Vec<&'static str> {
-    let mut classes = vec!["barblock", "bzbus-widget"];
+    let mut classes = vec!["barblock", BACKGROUND_BLUR_CLASS, "bzbus-widget"];
     classes.push(state_class_for(active, invocation));
     classes
 }

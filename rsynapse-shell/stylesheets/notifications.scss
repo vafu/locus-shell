@@ -5,28 +5,30 @@ window.notification-center-window,
   background-color: transparent;
 }
 
+$notification-solid-rim: "color-mix(in srgb, #{$accent_color} 45%, #{$bg})";
+$notification-solid-rim-width: 0.5px;
+
 .notifications-stack {
-  margin: 0;
+  margin: 8px;
 }
 
 .notification-card {
-  @include elevation-1;
   min-width: 320px;
   border-radius: 8px;
+  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
   padding: 12px;
   background-color: #{$bg_tint};
-  outline: 1px solid color-mix(in srgb, #{$fg} 10%, transparent);
-  outline-offset: -1px;
+  box-shadow: 0px 0px 8px 0px #{$shadow};
 
   &.critical {
     background-color: color-mix(in srgb, #{$sys_danger} 14%, #{$bg_tint});
-    outline-color: color-mix(in srgb, #{$sys_danger} 42%, transparent);
+    border-color: color-mix(in srgb, #{$sys_danger} 42%, #{$bg});
   }
 }
 
 .notification-center {
   min-width: 420px;
-  padding: 0;
+  padding: 8px;
   background-color: transparent;
 }
 
@@ -37,10 +39,10 @@ window.notification-center-window,
 .notification-center-title {
   padding: 4px 10px;
   border-radius: 12px;
+  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
   background-color: #{$bg_tint};
+  box-shadow: 0px 0px 8px 0px #{$shadow};
   font-weight: 800;
-
-  @include elevation-1;
 }
 
 .notification-center-list {
@@ -54,22 +56,22 @@ window.notification-center-window,
 .notification-group-app {
   padding: 3px 9px;
   border-radius: 999px;
+  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
   background-color: #{$bg_tint};
+  box-shadow: 0px 0px 8px 0px #{$shadow};
   opacity: 0.86;
   font-weight: 800;
-
-  @include elevation-1;
 }
 
 .notification-group-count {
   min-width: 12px;
   padding: 3px 8px;
   border-radius: 999px;
+  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
   background-color: #{$bg_tint};
+  box-shadow: 0px 0px 8px 0px #{$shadow};
   opacity: 0.72;
   font-weight: 700;
-
-  @include elevation-1;
 }
 
 .notification-center-card {
@@ -80,10 +82,10 @@ window.notification-center-window,
 .notification-empty {
   padding: 10px 14px;
   border-radius: 12px;
+  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
   background-color: #{$bg_tint};
+  box-shadow: 0px 0px 8px 0px #{$shadow};
   opacity: 0.78;
-
-  @include elevation-1;
 }
 
 .notification-image {
@@ -117,10 +119,10 @@ window.notification-center-window,
 }
 
 .notification-center-control {
+  border: #{$notification-solid-rim-width} solid #{$notification-solid-rim};
   padding: 4px;
   background-color: #{$bg_tint};
-
-  @include elevation-1;
+  box-shadow: 0px 0px 8px 0px #{$shadow};
 }
 
 .notification-actions {

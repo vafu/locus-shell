@@ -22,6 +22,7 @@ use std::{
     thread,
 };
 
+use gtk4_background_effect::BackgroundEffectRegion;
 use relm4::component::ComponentController;
 use relm4::prelude::*;
 use shell_core::{
@@ -32,7 +33,7 @@ use shell_core::{
     window::{self, Anchors, Edge, Layer, WindowConfig},
 };
 
-use crate::widgets::{level_indicator, material_icon};
+use crate::widgets::{BACKGROUND_BLUR_CLASS, level_indicator, material_icon};
 
 use self::audio::{AudioRoutePopover, AudioView, audio_status};
 use self::battery::BatteryView;
@@ -55,6 +56,9 @@ use super::{OsdInit, OsdWindow, has_notification_items};
 use crate::{hints, request, theme};
 
 type WindowNode = LocusPath;
+
+const BAR_BACKGROUND_BLUR_CLASSES: &[&str] = &[BACKGROUND_BLUR_CLASS];
+const BAR_BACKGROUND_BLUR_RADIUS: i32 = 12;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MainBarInit {
@@ -309,6 +313,7 @@ impl SimpleAsyncComponent for MainBar {
 
                     gtk::Box {
                         add_css_class: "barblock",
+                        add_css_class: BACKGROUND_BLUR_CLASS,
                         add_css_class: "panel-widget",
                         set_halign: gtk::Align::End,
                         set_orientation: gtk::Orientation::Horizontal,
@@ -384,6 +389,7 @@ impl SimpleAsyncComponent for MainBar {
 
                     gtk::Box {
                         add_css_class: "barblock",
+                        add_css_class: BACKGROUND_BLUR_CLASS,
                         add_css_class: "system-indicators",
                         set_halign: gtk::Align::End,
                         set_orientation: gtk::Orientation::Horizontal,
@@ -644,6 +650,7 @@ impl SimpleAsyncComponent for MainBar {
 
                     gtk::MenuButton {
                         add_css_class: "barblock",
+                        add_css_class: BACKGROUND_BLUR_CLASS,
                         add_css_class: "flat",
                         add_css_class: "circular",
                         add_css_class: "source-error-widget",
@@ -691,6 +698,7 @@ impl SimpleAsyncComponent for MainBar {
                     #[name = "clock_button"]
                     gtk::Button {
                         add_css_class: "barblock",
+                        add_css_class: BACKGROUND_BLUR_CLASS,
                         add_css_class: "panel-button",
                         add_css_class: "flat",
                         add_css_class: "circular",
@@ -924,6 +932,10 @@ fn bar_window_config() -> WindowConfig {
                 .with_edge(Edge::Left),
         )
         .with_auto_exclusive_zone()
+        .with_background_blur_region(BackgroundEffectRegion::RoundedCssClasses {
+            classes: BAR_BACKGROUND_BLUR_CLASSES,
+            radius: BAR_BACKGROUND_BLUR_RADIUS,
+        })
         .with_namespace("rsynapse-bar")
 }
 
@@ -1002,7 +1014,7 @@ fn source_error_count_label(count: u64) -> String {
 }
 
 fn mpris_classes(mpris: &MprisView) -> Vec<&'static str> {
-    let mut classes = vec!["barblock", "mpris-widget"];
+    let mut classes = vec!["barblock", BACKGROUND_BLUR_CLASS, "mpris-widget"];
     if !mpris.state_class.is_empty() {
         classes.push(mpris.state_class);
     }
