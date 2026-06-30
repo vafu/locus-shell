@@ -4,17 +4,14 @@ use std::{
     error::Error,
     ffi::c_void,
     fmt::Write as _,
-    time::Duration,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use gio::prelude::ListModelExt;
 use gtk::{
     gdk, gio,
     glib::{self, signal::SignalHandlerId, translate::ToGlibPtr},
-    prelude::{
-        Cast, DisplayExtManual, IsA, NativeExt, ObjectExt, SurfaceExt, WidgetExt, WidgetExtManual,
-    },
+    prelude::{Cast, DisplayExtManual, IsA, NativeExt, ObjectExt, SurfaceExt, WidgetExt},
 };
 use wayland_client::{
     Connection, Dispatch, EventQueue, Proxy, QueueHandle,
@@ -36,8 +33,6 @@ use crate::{
 const WINDOW_DATA_KEY: &str = "gtk4-background-effect";
 const TRACE_ENV: &str = "GTK4_BACKGROUND_EFFECT_TRACE";
 const LEGACY_TRACE_ENV: &str = "SHELL_CORE_BACKGROUND_EFFECT_TRACE";
-const LAYOUT_SETTLE_STABLE_FRAMES: u8 = 1;
-const LAYOUT_SETTLE_MAX_FRAMES: u8 = 45;
 
 unsafe extern "C" {
     fn gdk_wayland_display_get_wl_display(display: *mut gdk::ffi::GdkDisplay) -> *mut c_void;
@@ -157,13 +152,17 @@ fn install_dynamic_region_refresh(window: &gtk::Window, region: BackgroundEffect
         let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
             return;
         };
-        handle.as_mut().layout_refresh = Some(LayoutRefresh::new(window));
+        let handle = handle.as_mut();
+        handle.layout_refresh = Some(LayoutRefresh::new(window));
+        handle.frame_clock_refresh = FrameClockRefresh::new(window);
     }
     queue_installed_blur_region_refresh(window);
 }
 
 fn queue_installed_blur_region_refresh(window: &gtk::Window) {
-    start_layout_settle_tick(window);
+    if request_frame_clock_refresh(window) {
+        return;
+    }
 
     let should_queue = unsafe {
         let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
@@ -192,6 +191,44 @@ fn queue_installed_blur_region_refresh(window: &gtk::Window) {
     });
 }
 
+fn request_frame_clock_refresh(window: &gtk::Window) -> bool {
+    unsafe {
+        let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
+            return false;
+        };
+        let handle = handle.as_mut();
+        if handle.frame_clock_refresh.is_none() {
+            handle.frame_clock_refresh = FrameClockRefresh::new(window);
+        }
+        let Some(frame_clock) = handle
+            .frame_clock_refresh
+            .as_ref()
+            .map(|refresh| refresh.frame_clock.clone())
+        else {
+            return false;
+        };
+        handle.frame_clock_refresh_active = true;
+        frame_clock.request_phase(gdk::FrameClockPhase::LAYOUT);
+        true
+    }
+}
+
+fn frame_clock_refresh_is_active(window: &gtk::Window) -> bool {
+    unsafe {
+        window
+            .data::<BackgroundEffectHandle>(WINDOW_DATA_KEY)
+            .is_some_and(|handle| handle.as_ref().frame_clock_refresh_active)
+    }
+}
+
+fn clear_frame_clock_refresh_active(window: &gtk::Window) {
+    unsafe {
+        if let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) {
+            handle.as_mut().frame_clock_refresh_active = false;
+        }
+    }
+}
+
 fn queue_layout_tree_refresh(window: &gtk::Window) {
     unsafe {
         if let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) {
@@ -201,77 +238,15 @@ fn queue_layout_tree_refresh(window: &gtk::Window) {
     queue_installed_blur_region_refresh(window);
 }
 
-fn start_layout_settle_tick(window: &gtk::Window) {
-    unsafe {
-        let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
-            return;
-        };
-        let handle = handle.as_mut();
-        handle.layout_settle_stable_frames = 0;
-        handle.layout_settle_frames_remaining = LAYOUT_SETTLE_MAX_FRAMES;
-        if handle.layout_settle_tick_callback.is_some() {
-            return;
-        }
-
-        let tick_callback =
-            window.add_tick_callback(|window, _| match refresh_installed_blur_region(window) {
-                Ok(Some(changed)) => update_layout_settle_tick(window, changed),
-                Ok(None) => {
-                    clear_layout_settle_tick(window);
-                    glib::ControlFlow::Break
-                }
-                Err(error) => {
-                    eprintln!("[gtk4-background-effect] failed to refresh blur region: {error}");
-                    clear_layout_settle_tick(window);
-                    glib::ControlFlow::Break
-                }
-            });
-        handle.layout_settle_tick_callback = Some(tick_callback);
-    }
-}
-
-fn update_layout_settle_tick(window: &gtk::Window, changed: bool) -> glib::ControlFlow {
-    unsafe {
-        let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
-            return glib::ControlFlow::Break;
-        };
-        let handle = handle.as_mut();
-        handle.layout_settle_frames_remaining =
-            handle.layout_settle_frames_remaining.saturating_sub(1);
-        handle.layout_settle_stable_frames = if changed {
-            0
-        } else {
-            handle.layout_settle_stable_frames.saturating_add(1)
-        };
-
-        if handle.layout_settle_frames_remaining == 0
-            || handle.layout_settle_stable_frames >= LAYOUT_SETTLE_STABLE_FRAMES
-        {
-            handle.layout_settle_tick_callback = None;
-            glib::ControlFlow::Break
-        } else {
-            glib::ControlFlow::Continue
-        }
-    }
-}
-
-fn clear_layout_settle_tick(window: &gtk::Window) {
-    unsafe {
-        if let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) {
-            handle.as_mut().layout_settle_tick_callback = None;
-        }
-    }
-}
-
-fn refresh_installed_blur_region(window: &gtk::Window) -> Result<Option<bool>, Box<dyn Error>> {
+fn refresh_installed_blur_region(window: &gtk::Window) -> Result<bool, Box<dyn Error>> {
     let Some(gdk_surface) = window.surface() else {
         clear_refresh_pending(window);
-        return Ok(None);
+        return Ok(false);
     };
 
     unsafe {
         let Some(mut handle) = window.data::<BackgroundEffectHandle>(WINDOW_DATA_KEY) else {
-            return Ok(None);
+            return Ok(false);
         };
         let handle = handle.as_mut();
         handle.refresh_pending = false;
@@ -279,8 +254,7 @@ fn refresh_installed_blur_region(window: &gtk::Window) -> Result<Option<bool>, B
             handle.layout_refresh = Some(LayoutRefresh::new(window));
             handle.layout_refresh_dirty = false;
         }
-        let changed = handle.update_blur_region(window, &gdk_surface)?;
-        Ok(Some(changed))
+        handle.update_blur_region(window, &gdk_surface)
     }
 }
 
@@ -698,6 +672,52 @@ impl Drop for ChildModelSignal {
     }
 }
 
+struct FrameClockRefresh {
+    frame_clock: gdk::FrameClock,
+    signal_id: Option<SignalHandlerId>,
+}
+
+impl FrameClockRefresh {
+    fn new(window: &gtk::Window) -> Option<Self> {
+        let frame_clock = window.frame_clock()?;
+        let window_weak = window.downgrade();
+        let signal_id = frame_clock.connect_local("layout", true, move |_| {
+            if let Some(window) = window_weak.upgrade()
+                && frame_clock_refresh_is_active(&window)
+            {
+                match refresh_installed_blur_region(&window) {
+                    Ok(true) => {
+                        request_frame_clock_refresh(&window);
+                    }
+                    Ok(false) => {
+                        clear_frame_clock_refresh_active(&window);
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "[gtk4-background-effect] failed to refresh blur region: {error}"
+                        );
+                        clear_frame_clock_refresh_active(&window);
+                    }
+                }
+            }
+            None
+        });
+
+        Some(Self {
+            frame_clock,
+            signal_id: Some(signal_id),
+        })
+    }
+}
+
+impl Drop for FrameClockRefresh {
+    fn drop(&mut self) {
+        if let Some(signal_id) = self.signal_id.take() {
+            self.frame_clock.disconnect(signal_id);
+        }
+    }
+}
+
 #[derive(Debug)]
 struct BackgroundEffectState;
 
@@ -731,9 +751,8 @@ struct BackgroundEffectHandle {
     refresh_pending: bool,
     layout_refresh: Option<LayoutRefresh>,
     layout_refresh_dirty: bool,
-    layout_settle_tick_callback: Option<gtk::TickCallbackId>,
-    layout_settle_stable_frames: u8,
-    layout_settle_frames_remaining: u8,
+    frame_clock_refresh: Option<FrameClockRefresh>,
+    frame_clock_refresh_active: bool,
 }
 
 impl BackgroundEffectHandle {
@@ -759,9 +778,8 @@ impl BackgroundEffectHandle {
             refresh_pending: false,
             layout_refresh: None,
             layout_refresh_dirty: false,
-            layout_settle_tick_callback: None,
-            layout_settle_stable_frames: 0,
-            layout_settle_frames_remaining: 0,
+            frame_clock_refresh: None,
+            frame_clock_refresh_active: false,
         }
     }
 
@@ -920,9 +938,7 @@ fn rectangle_sample(rectangles: &[RegionRectangle]) -> String {
 
 impl Drop for BackgroundEffectHandle {
     fn drop(&mut self) {
-        if let Some(tick_callback) = self.layout_settle_tick_callback.take() {
-            tick_callback.remove();
-        }
+        self.frame_clock_refresh = None;
         self.layout_refresh = None;
 
         if let Some(surface) = self.surface.take() {
