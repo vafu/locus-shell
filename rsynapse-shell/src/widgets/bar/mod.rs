@@ -898,6 +898,9 @@ fn handle_request(request: request::PendingRequest) {
         request::ShellRequest::SchemeToggle => theme::toggle_color_scheme()
             .map(|_| request::RequestResponse::Ok)
             .unwrap_or_else(request::RequestResponse::Error),
+        request::ShellRequest::FrostMode(mode) => theme::set_frost_mode(mode.is_frosted())
+            .map(|_| request::RequestResponse::Ok)
+            .unwrap_or_else(request::RequestResponse::Error),
         request::ShellRequest::Hints(action) => {
             hints::apply(action);
             request::RequestResponse::Ok

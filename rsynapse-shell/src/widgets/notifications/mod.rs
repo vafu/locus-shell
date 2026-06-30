@@ -376,11 +376,11 @@ fn handle_notification_request(
             apply_notification_center_action(notification_center, action);
             request::RequestResponse::Ok
         }
-        request::ShellRequest::SchemeToggle | request::ShellRequest::Hints(_) => {
-            request::RequestResponse::Error(
-                "request is handled by the rsynapse-shell process".to_owned(),
-            )
-        }
+        request::ShellRequest::SchemeToggle
+        | request::ShellRequest::FrostMode(_)
+        | request::ShellRequest::Hints(_) => request::RequestResponse::Error(
+            "request is handled by the rsynapse-shell process".to_owned(),
+        ),
     };
 
     request.respond(response);
