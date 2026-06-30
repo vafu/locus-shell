@@ -28,6 +28,7 @@ pub struct OsdWindow {
     level: OsdLevel,
     payload: OsdPayload,
     generation: u64,
+    window_visible: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -44,6 +45,7 @@ enum OsdPayload {
 pub enum OsdInput {
     Source(osd_sources::Msg),
     Hide(u64),
+    Concealed,
 }
 
 impl From<osd_sources::Msg> for OsdInput {
@@ -62,8 +64,10 @@ impl SimpleAsyncComponent for OsdWindow {
     view! {
         gtk::Window {
             add_css_class: "OSD",
-            set_visible: true,
+            #[watch]
+            set_visible: model.window_visible,
 
+            #[name = "revealer"]
             gtk::Revealer {
                 #[watch]
                 set_reveal_child: !matches!(model.payload, OsdPayload::Hidden),
@@ -96,13 +100,21 @@ impl SimpleAsyncComponent for OsdWindow {
     async fn init(
         init: Self::Init,
         root: Self::Root,
-        _sender: AsyncComponentSender<Self>,
+        sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         window::apply_layer_shell_config(&root, osd_window_config());
         root.set_title(Some(init.title));
 
-        let model = OsdWindow::new(OsdPayload::Hidden, 0);
+        let model = OsdWindow::new(OsdPayload::Hidden, 0, false);
         let widgets = view_output!();
+        let conceal_sender = sender.input_sender().clone();
+        widgets
+            .revealer
+            .connect_notify_local(Some("child-revealed"), move |revealer, _| {
+                if !revealer.property::<bool>("child-revealed") {
+                    conceal_sender.emit(OsdInput::Concealed);
+                }
+            });
         AsyncComponentParts { model, widgets }
     }
 
@@ -111,6 +123,7 @@ impl SimpleAsyncComponent for OsdWindow {
             OsdInput::Source(msg) => {
                 OsdWindow::update(self, msg);
                 self.generation = self.generation.wrapping_add(1);
+                self.window_visible = true;
                 self.payload = OsdPayload::Level {
                     value: self.level.value,
                     icon_name: self.level.icon_name.clone(),
@@ -125,6 +138,10 @@ impl SimpleAsyncComponent for OsdWindow {
                 self.payload = OsdPayload::Hidden;
             }
             OsdInput::Hide(_) => {}
+            OsdInput::Concealed if matches!(self.payload, OsdPayload::Hidden) => {
+                self.window_visible = false;
+            }
+            OsdInput::Concealed => {}
         }
     }
 }
