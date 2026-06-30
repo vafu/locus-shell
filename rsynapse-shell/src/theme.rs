@@ -4,6 +4,7 @@ use shell_core::gtk::{self, gio, prelude::*};
 
 const MATERIAL_ICON_THEME: &str = "Material";
 const INTERFACE_SCHEMA: &str = "org.gnome.desktop.interface";
+const DEFAULT_LIGHT_THEME: &str = "kanso";
 const LIGHT_SCHEME: &str = "prefer-light";
 const DARK_SCHEME: &str = "prefer-dark";
 
@@ -100,11 +101,18 @@ fn sync_accent(color: &str) -> Result<(), String> {
 }
 
 fn theme_for_scheme(current_theme: &str, color_scheme: &str) -> String {
-    let base = current_theme.replace("-dark", "");
+    let base = current_theme
+        .strip_suffix("-dark")
+        .filter(|base| !base.is_empty())
+        .or_else(|| {
+            (!current_theme.is_empty() && current_theme != "-dark").then_some(current_theme)
+        })
+        .unwrap_or(DEFAULT_LIGHT_THEME);
+
     if color_scheme == DARK_SCHEME {
         format!("{base}-dark")
     } else {
-        base
+        base.to_string()
     }
 }
 
@@ -145,7 +153,7 @@ thread_local! {
 
 #[cfg(test)]
 mod tests {
-    use super::{theme_for_scheme, toggled_color_scheme};
+    use super::{DEFAULT_LIGHT_THEME, theme_for_scheme, toggled_color_scheme};
 
     #[test]
     fn toggles_color_scheme_like_ags() {
@@ -158,5 +166,11 @@ mod tests {
     fn derives_gtk_theme_name_from_scheme() {
         assert_eq!(theme_for_scheme("Adwaita", "prefer-dark"), "Adwaita-dark");
         assert_eq!(theme_for_scheme("Adwaita-dark", "prefer-light"), "Adwaita");
+        assert_eq!(theme_for_scheme("", "prefer-dark"), "kanso-dark");
+        assert_eq!(theme_for_scheme("-dark", "prefer-dark"), "kanso-dark");
+        assert_eq!(
+            theme_for_scheme("-dark", "prefer-light"),
+            DEFAULT_LIGHT_THEME
+        );
     }
 }
