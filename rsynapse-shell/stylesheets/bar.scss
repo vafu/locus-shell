@@ -237,6 +237,15 @@ $outline-offset: $label-margin * 0.5;
   opacity: 1;
 }
 
+.tray-item.passive {
+  opacity: 0.62;
+
+  &:hover,
+  &:checked {
+    opacity: 0.84;
+  }
+}
+
 .mpris-widget {
 
   &.paused,

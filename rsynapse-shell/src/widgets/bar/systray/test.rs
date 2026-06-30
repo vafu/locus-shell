@@ -1,4 +1,4 @@
-use super::{decode_hex, source::clean_menu_label, tray_icon_names};
+use super::{decode_hex, source::TrayItemVm, source::clean_menu_label, tray_icon_names};
 
 #[test]
 fn network_manager_wired_icon_has_standard_fallbacks() {
@@ -36,4 +36,18 @@ fn dbusmenu_mnemonics_are_removed() {
         clean_menu_label("Literal __underscore"),
         "Literal _underscore"
     );
+}
+
+#[test]
+fn passive_tray_item_is_still_rendered_but_marked_passive() {
+    let vm = TrayItemVm {
+        visible: true,
+        passive: true,
+        ..TrayItemVm::default()
+    };
+
+    let classes = super::tray_item_classes(&vm);
+
+    assert!(vm.visible);
+    assert!(classes.contains(&"passive"));
 }

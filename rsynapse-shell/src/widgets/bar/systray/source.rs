@@ -10,6 +10,7 @@ const FALLBACK_ICON: &str = "application-x-executable-symbolic";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TrayItemVm {
     pub(super) visible: bool,
+    pub(super) passive: bool,
     pub(super) icon: String,
     pub(super) icon_pixmap: Option<TrayIconPixmap>,
     pub(super) tooltip: String,
@@ -28,6 +29,7 @@ impl Default for TrayItemVm {
     fn default() -> Self {
         Self {
             visible: false,
+            passive: false,
             icon: FALLBACK_ICON.to_owned(),
             icon_pixmap: None,
             tooltip: String::new(),
@@ -119,6 +121,7 @@ fn tray_item_view(
     menu_path: String,
     icon_pixmap: Option<TrayIconPixmap>,
 ) -> TrayItemVm {
+    let passive = status.trim() == "Passive";
     let needs_attention = status == "NeedsAttention";
     let icon = if needs_attention && !attention_icon.trim().is_empty() {
         attention_icon
@@ -129,7 +132,8 @@ fn tray_item_view(
     let tooltip = tooltip(title.as_str(), status.as_str(), category.as_str());
 
     TrayItemVm {
-        visible: status.trim() != "Passive",
+        visible: true,
+        passive,
         icon,
         icon_pixmap,
         tooltip,

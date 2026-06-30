@@ -51,6 +51,7 @@ impl SimpleComponent for TrayItem {
             #[wrap(Some)]
             set_child = &gtk::Image {
                 add_css_class: "tray-icon",
+                set_pixel_size: 18,
                 #[watch]
                 set_from_gicon: &tray_icon(&model.vm),
             }
@@ -403,6 +404,9 @@ fn tray_item_classes(vm: &TrayItemVm) -> Vec<&'static str> {
     let mut classes = vec!["flat", "circular", "tray-item"];
     if vm.needs_attention {
         classes.push("needs-attention");
+    }
+    if vm.passive {
+        classes.push("passive");
     }
     classes
 }
