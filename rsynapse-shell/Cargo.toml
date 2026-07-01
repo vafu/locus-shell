@@ -23,3 +23,6 @@ shell-rx-macros.workspace = true
 tokio = { version = "1.52.3", features = ["fs", "time"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+
+[build-dependencies]
+pkg-config = "0.3.32"
